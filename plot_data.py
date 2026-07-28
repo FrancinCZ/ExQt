@@ -2,17 +2,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-
+from pathlib import Path  
 
 sns.set_theme(style="ticks", palette="muted")
 plt.rcParams.update(
     {"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"}
 )
 
-#Load the CSV file
-csv_path = "Final_Output_HybridH5Batch_3d.csv"
-df = pd.read_csv(csv_path)
 
+csv_filename = "BRD4_Output_Batch_3d.csv" 
+csv_path = Path(csv_filename)
+
+if not csv_path.exists():
+    raise FileNotFoundError(f"Soubor '{csv_filename}' nebyl nalezen v aktuální složce!")
+
+
+folder_name = csv_path.resolve().parent.name
+
+
+df = pd.read_csv(csv_path)
 
 if "volume_bio_um3" in df.columns:
     df["size_plot"] = df["volume_bio_um3"]
@@ -37,7 +45,6 @@ elif "shape_metric_bio" in df.columns:
 else:
     raise KeyError("In CSV there are no columns 'volume_bio_um3', 'area_bio_um2' or 'shape_metric_bio'!")
 
-
 MAX_SIZE = 2.0  
 MIN_SIZE = 0.0001 
 
@@ -49,7 +56,6 @@ if df_filtered.empty:
 counts_per_cell = (
     df_filtered.groupby("filename").size().reset_index(name="condensate_count")
 )
-
 
 fig, axes = plt.subplots(2, 2, figsize=(15, 11))
 
@@ -117,16 +123,16 @@ axes[1, 0].set_title(title_c, fontsize=13, fontweight="bold")
 axes[1, 0].set_xlabel(xlabel_text)
 axes[1, 0].set_ylabel("Integrated Density (a.u.)")
 
-#Graph D: Concetration of Signal 
+#Graph D: Concentration of Signal (Max Intensity)
 sns.boxplot(
-    y=df_filtered["mean_intensity"],
+    y=df_filtered["max_intensity"],
     ax=axes[1, 1],
     color="#f57c00",
     width=0.3,
     boxprops=dict(alpha=0.7),
 )
 sns.stripplot(
-    y=df_filtered["mean_intensity"],
+    y=df_filtered["max_intensity"],
     ax=axes[1, 1],
     color="black",
     alpha=0.4,
@@ -134,12 +140,15 @@ sns.stripplot(
     size=4,
 )
 axes[1, 1].set_title(
-    "D) Signal Concentration (Mean Intensity)", fontsize=13, fontweight="bold"
+    "D) Signal Concentration (Max Intensity)", fontsize=13, fontweight="bold"
 )
-axes[1, 1].set_ylabel("Mean Intensity (a.u.)")
+axes[1, 1].set_ylabel("Max Intensity (a.u.)")
 
 plt.tight_layout()
-output_plot = "ExM_Analysis_Plots.png"
+
+
+output_plot = f"{folder_name}_Analysis_Plots.png"
 plt.savefig(output_plot, dpi=300)
+
 print(f"Graphs were successfully created and saved as '{output_plot}'")
 plt.show()
