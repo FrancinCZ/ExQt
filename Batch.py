@@ -8,6 +8,7 @@ import tifffile
 import json
 from scipy.ndimage import laplace
 from skimage.measure import regionprops, label
+from pathlib import Path
 
 
 def _select_focus_slice(volume):
@@ -19,7 +20,7 @@ def _select_focus_slice(volume):
 def load_ilastik_h5(h5_path, prob_channel=0):
 
     with h5py.File(h5_path, "r") as f:
-        # Nalezení správného datasetu
+        #Find the dataset
         if "exported_data" in f:
             dataset = f["exported_data"]
         else:
@@ -166,6 +167,7 @@ def process_condensates_hybrid_h5(
             "is_3d": is_3d,
             "object_id": region.label,
             "mean_intensity": round(mean_int, 2),
+            "max_intensity": round(region.intensity_max, 2),
             "integrated_density": round(region.area * mean_int, 2),
         }
 
@@ -227,7 +229,7 @@ def process_condensates_hybrid_h5(
 
 
 if __name__ == "__main__":
-    folder_path = Path(r"C:\Users\franc\Desktop\POL II")
+    folder_path = Path(r"C:\Users\franc\Desktop\BRD4")
     all_dataframes = []
 
     MODE = "3d"  # "3d" | "2d" | "single_slice"
@@ -273,10 +275,13 @@ if __name__ == "__main__":
 
     if all_dataframes:
         final_df = pd.concat(all_dataframes, ignore_index=True)
-        output_csv = folder_path / f"Final_Output_HybridH5Batch_{MODE}.csv"
-        final_df.to_csv(output_csv, index=False)
+        
+        folder_name = Path(folder_path).name 
+        
+        output_csv_filename = f"{folder_name}_Output_Batch_3d.csv"
+        final_df.to_csv(output_csv_filename, index=False)
         print("\n[Success] Batch processing with H5 completed.")
-        print(f"Results saved to: {output_csv}")
+        print(f"Results saved to: {output_csv_filename}")
     else:
         print(
             "\n[Error or No Data] No files were processed (check h5 file names)."
