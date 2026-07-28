@@ -65,7 +65,7 @@ def generate_excel_stats(csv_filename="Final_Output_HybridH5Batch_3d.csv"):
         )
         df.to_excel(writer, sheet_name="All_Condensates", index=False)
 
-    print(f"\n[Statistika úspěšně vygenerována! Režim: {'3D' if is_3d else '2D'}]")
+    print(f"\n[Statiscitcs where generated. {'3D' if is_3d else '2D'}]")
     print(f" ➜ Excel: {output_excel}")
     print(f" ➜ CSV:   {output_csv}")
 
