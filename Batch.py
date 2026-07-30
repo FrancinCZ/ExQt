@@ -8,17 +8,13 @@ import tifffile
 import json
 from scipy.ndimage import laplace
 from skimage.measure import regionprops, label
-from pathlib import Path
-
+from skimage.filters import gaussian
 
 def _select_focus_slice(volume):
-    #The sharpest slice is often the one with the highest variance in the Laplacian of the image
     scores = [laplace(volume[z].astype(np.float32)).var() for z in range(volume.shape[0])]
     return int(np.argmax(scores))
 
-
 def load_ilastik_h5(h5_path, prob_channel=0):
-
     with h5py.File(h5_path, "r") as f:
         #Find the dataset
         if "exported_data" in f:
@@ -29,7 +25,7 @@ def load_ilastik_h5(h5_path, prob_channel=0):
             
         data = dataset[:]
         
-        #Axis tags analysis to determine the correct channel and time axes
+        #Axis tags 
         if "axistags" in dataset.attrs:
             try:
                 axistags_str = dataset.attrs["axistags"]
@@ -51,27 +47,22 @@ def load_ilastik_h5(h5_path, prob_channel=0):
                 return data.astype(np.float32)
                 
             except Exception as e:
-                print(f"      [Varování] Nelze analyzovat 'axistags', fallback na shape: {e}")
+                print(f"      FALLBACK to shape: {e}")
 
-        #FALLBACK: if axistags are not present or cannot be parsed, try to infer the channel axis based on shape heuristics
+        #FALLBACK
         data = np.squeeze(data)
         if data.ndim == 4:
-            #(Z, Y, X, C)
             if data.shape[-1] <= 10:       
                 data = data[..., prob_channel]
-            #(Z, C, Y, X)
             elif data.shape[1] <= 10:      
                 data = data[:, prob_channel, :, :]
-            #(C, Z, Y, X)
             elif data.shape[0] <= 10:      
                 data = data[prob_channel, ...]
             else:
                 data = data[..., prob_channel]
         elif data.ndim == 3:
-            #(Y, X, C)
             if data.shape[-1] <= 10:       
                 data = data[..., prob_channel]
-            #(C, Y, X)
             elif data.shape[0] <= 10:      
                 data = data[prob_channel, ...]
 
@@ -81,101 +72,151 @@ def load_ilastik_h5(h5_path, prob_channel=0):
 def process_condensates_hybrid_h5(
     tif_path,
     h5_path,
-    mode="3d",  # "3d" | "2d" | "single_slice"
+    mode="3d",  #3d  2d single_slice
     target_z_slice=None,
     expansion_factor=1.0,
-    log_threshold=0.25,  #Threshold for Ilastik probability map to consider a pixel as condensate
-    prob_channel=0,     #Which Ilastik channel corresponds to condensates (0 or 1)
+    log_threshold=0.3,  #Threshold for Ilastik probability map
+    prob_channel=0,      #Which Ilastik channel corresponds to condensates (0 or 1)
     show_napari=True,
     pixel_size_nm=58.0,
     z_step_nm=250.0,
-    signal_channel=0,
+    signal_channel=1,    #Ch01 = BRD4/MED1 
+    dapi_channel=0,      #Ch00 = DAPI 
 ):
     tif_path = Path(tif_path)
     h5_path = Path(h5_path)
-    print(f"\n[1/4] Loading Pair: {tif_path.name} & {h5_path.name}")
+    print(f"\n[1/5] Loading Pair: {tif_path.name} & {h5_path.name}")
 
-    #Loading raw TIF and Ilastik probability map
+    #TIF and PRobability map 
     img_raw = tifffile.imread(tif_path)
     img_prob = load_ilastik_h5(h5_path, prob_channel=prob_channel)
 
-    #Control of channels
     if img_raw.ndim == 4:
-        img_raw = np.take(img_raw, signal_channel, axis=1)
+        img_dapi = np.take(img_raw, dapi_channel, axis=1)
+        img_intensity = np.take(img_raw, signal_channel, axis=1)
+    else:
+        img_dapi = img_raw
+        img_intensity = img_raw
 
-    #Control of dimensions
-    if img_prob.shape != img_raw.shape:
-        print(f"      WARNING: Inconsistent data shapes! TIF: {img_raw.shape}, H5: {img_prob.shape}")
-        if img_prob.shape == img_raw.shape[::-1]: # If axes X and Z are transposed
+    if img_prob.shape != img_intensity.shape:
+        print(f"      WARNING: Inconsistent data shapes! TIF: {img_intensity.shape}, H5: {img_prob.shape}")
+        if img_prob.shape == img_intensity.shape[::-1]: 
             img_prob = np.transpose(img_prob)
-            print("      -> H5 map was automatically transposed.")
+            print("      H5 map was automatically transposed.")
 
-    is_stack = img_raw.ndim == 3
+    is_stack = img_intensity.ndim == 3
 
     print(f"      Mode: {mode}")
-    #MIP or single slice selection based on mode
+    #MIP or single slice selection
     if mode == "single_slice":
         if not is_stack:
             raise ValueError("single_slice mode needs a 3D (Z,Y,X) stack.")
-        z_idx = (
-            target_z_slice
-            if target_z_slice is not None
-            else _select_focus_slice(img_raw)
-        )
+        z_idx = (target_z_slice if target_z_slice is not None else _select_focus_slice(img_intensity))
         print(f"      Using Z-slice {z_idx} (auto-focus)")
 
-        img_intensity = img_raw[z_idx]
+        img_intensity = img_intensity[z_idx]
+        img_dapi_process = img_dapi[z_idx]
         img_prob_process = img_prob[z_idx]
         is_3d = False
 
     elif mode == "2d":
-        img_intensity = img_raw if not is_stack else img_raw.max(axis=0)
+        img_intensity = img_intensity if not is_stack else img_intensity.max(axis=0)
+        img_dapi_process = img_dapi if not is_stack else img_dapi.max(axis=0)
         img_prob_process = img_prob if not is_stack else img_prob.max(axis=0)
         is_3d = False
 
     elif mode == "3d":
         if not is_stack:
             raise ValueError("3d mode needs a 3D (Z,Y,X) stack.")
-        img_intensity = img_raw
+        img_intensity = img_intensity
+        img_dapi_process = img_dapi
         img_prob_process = img_prob
         is_3d = True
 
-    #Normalization Probability map
     if img_prob_process.max() > 1.5:
         img_prob_process = img_prob_process / img_prob_process.max()
 
-    print("[2/4] Segmenting condensates directly from Ilastik Probability Map...")
-    binary_mask = img_prob_process > log_threshold
+    #ROI
+    print("\n[2/5] Opening Napari for manual ROI selection")
+    viewer = napari.Viewer(title=f"ROI {tif_path.name}")
+    
+    viewer.add_image(img_dapi_process, name="DAPI ", colormap="blue", blending="additive")
+    viewer.add_image(img_intensity, name="Protein ", colormap="gray", blending="additive", visible=False)
+    
+    roi_layer = viewer.add_labels(np.zeros(img_dapi_process.shape, dtype=int), name="(ROI)")
+    
+    napari.run()
+
+    drawn_labels = roi_layer.data
+    roi_mask = drawn_labels > 0
+    
+    if not np.any(roi_mask):
+        print("      Warning - No ROI detected.")
+        roi_mask = np.ones_like(img_prob_process, dtype=bool)
+        extruded_mask = np.ones_like(img_prob_process, dtype=int) 
+    else:
+        if is_3d:
+            labels_2d = np.max(drawn_labels, axis=0) 
+            extruded_mask = np.broadcast_to(labels_2d, img_prob_process.shape) 
+            
+            roi_mask_2d = roi_mask.any(axis=0)
+            roi_mask = np.broadcast_to(roi_mask_2d, img_prob_process.shape)
+            print("      2D ROI (with Cell IDs) applied to all Z-slices.")
+        else:
+            extruded_mask = drawn_labels
+
+    #Segmentation
+    print("\n[3/5] Segmenting condensates directly from Ilastik Probability Map...")
+    
+    img_prob_process = img_prob_process * roi_mask
+
+    img_prob_smoothed = gaussian(img_prob_process, sigma=1.0)
+
+    binary_mask = img_prob_smoothed > log_threshold
     labeled_mask = label(binary_mask)
 
-    print("[3/4] Extracting true signal metrics...")
+    print("[4/5] Extracting true signal metrics...")
     eff_pixel_size_nm = pixel_size_nm / expansion_factor
     eff_z_step_nm = z_step_nm / expansion_factor
 
-    #Extracting region properties and calculating metrics
     props = regionprops(labeled_mask, intensity_image=img_intensity)
     objects_data = []
 
     for region in props:
         mean_int = region.intensity_mean
-        if region.area < 3:  
+        if region.area < 100:  
+            continue
+            
+        centroid_coords = tuple(int(round(c)) for c in region.centroid)
+        
+        try:
+            cell_id = extruded_mask[centroid_coords] 
+        except IndexError:
+            continue
+            
+        if cell_id == 0:
             continue
 
         row = {
             "filename": tif_path.name,
             "mode": mode,
             "is_3d": is_3d,
+            "cell_id": cell_id,
             "object_id": region.label,
             "mean_intensity": round(mean_int, 2),
             "max_intensity": round(region.intensity_max, 2),
             "integrated_density": round(region.area * mean_int, 2),
         }
 
+
         if is_3d:
             voxel_volume_bio_um3 = ((eff_pixel_size_nm**2) * eff_z_step_nm) / 1e9
             row["volume_px"] = region.area
             row["volume_bio_um3"] = round(region.area * voxel_volume_bio_um3, 5)
             row["shape_metric_bio"] = row["volume_bio_um3"]
+            
+            if row["volume_bio_um3"] < 0.001:
+                continue
         else:
             pixel_area_bio_um2 = (eff_pixel_size_nm**2) / 1e6
             row["area_px"] = region.area
@@ -184,18 +225,17 @@ def process_condensates_hybrid_h5(
 
         objects_data.append(row)
 
-    print(f"      Found {len(objects_data)} valid condensates.")
+    print(f"      Found {len(objects_data)} valid condensates inside ROI.")
 
-    print("[4/4] Generating Preview...")
+    print("[5/5] Generating Preview")
     if show_napari:
-        viewer = napari.Viewer(title=f"Hybrid H5 Check: {tif_path.name} [{mode}]")
+        viewer = napari.Viewer(title=f"Segmentation Result: {tif_path.name} [{mode}]")
 
-        #Raw Signal
-        viewer.add_image(
-            img_intensity, name="Raw Signal", colormap="gray", blending="additive"
-        )
+        viewer.add_image(img_intensity, name="Raw Signal", colormap="gray", blending="additive")
         
-        #Ilastik Probability Map
+
+        viewer.add_labels(roi_mask.astype(int), name="ROI Hranice", opacity=0.2)
+        
         prob_max = img_prob_process.max()
         viewer.add_image(
             img_prob_process,
@@ -206,10 +246,13 @@ def process_condensates_hybrid_h5(
             contrast_limits=(0, prob_max if prob_max > 0 else 1)
         )
 
-        #Detected Condensates
         if objects_data:
             coords = [region.centroid for region in props]
-            sizes = [max(math.sqrt(region.area) * 2.0, 5.0) for region in props]
+            
+            if is_3d:
+                sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
+            else:
+                sizes = [max(math.sqrt(region.area / math.pi) * 2.0, 3.0) for region in props]
 
             if coords:
                 viewer.add_points(
@@ -217,31 +260,31 @@ def process_condensates_hybrid_h5(
                     size=sizes,
                     name="Detected Condensates",
                     symbol="disc",            
-                    face_color=[0, 0, 0, 0],  #Native transparent face color
+                    face_color=[0, 0, 0, 0], 
                     border_color="yellow" if is_3d else "cyan",
-                    out_of_slice_display=False #Prevent points from being shown in slices where they dont exist
+                    out_of_slice_display=False
                 )
 
-        print("\n[Napari] Viewer opened. Press Ctrl+C in terminal to abort completely.")
+        print("\n Napari loaded.")
         napari.run()
 
     return pd.DataFrame(objects_data)
 
 
 if __name__ == "__main__":
-    folder_path = Path(r"C:\Users\franc\Desktop\BRD4")
+    folder_path = Path(r"C:\Users\franc\Desktop\MED1")
     all_dataframes = []
 
-    MODE = "3d"  # "3d" | "2d" | "single_slice"
+    MODE = "3d"  #"3d"  "2d"  "single_slice"
     enable_night_preview = True
     expansion_factor = 1.0
 
-    #Ilastik channel index for condensate probability map (0 or 1)
     ILASTIK_PROB_CHANNEL = 0
+    DAPI_CHANNEL = 0
+    SIGNAL_CHANNEL = 1
 
     print(f"Looking for TIF + H5 pairs in folder: {folder_path}")
 
-    #Going through all TIF files in the folder and finding corresponding H5 files
     raw_files = [
         f
         for f in sorted(folder_path.glob("*.tif"))
@@ -249,13 +292,10 @@ if __name__ == "__main__":
     ]
 
     for raw_tif in raw_files:
-        #Auto detect corresponding H5 file based on naming convention
         h5_file = raw_tif.with_name(f"{raw_tif.stem}_Probabilities.h5")
 
         if not h5_file.exists():
-            print(
-                f"  [SKIPPED] No corresponding H5 file found for {raw_tif.name} (looked for {h5_file.name})"
-            )
+            print(f"  No corresponding H5 file found for {raw_tif.name} (looked for {h5_file.name})")
             continue
 
         df_file = process_condensates_hybrid_h5(
@@ -263,26 +303,23 @@ if __name__ == "__main__":
             h5_path=h5_file,
             mode=MODE,
             expansion_factor=expansion_factor,
-            log_threshold=0.5,  #Threshold for Ilastik probability map 
+            log_threshold=0.3, 
             prob_channel=ILASTIK_PROB_CHANNEL,
             show_napari=enable_night_preview,
             pixel_size_nm=58.0,
             z_step_nm=250.0,
-            signal_channel=0,
+            signal_channel=SIGNAL_CHANNEL,
+            dapi_channel=DAPI_CHANNEL,
         )
         if not df_file.empty:
             all_dataframes.append(df_file)
 
     if all_dataframes:
         final_df = pd.concat(all_dataframes, ignore_index=True)
-        
         folder_name = Path(folder_path).name 
-        
-        output_csv_filename = f"{folder_name}_Output_Batch_3d.csv"
+        output_csv_filename = f"{folder_name}_Output_Batch_{MODE}.csv"
         final_df.to_csv(output_csv_filename, index=False)
-        print("\n[Success] Batch processing with H5 completed.")
+        print("\nSuccess - Batch processing done.")
         print(f"Results saved to: {output_csv_filename}")
     else:
-        print(
-            "\n[Error or No Data] No files were processed (check h5 file names)."
-        )
+        print("\n Error or No Data - No files were processed.")
