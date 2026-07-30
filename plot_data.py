@@ -10,7 +10,7 @@ plt.rcParams.update(
 )
 
 
-csv_filename = "BRD4_Output_Batch_3d.csv" 
+csv_filename = "Magnify_test_Output_Batch_3d.csv" 
 csv_path = Path(csv_filename)
 
 if not csv_path.exists():
