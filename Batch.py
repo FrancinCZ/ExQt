@@ -1,7 +1,6 @@
 import math
 from pathlib import Path
 import h5py
-import napari
 import numpy as np
 import pandas as pd
 import tifffile
@@ -82,6 +81,9 @@ def process_condensates_hybrid_h5(
     z_step_nm=250.0,
     signal_channel=1,    #Ch01 = BRD4/MED1 
     dapi_channel=0,      #Ch00 = DAPI 
+    auto_roi=True,
+    send_layer_func=None,
+    request_roi_func=None,
 ):
     tif_path = Path(tif_path)
     h5_path = Path(h5_path)
@@ -136,34 +138,39 @@ def process_condensates_hybrid_h5(
     if img_prob_process.max() > 1.5:
         img_prob_process = img_prob_process / img_prob_process.max()
 
-    #ROI
-    print("\n[2/5] Opening Napari for manual ROI selection")
-    viewer = napari.Viewer(title=f"ROI {tif_path.name}")
-    
-    viewer.add_image(img_dapi_process, name="DAPI ", colormap="blue", blending="additive")
-    viewer.add_image(img_intensity, name="Protein ", colormap="gray", blending="additive", visible=False)
-    
-    roi_layer = viewer.add_labels(np.zeros(img_dapi_process.shape, dtype=int), name="(ROI)")
-    
-    napari.run()
-
-    drawn_labels = roi_layer.data
-    roi_mask = drawn_labels > 0
-    
-    if not np.any(roi_mask):
-        print("      Warning - No ROI detected.")
+    # ROI
+    print(f"\n[2/5] ROI extraction (Auto-ROI: {auto_roi})")
+    if auto_roi or request_roi_func is None:
         roi_mask = np.ones_like(img_prob_process, dtype=bool)
-        extruded_mask = np.ones_like(img_prob_process, dtype=int) 
-    else:
         if is_3d:
-            labels_2d = np.max(drawn_labels, axis=0) 
-            extruded_mask = np.broadcast_to(labels_2d, img_prob_process.shape) 
-            
-            roi_mask_2d = roi_mask.any(axis=0)
-            roi_mask = np.broadcast_to(roi_mask_2d, img_prob_process.shape)
-            print("      2D ROI (with Cell IDs) applied to all Z-slices.")
+            extruded_mask = np.ones_like(img_prob_process, dtype=int)
         else:
-            extruded_mask = drawn_labels
+            extruded_mask = np.ones_like(img_prob_process, dtype=int)
+    else:
+        if send_layer_func:
+            send_layer_func({
+                "type": "image",
+                "name": f"Signál ({tif_path.name})",
+                "data": img_intensity,
+                "kwargs": {"colormap": "gray", "blending": "additive"}
+            })
+            
+            prob_max = img_prob_process.max()
+            send_layer_func({
+                "type": "image",
+                "name": "Ilastik Nápověda",
+                "data": img_prob_process,
+                "kwargs": {
+                    "colormap": "magenta", 
+                    "opacity": 0.6,
+                    "blending": "additive",
+                    "contrast_limits": (0, prob_max if prob_max > 0 else 1)
+                }
+            })
+        
+        print("   Waiting for user to draw ROI in Napari...")
+        extruded_mask = request_roi_func(img_intensity.shape, is_3d)
+        roi_mask = extruded_mask > 0
 
     #Segmentation
     print("\n[3/5] Segmenting condensates directly from Ilastik Probability Map...")
@@ -228,45 +235,60 @@ def process_condensates_hybrid_h5(
     print(f"      Found {len(objects_data)} valid condensates inside ROI.")
 
     print("[5/5] Generating Preview")
-    if show_napari:
-        viewer = napari.Viewer(title=f"Segmentation Result: {tif_path.name} [{mode}]")
-
-        viewer.add_image(img_intensity, name="Raw Signal", colormap="gray", blending="additive")
+    if send_layer_func:
         
-
-        viewer.add_labels(roi_mask.astype(int), name="ROI Hranice", opacity=0.2)
+        send_layer_func({
+            "type": "image",
+            "name": f"Raw Signal ({tif_path.name})",
+            "data": img_intensity,
+            "kwargs": {"colormap": "gray", "blending": "additive"}
+        })
+        
+        send_layer_func({
+            "type": "labels",
+            "name": "ROI Hranice",
+            "data": roi_mask.astype(int),
+            "kwargs": {"opacity": 0.2}
+        })
         
         prob_max = img_prob_process.max()
-        viewer.add_image(
-            img_prob_process,
-            name="Ilastik Probability",
-            colormap="magenta",
-            opacity=0.6,
-            blending="additive",
-            contrast_limits=(0, prob_max if prob_max > 0 else 1)
-        )
+        send_layer_func({
+            "type": "image",
+            "name": "Ilastik Probability",
+            "data": img_prob_process,
+            "kwargs": {
+                "colormap": "magenta", 
+                "opacity": 0.6, 
+                "blending": "additive",
+                "contrast_limits": (0, prob_max if prob_max > 0 else 1)
+            }
+        })
 
-        if objects_data:
-            coords = [region.centroid for region in props]
-            
+
+        coords = [region.centroid for region in props]
+        
+        if objects_data and len(coords) > 0:
+            if is_3d:
+                sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
+
+        if objects_data and len(coords) > 0:
             if is_3d:
                 sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
             else:
                 sizes = [max(math.sqrt(region.area / math.pi) * 2.0, 3.0) for region in props]
-
-            if coords:
-                viewer.add_points(
-                    coords,
-                    size=sizes,
-                    name="Detected Condensates",
-                    symbol="disc",            
-                    face_color=[0, 0, 0, 0], 
-                    border_color="yellow" if is_3d else "cyan",
-                    out_of_slice_display=False
-                )
-
-        print("\n Napari loaded.")
-        napari.run()
+                
+            send_layer_func({
+                "type": "points",
+                "name": "Detected Condensates",
+                "data": coords,
+                "kwargs": {
+                    "size": sizes,
+                    "symbol": "disc",            
+                    "face_color": [0, 0, 0, 0], 
+                    "edge_color": "yellow" if is_3d else "cyan",
+                    "out_of_slice_display": False
+                }
+            })
 
     return pd.DataFrame(objects_data)
 
