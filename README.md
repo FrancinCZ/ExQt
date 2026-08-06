@@ -19,16 +19,16 @@ Installing ExQt is recommended inside an isolated virtual environment using [Con
 
 ### 1. Clone the repository
 First, download the source code to your local machine:
-```
-Bash
+
+```Bash
 git clone [https://github.com/FrancinCZ/ExQt.git](https://github.com/FrancinCZ/ExQt.git)
 cd ExQt
 ```
 ### 2. Create a Conda environment
 
 Create a new virtual environment named exqt-env with Python 3.10 (or your preferred compatible version) and activate it:
-```
-Bash
+
+```Bash
 conda create -n exqt-env python=3.10 -y
 conda activate exqt-env
 ```
@@ -36,8 +36,7 @@ conda activate exqt-env
 ### 3. Install dependencies
 Install the required packages. Ensure your activated environment is running, then install the dependencies via pip:
 
-```
-Bash
+```Bash
 pip install -r requirements.txt
 ```
 (Note: If you encounter issues with napari or PySide6 on specific operating systems, refer to their official documentation for OS-specific binaries).
@@ -45,8 +44,8 @@ pip install -r requirements.txt
 ### 4. Run the application
 
 Once everything is installed, you can launch the graphical user interface by running:
-```
-Bash
+
+```Bash
 python App.py
 ```
 
