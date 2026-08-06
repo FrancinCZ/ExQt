@@ -40,7 +40,7 @@ def generate_excel_stats(csv_filename):
     df["equivalent_diameter_nm"] = df["equivalent_diameter_um"] * 1000.0
 
     summary_stats = (
-        df.groupby("filename")
+        df.groupby(["filename", "cell_id"])
         .agg(
             condensate_count=("object_id", "count"),
             mean_size=(size_col, "mean"),
@@ -53,8 +53,8 @@ def generate_excel_stats(csv_filename):
         .reset_index()
     )
 
+    df.to_csv(output_csv, index=False)
     with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-        df.to_csv(output_csv, index=False)
         summary_stats.to_excel(writer, sheet_name="Per_Cell_Summary", index=False)
         df.to_excel(writer, sheet_name="All_Condensates", index=False)
 
@@ -151,7 +151,3 @@ def generate_plots(csv_filename):
     plt.close(fig)
 
     print(f"Graphs were successfuly generated to: '{output_plot}'")
-
-
-if __name__ == "__main__":
-    generate_plots("Magnify_test_Output_Batch_3d.csv")
