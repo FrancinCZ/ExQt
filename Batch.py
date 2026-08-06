@@ -46,7 +46,7 @@ def load_ilastik_h5(h5_path, prob_channel=0):
                 return data.astype(np.float32)
                 
             except Exception as e:
-                print(f"      FALLBACK to shape: {e}")
+                print(f"WARNING: Ilastik axistags not found or invalid for {h5_path.name}. Using fallback heuristic based on shape: {data.shape}")
 
         #FALLBACK
         data = np.squeeze(data)
@@ -68,14 +68,16 @@ def load_ilastik_h5(h5_path, prob_channel=0):
     return data.astype(np.float32)
 
 
-def process_condensates_hybrid_h5(
+def process_condensates_h5(
     tif_path,
     h5_path,
     mode="3d",  #3d  2d single_slice
     target_z_slice=None,
     expansion_factor=1.0,
-    log_threshold=0.3,  #Threshold for Ilastik probability map
-    prob_channel=0,      #Which Ilastik channel corresponds to condensates (0 or 1)
+    prob_threshold=0.3,  #Threshold for Ilastik probability map
+    sigma=1.0,
+    min_voxels=5,
+    prob_channel=0,      
     show_napari=True,
     pixel_size_nm=58.0,
     z_step_nm=250.0,
@@ -89,6 +91,9 @@ def process_condensates_hybrid_h5(
     h5_path = Path(h5_path)
     print(f"\n[1/5] Loading Pair: {tif_path.name} & {h5_path.name}")
 
+    if send_layer_func:
+        send_layer_func({"type": "clear_layers"})
+
     #TIF and PRobability map 
     img_raw = tifffile.imread(tif_path)
     img_prob = load_ilastik_h5(h5_path, prob_channel=prob_channel)
@@ -101,10 +106,13 @@ def process_condensates_hybrid_h5(
         img_intensity = img_raw
 
     if img_prob.shape != img_intensity.shape:
-        print(f"      WARNING: Inconsistent data shapes! TIF: {img_intensity.shape}, H5: {img_prob.shape}")
+        print(f"WARNING: Inconsistent data shapes! TIF: {img_intensity.shape}, H5: {img_prob.shape}")
         if img_prob.shape == img_intensity.shape[::-1]: 
             img_prob = np.transpose(img_prob)
-            print("      H5 map was automatically transposed.")
+            print("H5 map was automatically transposed.")
+
+    if img_prob.shape != img_intensity.shape:
+        raise ValueError(f"Shape mismatch. TIF intensity shape {img_intensity.shape} does not match H5 probability shape {img_prob.shape} even after transposing.")
 
     is_stack = img_intensity.ndim == 3
 
@@ -168,7 +176,7 @@ def process_condensates_hybrid_h5(
                 }
             })
         
-        print("   Waiting for user to draw ROI in Napari...")
+        print("Waiting for user to draw ROI in Napari...")
         extruded_mask = request_roi_func(img_intensity.shape, is_3d)
         roi_mask = extruded_mask > 0
 
@@ -177,9 +185,9 @@ def process_condensates_hybrid_h5(
     
     img_prob_process = img_prob_process * roi_mask
 
-    img_prob_smoothed = gaussian(img_prob_process, sigma=1.0)
+    img_prob_smoothed = gaussian(img_prob_process, sigma=sigma)
 
-    binary_mask = img_prob_smoothed > log_threshold
+    binary_mask = img_prob_smoothed > prob_threshold
     labeled_mask = label(binary_mask)
 
     print("[4/5] Extracting true signal metrics...")
@@ -191,10 +199,17 @@ def process_condensates_hybrid_h5(
 
     for region in props:
         mean_int = region.intensity_mean
-        if region.area < 100:  
+        if region.area < min_voxels:
             continue
             
         centroid_coords = tuple(int(round(c)) for c in region.centroid)
+        centroid_values = region.centroid
+        if len(centroid_values) >= 3:
+            z_px, y_px, x_px = [round(float(v), 3) for v in centroid_values[:3]]
+        elif len(centroid_values) == 2:
+            z_px, y_px, x_px = 0.0, round(float(centroid_values[0]), 3), round(float(centroid_values[1]), 3)
+        else:
+            z_px = y_px = x_px = np.nan
         
         try:
             cell_id = extruded_mask[centroid_coords] 
@@ -210,6 +225,9 @@ def process_condensates_hybrid_h5(
             "is_3d": is_3d,
             "cell_id": cell_id,
             "object_id": region.label,
+            "Z_px": z_px,
+            "Y_px": y_px,
+            "X_px": x_px,
             "mean_intensity": round(mean_int, 2),
             "max_intensity": round(region.intensity_max, 2),
             "integrated_density": round(region.area * mean_int, 2),
@@ -222,8 +240,6 @@ def process_condensates_hybrid_h5(
             row["volume_bio_um3"] = round(region.area * voxel_volume_bio_um3, 5)
             row["shape_metric_bio"] = row["volume_bio_um3"]
             
-            if row["volume_bio_um3"] < 0.001:
-                continue
         else:
             pixel_area_bio_um2 = (eff_pixel_size_nm**2) / 1e6
             row["area_px"] = region.area
@@ -266,11 +282,7 @@ def process_condensates_hybrid_h5(
 
 
         coords = [region.centroid for region in props]
-        
-        if objects_data and len(coords) > 0:
-            if is_3d:
-                sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
-
+    
         if objects_data and len(coords) > 0:
             if is_3d:
                 sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
@@ -283,9 +295,8 @@ def process_condensates_hybrid_h5(
                 "data": coords,
                 "kwargs": {
                     "size": sizes,
-                    "symbol": "disc",            
-                    "face_color": [0, 0, 0, 0], 
-                    "edge_color": "yellow" if is_3d else "cyan",
+                    "symbol": "disc",
+                    "face_color": "yellow" if is_3d else "cyan",
                     "out_of_slice_display": False
                 }
             })
@@ -294,7 +305,7 @@ def process_condensates_hybrid_h5(
 
 
 if __name__ == "__main__":
-    folder_path = Path(r"C:\Users\franc\Desktop\MED1")
+    folder_path = Path(r"")
     all_dataframes = []
 
     MODE = "3d"  #"3d"  "2d"  "single_slice"
@@ -320,12 +331,13 @@ if __name__ == "__main__":
             print(f"  No corresponding H5 file found for {raw_tif.name} (looked for {h5_file.name})")
             continue
 
-        df_file = process_condensates_hybrid_h5(
+        df_file = process_condensates_h5(
             tif_path=raw_tif,
             h5_path=h5_file,
             mode=MODE,
             expansion_factor=expansion_factor,
-            log_threshold=0.3, 
+            prob_threshold=0.3, 
+            sigma=1.0,
             prob_channel=ILASTIK_PROB_CHANNEL,
             show_napari=enable_night_preview,
             pixel_size_nm=58.0,
