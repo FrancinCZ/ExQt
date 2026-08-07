@@ -17,4 +17,4 @@ dependencies:
   - seaborn
   - pip
   - pip:
-    - qdarktheme
+    - pyqtdarktheme
