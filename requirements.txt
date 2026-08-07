@@ -9,4 +9,4 @@ h5py
 openpyxl
 matplotlib
 seaborn
-qdarktheme
+pyqtdarktheme
