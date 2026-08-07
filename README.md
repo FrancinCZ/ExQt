@@ -26,12 +26,14 @@ cd ExQt
 ```
 ### 2. Create a Conda environment
 
-Create a new virtual environment named exqt-env with Python 3.10 (or your preferred compatible version) and activate it:
+environment.yml is provided so that it automatically handles the installation of Python and all required dependencies (including napari and PySide6). Create and activate the environment by running:
 
 ```Bash
-conda create -n exqt-env python=3.10 -y
+conda env create -f environment.yml
 conda activate exqt-env
 ```
+(Note: If you prefer using pure Python without Conda, you can alternatively install the dependencies via pip install -r requirements.txt)
+
 
 ### 3. Install dependencies
 Install the required packages. Ensure your activated environment is running, then install the dependencies via pip:
