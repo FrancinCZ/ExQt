@@ -4,7 +4,6 @@ import h5py
 import threading
 from datetime import datetime
 from Batch import process_condensates_h5
-os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
