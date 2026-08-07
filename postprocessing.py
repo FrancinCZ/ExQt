@@ -62,7 +62,7 @@ def generate_excel_stats(csv_filename):
     print(f"CSV with all data was generated: {output_csv}")
 
 
-def generate_plots(csv_filename):
+def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
     sns.set_theme(style="ticks", palette="muted")
     plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
 
@@ -98,9 +98,7 @@ def generate_plots(csv_filename):
         print("Error: Missing columns for size calculation!")
         return
 
-    MAX_SIZE = 2.0
-    MIN_SIZE = 0.0001
-    df_filtered = df[(df["size_plot"] >= MIN_SIZE) & (df["size_plot"] <= MAX_SIZE)].copy()
+    df_filtered = df[(df["size_plot"] >= min_size) & (df["size_plot"] <= max_size)].copy()
 
     if df_filtered.empty:
         print("After filtration, no data left for plotting. Please check the input CSV file.")
