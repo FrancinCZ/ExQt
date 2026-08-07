@@ -137,7 +137,11 @@ class AnalysisWorker(QThread):
 
                 if self.params.get("gen_plots"):
                     try:
-                        generate_plots(str(output_csv))
+                        generate_plots(
+                            str(output_csv), 
+                            min_size=self.params.get("plot_min_size", 0.0001), 
+                            max_size=self.params.get("plot_max_size", 2.0)
+                        )
                         self.progress.emit("Graphs were generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating graphs: {str(e)}")
@@ -309,6 +313,32 @@ class ExQt(QMainWindow):
         self.generate_plots_check = QCheckBox("Generate plots")
         form_layout.addRow("", self.generate_plots_check)
 
+        self.plot_min_spin = QDoubleSpinBox()
+        self.plot_min_spin.setRange(0.0, 10000.0)
+        self.plot_min_spin.setDecimals(4)
+        self.plot_min_spin.setValue(0.0001)
+        
+        self.plot_max_spin = QDoubleSpinBox()
+        self.plot_max_spin.setRange(0.0, 100000.0)
+        self.plot_max_spin.setDecimals(4)
+        self.plot_max_spin.setValue(2.0)
+
+        plot_range_layout = QHBoxLayout()
+        plot_range_layout.setContentsMargins(0, 0, 0, 0)
+        plot_range_layout.addWidget(QLabel("Min:"))
+        plot_range_layout.addWidget(self.plot_min_spin)
+        plot_range_layout.addWidget(QLabel("Max:"))
+        plot_range_layout.addWidget(self.plot_max_spin)
+
+        self.plot_range_widget = QWidget()
+        self.plot_range_widget.setLayout(plot_range_layout)
+        self.plot_range_widget.hide()
+
+        form_layout.addRow("Plot limits (μm):", self.plot_range_widget)
+        self.plot_range_label = form_layout.labelForField(self.plot_range_widget)
+        self.plot_range_label.hide()
+        self.generate_plots_check.toggled.connect(self.toggle_plot_range)
+
         self.left_panel_layout.addLayout(form_layout)
         self.left_panel_layout.addStretch()
         self.btn_run = QPushButton("Start analysis")
@@ -346,7 +376,7 @@ class ExQt(QMainWindow):
 
         self.btn_run.clicked.connect(self.start_analysis)
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        self.on_mode_changed(self.mode_combo.currentText())  #
+        self.on_mode_changed(self.mode_combo.currentText())  
 
     def on_mode_changed(self, mode):
         is_3d = mode == "3d"
@@ -431,7 +461,9 @@ class ExQt(QMainWindow):
             "z_step_nm": float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])),
             "prob_channel": int(self.settings.value("adv_prob_ch", DEFAULT_SETTINGS["adv_prob_ch"])),
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
-            "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"]))
+            "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])),
+            "plot_min_size": self.plot_min_spin.value(),
+            "plot_max_size": self.plot_max_spin.value()
         }
 
         self.btn_run.setEnabled(False)
@@ -503,6 +535,11 @@ class ExQt(QMainWindow):
         self.btn_next_image.show()
         if hasattr(self, "status_label"):
             self.status_label.setText("Waiting for user review...")
+
+    def toggle_plot_range(self, checked):
+        self.plot_range_widget.setVisible(checked)
+        if self.plot_range_label:
+            self.plot_range_label.setVisible(checked)
 
     def next_image_confirmed(self):
         self.btn_next_image.hide()
