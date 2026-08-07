@@ -4,6 +4,7 @@ import h5py
 import threading
 from datetime import datetime
 from Batch import process_condensates_h5
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
@@ -150,7 +151,7 @@ class AnalysisWorker(QThread):
             self.progress.emit("Done")
 
 class AdvancedSettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, mode="3d"):
         super().__init__(parent)
         self.setWindowTitle("Advanced Settings")
         self.setMinimumWidth(300)
@@ -175,6 +176,7 @@ class AdvancedSettingsDialog(QDialog):
         self.z_step_spin.setSingleStep(0.1)
         self.z_step_spin.setDecimals(1)
         form.addRow("Z-step (nm):", self.z_step_spin)
+        self.z_step_label = form.labelForField(self.z_step_spin)
 
         self.prob_spin = QSpinBox()
         form.addRow("Probability Channel:", self.prob_spin)
@@ -188,6 +190,7 @@ class AdvancedSettingsDialog(QDialog):
         layout.addLayout(form)
 
         self.load_adv_settings()
+        self._apply_mode_state(mode)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
@@ -196,10 +199,18 @@ class AdvancedSettingsDialog(QDialog):
 
         self.setLayout(layout)
 
+    def _apply_mode_state(self, mode):
+        is_3d = mode == "3d"
+        self.z_step_spin.setEnabled(is_3d)
+        if self.z_step_label is not None:
+            self.z_step_label.setEnabled(is_3d)
+        tooltip = "" if is_3d else "Z-step is only used in 3D mode and is ignored for the current Process mode."
+        self.z_step_spin.setToolTip(tooltip)
+
     def load_adv_settings(self):
         self.sigma_spin.setValue(float(self.settings.value("adv_sigma", DEFAULT_SETTINGS["adv_sigma"])))
-        self.pixel_size_spin.setValue(int(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"])))
-        self.z_step_spin.setValue(int(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])))
+        self.pixel_size_spin.setValue(float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"])))
+        self.z_step_spin.setValue(float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])))
         self.prob_spin.setValue(int(self.settings.value("adv_prob_ch", DEFAULT_SETTINGS["adv_prob_ch"])))
         self.signal_spin.setValue(int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])))
         self.dapi_spin.setValue(int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])))
@@ -280,6 +291,7 @@ class ExQt(QMainWindow):
         self.min_voxel_spinbox.setValue(5)
         self.min_voxel_spinbox.setToolTip("Ignore objects smaller than this number of voxels/pixels (noise filtering).")
         form_layout.addRow("Min. size (voxels):", self.min_voxel_spinbox)
+        self.min_voxel_label = form_layout.labelForField(self.min_voxel_spinbox)
 
         self.show_napari_check = QCheckBox("Show Napari preview")
         self.show_napari_check.setChecked(True)
@@ -334,6 +346,14 @@ class ExQt(QMainWindow):
         self.load_settings()
 
         self.btn_run.clicked.connect(self.start_analysis)
+        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
+        self.on_mode_changed(self.mode_combo.currentText())  #
+
+    def on_mode_changed(self, mode):
+        is_3d = mode == "3d"
+        unit_label = "voxels" if is_3d else "pixels"
+        if self.min_voxel_label is not None:
+            self.min_voxel_label.setText(f"Min. size ({unit_label}):")
 
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose folder with data")
@@ -362,7 +382,7 @@ class ExQt(QMainWindow):
             app.setStyleSheet(qdarktheme.load_stylesheet("light"))
 
     def open_advanced_settings(self):
-        dialog = AdvancedSettingsDialog(self)
+        dialog = AdvancedSettingsDialog(self, mode=self.mode_combo.currentText())
         dialog.exec()
         
 
