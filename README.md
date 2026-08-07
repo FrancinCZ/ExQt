@@ -1,7 +1,7 @@
 ---Work in progress---
 
 
-# ExQt: Expansion microscopy QuanTification analysis of Nuclear Condensates
+# ExQt: Expansion microscopy Quantification analysis of Nuclear Condensates
 
 ExQt is an open-source, PySide6-based desktop application designed for the flexible analysis of 3D/2D biological image data, specifically optimized for Expansion Microscopy (ExM). It bridges the gap between raw imaging data, probability maps (e.g., from Ilastik), and interactive visualization using `napari`.
 
