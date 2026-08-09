@@ -13,6 +13,33 @@ def _select_focus_slice(volume):
     scores = [laplace(volume[z].astype(np.float32)).var() for z in range(volume.shape[0])]
     return int(np.argmax(scores))
 
+
+def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
+    if img_raw.ndim != 4:
+        return expected_axis
+
+    sizes = img_raw.shape
+    if sizes[expected_axis] <= max_channels:
+        return expected_axis
+
+    candidates = [ax for ax, s in enumerate(sizes) if s <= max_channels]
+    if len(candidates) == 1:
+        found_axis = candidates[0]
+        print(f"      WARNING: axis {expected_axis} has size {sizes[expected_axis]}, which doesn't "
+              f"look like a channel axis. Found a plausible channel axis at position {found_axis} "
+              f"(size {sizes[found_axis]}) instead - auto-adjusting. Full shape was {sizes}. "
+              f"Please verify this is correct for your data; pass channel_axis= explicitly to override.")
+        return found_axis
+
+    raise ValueError(
+        f"Could not confidently identify the channel axis for TIF shape {sizes}. "
+        f"Expected axis {expected_axis} to hold <= {max_channels} channels, but it has "
+        f"{sizes[expected_axis]}, and {'no' if not candidates else 'more than one'} other axis "
+        f"looks like a plausible channel axis either. Pass channel_axis= explicitly to "
+        f"process_condensates_h5() to resolve this manually."
+    )
+
+
 def load_ilastik_h5(h5_path, prob_channel=0):
     with h5py.File(h5_path, "r") as f:
         #Find the dataset
@@ -83,6 +110,7 @@ def process_condensates_h5(
     z_step_nm=250.0,
     signal_channel=1,    #Ch01 = BRD4/MED1 
     dapi_channel=0,      #Ch00 = DAPI 
+    channel_axis=1,      #Which axis of a 4D TIF holds the channel dimension
     auto_roi=True,
     send_layer_func=None,
     request_roi_func=None,
@@ -99,8 +127,9 @@ def process_condensates_h5(
     img_prob = load_ilastik_h5(h5_path, prob_channel=prob_channel)
 
     if img_raw.ndim == 4:
-        img_dapi = np.take(img_raw, dapi_channel, axis=1)
-        img_intensity = np.take(img_raw, signal_channel, axis=1)
+        ch_axis = _resolve_channel_axis(img_raw, expected_axis=channel_axis)
+        img_dapi = np.take(img_raw, dapi_channel, axis=ch_axis)
+        img_intensity = np.take(img_raw, signal_channel, axis=ch_axis)
     else:
         img_dapi = img_raw
         img_intensity = img_raw
@@ -158,7 +187,7 @@ def process_condensates_h5(
         if send_layer_func:
             send_layer_func({
                 "type": "image",
-                "name": f"Signál ({tif_path.name})",
+                "name": f"Signal ({tif_path.name})",
                 "data": img_intensity,
                 "kwargs": {"colormap": "gray", "blending": "additive"}
             })
@@ -166,7 +195,7 @@ def process_condensates_h5(
             prob_max = img_prob_process.max()
             send_layer_func({
                 "type": "image",
-                "name": "Ilastik Nápověda",
+                "name": "Ilastik Tip Probability",
                 "data": img_prob_process,
                 "kwargs": {
                     "colormap": "magenta", 
@@ -262,7 +291,7 @@ def process_condensates_h5(
         
         send_layer_func({
             "type": "labels",
-            "name": "ROI Hranice",
+            "name": "ROI Boundaries",
             "data": roi_mask.astype(int),
             "kwargs": {"opacity": 0.2}
         })
