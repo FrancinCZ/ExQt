@@ -52,17 +52,21 @@ class AnalysisWorker(QThread):
             folder_path = Path(self.params["input_folder"])
             if not folder_path.exists() or not folder_path.is_dir():
                 self.progress.emit("Error: Input folder does not exist or is not valid.")
-                self.progress.emit("Done")
+                self.progress.emit("Done_Error")
                 return
 
             raw_files = [f for f in sorted(folder_path.glob("*.tif")) if "Probabilities" not in f.name and "Final" not in f.name]
             all_dataframes = []
+            processed_pairs = 0
+            had_error = False
 
             for raw_tif in raw_files:
                 h5_file = raw_tif.with_name(f"{raw_tif.stem}_Probabilities.h5")
                 if not h5_file.exists():
+                    self.progress.emit(f"Skipping {raw_tif.name}: matching H5 not found ({h5_file.name}).")
                     continue
 
+                processed_pairs += 1
                 self.progress.emit(f"Processing: {raw_tif.name}")
 
                 try:
@@ -85,6 +89,8 @@ class AnalysisWorker(QThread):
                     )
                     if df_file is not None and not df_file.empty:
                         all_dataframes.append(df_file)
+                    else:
+                        self.progress.emit(f"No detectable objects found in {raw_tif.name}.")
 
                     if self.params.get("review_each_image", False):
                         self.progress.emit(f"Review: {raw_tif.name}")
@@ -92,7 +98,15 @@ class AnalysisWorker(QThread):
                         self.review_event.wait()
                         self.review_event.clear()
                 except Exception as e:
-                    self.progress.emit(f"Error: {str(e)}")
+                    self.progress.emit(f"Error processing {raw_tif.name}: {str(e)}")
+                    had_error = True
+
+            if not raw_files:
+                self.progress.emit("No TIFF files found in input folder.")
+                had_error = True
+            elif processed_pairs == 0:
+                self.progress.emit("No matching TIFF/H5 pairs were processed.")
+                had_error = True
 
             if all_dataframes:
                 final_df = __import__("pandas").concat(all_dataframes, ignore_index=True)
@@ -134,6 +148,7 @@ class AnalysisWorker(QThread):
                         self.progress.emit("Excel was generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating Excel: {str(e)}")
+                        had_error = True
 
                 if self.params.get("gen_plots"):
                     try:
@@ -144,14 +159,19 @@ class AnalysisWorker(QThread):
                         )
                         self.progress.emit("Graphs were generated.")
                     except Exception as e:
-                        self.progress.emit(f"Error generating graphs: {str(e)}")
-            else:
-                self.progress.emit("No data available for processing.")
+                        self.progress.emit(f"Graph error: {str(e)}")
+                        print(f"DEBUG PLOT ERROR: {str(e)}")
+                        return
 
-            self.progress.emit("Done")
+                # If everything passed (including plots), report success
+                self.progress.emit("Done_Success")
+            else:
+                if not had_error:
+                    self.progress.emit("No data available for processing.")
+                self.progress.emit("Done_Error")
         except Exception as e:
             self.progress.emit(f"Error when loading: {str(e)}")
-            self.progress.emit("Done")
+            self.progress.emit("Done_Error")
 
 class AdvancedSettingsDialog(QDialog):
     def __init__(self, parent=None, mode="3d"):
@@ -338,7 +358,7 @@ class ExQt(QMainWindow):
         self.plot_range_label = form_layout.labelForField(self.plot_range_widget)
         self.plot_range_label.hide()
         self.generate_plots_check.toggled.connect(self.toggle_plot_range)
-
+  
         self.left_panel_layout.addLayout(form_layout)
         self.left_panel_layout.addStretch()
         self.btn_run = QPushButton("Start analysis")
@@ -376,7 +396,7 @@ class ExQt(QMainWindow):
 
         self.btn_run.clicked.connect(self.start_analysis)
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        self.on_mode_changed(self.mode_combo.currentText())  
+        self.on_mode_changed(self.mode_combo.currentText())  #
 
     def on_mode_changed(self, mode):
         is_3d = mode == "3d"
@@ -478,11 +498,19 @@ class ExQt(QMainWindow):
         self.worker.start()
         
     def update_button_text(self, text):
-        if text == "Done":
+        if text == "Done_Success":
             self.status_label.setText("Analysis completed successfully.")
             self.btn_run.setEnabled(True)
             self.btn_run.setText("Start analysis")
             QMessageBox.information(self, "Done", "Analysis was completed successfully\n\nResults are saved in CSV.")
+        elif text == "Done_Error":
+            self.btn_run.setEnabled(True)
+            self.btn_run.setText("Start analysis")
+            QMessageBox.warning(
+                self,
+                "Error / No data",
+                "Processing finished, but no results were obtained!\n\nPlease check:\n1. The image is 3D if you selected mode '3d'.\n2. The TIF and H5 files have exactly matching names."
+            )
         else:
             self.status_label.setText(text)
             self.btn_run.setText("Processing...")
