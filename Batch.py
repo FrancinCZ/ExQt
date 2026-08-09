@@ -166,11 +166,17 @@ def process_condensates_h5(
 
     elif mode == "3d":
         if not is_stack:
-            raise ValueError("3d mode needs a 3D (Z,Y,X) stack.")
+            raise ValueError(
+                f"3d mode needs a 3D (Z,Y,X) stack. Got shape {img_intensity.shape}. "
+                "If your TIFF is a single slice, use mode='2d' or export a full Z-stack."
+            )
         img_intensity = img_intensity
         img_dapi_process = img_dapi
         img_prob_process = img_prob
         is_3d = True
+
+    if img_prob_process.size == 0:
+        raise ValueError("Probability map is empty after ROI/mode selection.")
 
     if img_prob_process.max() > 1.5:
         img_prob_process = img_prob_process / img_prob_process.max()
