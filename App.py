@@ -7,9 +7,9 @@ from Batch import process_condensates_h5
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
-                               QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
-                               QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
-                               QMessageBox)
+                                QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
+                                QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
+                                QMessageBox)
 from PySide6.QtGui import QAction
 import qdarktheme
 from PySide6.QtCore import QSettings, QThread, Signal
@@ -40,6 +40,7 @@ class AnalysisWorker(QThread):
         self.roi_event = threading.Event()
         self.review_event = threading.Event()
         self.user_roi_data = None
+        self.abort_requested = False
 
     def request_roi_callback(self, img_shape, is_3d):
         self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d})
@@ -47,26 +48,30 @@ class AnalysisWorker(QThread):
         self.roi_event.clear()
         return self.user_roi_data
 
+    def request_abort(self):
+        self.abort_requested = True
+        self.review_event.set()
+
     def run(self):
         try:
             folder_path = Path(self.params["input_folder"])
             if not folder_path.exists() or not folder_path.is_dir():
                 self.progress.emit("Error: Input folder does not exist or is not valid.")
-                self.progress.emit("Done_Error")
+                self.progress.emit("Done")
                 return
 
             raw_files = [f for f in sorted(folder_path.glob("*.tif")) if "Probabilities" not in f.name and "Final" not in f.name]
             all_dataframes = []
-            processed_pairs = 0
-            had_error = False
 
             for raw_tif in raw_files:
+                if self.abort_requested:
+                    self.progress.emit("Analysis stopped by user.")
+                    break
+
                 h5_file = raw_tif.with_name(f"{raw_tif.stem}_Probabilities.h5")
                 if not h5_file.exists():
-                    self.progress.emit(f"Skipping {raw_tif.name}: matching H5 not found ({h5_file.name}).")
                     continue
 
-                processed_pairs += 1
                 self.progress.emit(f"Processing: {raw_tif.name}")
 
                 try:
@@ -87,26 +92,24 @@ class AnalysisWorker(QThread):
                         signal_channel=self.params["signal_channel"],
                         dapi_channel=self.params["dapi_channel"]
                     )
+                    appended_this_round = False
                     if df_file is not None and not df_file.empty:
                         all_dataframes.append(df_file)
-                    else:
-                        self.progress.emit(f"No detectable objects found in {raw_tif.name}.")
+                        appended_this_round = True
 
                     if self.params.get("review_each_image", False):
                         self.progress.emit(f"Review: {raw_tif.name}")
                         self.request_review_signal.emit()
                         self.review_event.wait()
                         self.review_event.clear()
-                except Exception as e:
-                    self.progress.emit(f"Error processing {raw_tif.name}: {str(e)}")
-                    had_error = True
 
-            if not raw_files:
-                self.progress.emit("No TIFF files found in input folder.")
-                had_error = True
-            elif processed_pairs == 0:
-                self.progress.emit("No matching TIFF/H5 pairs were processed.")
-                had_error = True
+                        if self.abort_requested:
+                            if appended_this_round:
+                                all_dataframes.pop() 
+                            self.progress.emit(f"Discarded and stopped at: {raw_tif.name}")
+                            break
+                except Exception as e:
+                    self.progress.emit(f"Error: {str(e)}")
 
             if all_dataframes:
                 final_df = __import__("pandas").concat(all_dataframes, ignore_index=True)
@@ -126,7 +129,9 @@ class AnalysisWorker(QThread):
                         "min_voxels": self.params.get("min_voxels", 5),
                         "gaussian_sigma": self.params["sigma"],
                         "pixel_size_nm": self.params["pixel_size_nm"],
-                        "z_step_nm": self.params["z_step_nm"]
+                        "z_step_nm": self.params["z_step_nm"],
+                        "plot_min_size": self.params.get("plot_min_size", 0.0001),
+                        "plot_max_size": self.params.get("plot_max_size", 2.0)
                     },
                     "channels": {
                         "prob_channel": self.params["prob_channel"],
@@ -148,30 +153,24 @@ class AnalysisWorker(QThread):
                         self.progress.emit("Excel was generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating Excel: {str(e)}")
-                        had_error = True
 
                 if self.params.get("gen_plots"):
                     try:
                         generate_plots(
-                            str(output_csv), 
-                            min_size=self.params.get("plot_min_size", 0.0001), 
-                            max_size=self.params.get("plot_max_size", 2.0)
+                            str(output_csv),
+                            min_size=self.params.get("plot_min_size", 0.0001),
+                            max_size=self.params.get("plot_max_size", 2.0),
                         )
                         self.progress.emit("Graphs were generated.")
                     except Exception as e:
-                        self.progress.emit(f"Graph error: {str(e)}")
-                        print(f"DEBUG PLOT ERROR: {str(e)}")
-                        return
-
-                # If everything passed (including plots), report success
-                self.progress.emit("Done_Success")
+                        self.progress.emit(f"Error generating graphs: {str(e)}")
             else:
-                if not had_error:
-                    self.progress.emit("No data available for processing.")
-                self.progress.emit("Done_Error")
+                self.progress.emit("No data available for processing.")
+
+            self.progress.emit("Done")
         except Exception as e:
             self.progress.emit(f"Error when loading: {str(e)}")
-            self.progress.emit("Done_Error")
+            self.progress.emit("Done")
 
 class AdvancedSettingsDialog(QDialog):
     def __init__(self, parent=None, mode="3d"):
@@ -333,32 +332,20 @@ class ExQt(QMainWindow):
         self.generate_plots_check = QCheckBox("Generate plots")
         form_layout.addRow("", self.generate_plots_check)
 
-        self.plot_min_spin = QDoubleSpinBox()
-        self.plot_min_spin.setRange(0.0, 10000.0)
-        self.plot_min_spin.setDecimals(4)
-        self.plot_min_spin.setValue(0.0001)
-        
-        self.plot_max_spin = QDoubleSpinBox()
-        self.plot_max_spin.setRange(0.0, 100000.0)
-        self.plot_max_spin.setDecimals(4)
-        self.plot_max_spin.setValue(2.0)
+        self.plot_min_size_spin = QDoubleSpinBox()
+        self.plot_min_size_spin.setRange(0.0, 1000.0)
+        self.plot_min_size_spin.setDecimals(4)
+        self.plot_min_size_spin.setValue(0.0001)
+        self.plot_min_size_spin.setToolTip("Objects smaller than this (in µm² or µm³) are excluded from the plots only - not from the CSV.")
+        form_layout.addRow("Plot Min Size:", self.plot_min_size_spin)
 
-        plot_range_layout = QHBoxLayout()
-        plot_range_layout.setContentsMargins(0, 0, 0, 0)
-        plot_range_layout.addWidget(QLabel("Min:"))
-        plot_range_layout.addWidget(self.plot_min_spin)
-        plot_range_layout.addWidget(QLabel("Max:"))
-        plot_range_layout.addWidget(self.plot_max_spin)
+        self.plot_max_size_spin = QDoubleSpinBox()
+        self.plot_max_size_spin.setRange(0.0001, 100000.0)
+        self.plot_max_size_spin.setDecimals(2)
+        self.plot_max_size_spin.setValue(2.0)
+        self.plot_max_size_spin.setToolTip("Objects larger than this (in µm² or µm³) are excluded from the plots only - not from the CSV.")
+        form_layout.addRow("Plot Max Size:", self.plot_max_size_spin)
 
-        self.plot_range_widget = QWidget()
-        self.plot_range_widget.setLayout(plot_range_layout)
-        self.plot_range_widget.hide()
-
-        form_layout.addRow("Plot limits (μm):", self.plot_range_widget)
-        self.plot_range_label = form_layout.labelForField(self.plot_range_widget)
-        self.plot_range_label.hide()
-        self.generate_plots_check.toggled.connect(self.toggle_plot_range)
-  
         self.left_panel_layout.addLayout(form_layout)
         self.left_panel_layout.addStretch()
         self.btn_run = QPushButton("Start analysis")
@@ -376,6 +363,13 @@ class ExQt(QMainWindow):
         self.btn_next_image.hide()
         self.btn_next_image.clicked.connect(self.next_image_confirmed)
         self.left_panel_layout.addWidget(self.btn_next_image)
+
+        self.btn_stop_review = QPushButton("Stop && Discard This Image")
+        self.btn_stop_review.setStyleSheet("background-color: #d9534f; color: white; padding: 10px; font-weight: bold;")
+        self.btn_stop_review.setToolTip("Stops the batch here and discards the image currently shown. Previously approved images are still saved.")
+        self.btn_stop_review.hide()
+        self.btn_stop_review.clicked.connect(self.stop_and_discard)
+        self.left_panel_layout.addWidget(self.btn_stop_review)
 
         self.status_label = QLabel("Prepared")
         self.status_label.setStyleSheet("color: gray; font-weight: bold; margin-top: 10px;")
@@ -396,7 +390,7 @@ class ExQt(QMainWindow):
 
         self.btn_run.clicked.connect(self.start_analysis)
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        self.on_mode_changed(self.mode_combo.currentText())  #
+        self.on_mode_changed(self.mode_combo.currentText()) 
 
     def on_mode_changed(self, mode):
         is_3d = mode == "3d"
@@ -477,13 +471,13 @@ class ExQt(QMainWindow):
             "show_napari": self.show_napari_check.isChecked(),
             "gen_excel": self.generate_excel_check.isChecked(),
             "gen_plots": self.generate_plots_check.isChecked(),
+            "plot_min_size": self.plot_min_size_spin.value(),
+            "plot_max_size": self.plot_max_size_spin.value(),
             "pixel_size_nm": float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"])),
             "z_step_nm": float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])),
             "prob_channel": int(self.settings.value("adv_prob_ch", DEFAULT_SETTINGS["adv_prob_ch"])),
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
-            "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])),
-            "plot_min_size": self.plot_min_spin.value(),
-            "plot_max_size": self.plot_max_spin.value()
+            "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"]))
         }
 
         self.btn_run.setEnabled(False)
@@ -498,19 +492,12 @@ class ExQt(QMainWindow):
         self.worker.start()
         
     def update_button_text(self, text):
-        if text == "Done_Success":
+        if text == "Done":
+            self.btn_stop_review.hide()
             self.status_label.setText("Analysis completed successfully.")
             self.btn_run.setEnabled(True)
             self.btn_run.setText("Start analysis")
             QMessageBox.information(self, "Done", "Analysis was completed successfully\n\nResults are saved in CSV.")
-        elif text == "Done_Error":
-            self.btn_run.setEnabled(True)
-            self.btn_run.setText("Start analysis")
-            QMessageBox.warning(
-                self,
-                "Error / No data",
-                "Processing finished, but no results were obtained!\n\nPlease check:\n1. The image is 3D if you selected mode '3d'.\n2. The TIF and H5 files have exactly matching names."
-            )
         else:
             self.status_label.setText(text)
             self.btn_run.setText("Processing...")
@@ -561,20 +548,26 @@ class ExQt(QMainWindow):
         self.btn_run.hide()
         self.btn_confirm_roi.hide()
         self.btn_next_image.show()
+        self.btn_stop_review.show()
         if hasattr(self, "status_label"):
             self.status_label.setText("Waiting for user review...")
 
-    def toggle_plot_range(self, checked):
-        self.plot_range_widget.setVisible(checked)
-        if self.plot_range_label:
-            self.plot_range_label.setVisible(checked)
-
     def next_image_confirmed(self):
         self.btn_next_image.hide()
+        self.btn_stop_review.hide()
         self.btn_run.show()
         if hasattr(self, "status_label"):
             self.status_label.setText("Processing next...")
         self.worker.review_event.set()
+
+    def stop_and_discard(self):
+        self.btn_next_image.hide()
+        self.btn_stop_review.hide()
+        self.btn_run.show()  
+        self.viewer.layers.clear()  
+        if hasattr(self, "status_label"):
+            self.status_label.setText("Stopping...")
+        self.worker.request_abort()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
