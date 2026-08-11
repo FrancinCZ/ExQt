@@ -1,9 +1,8 @@
 import os
 import json
-import h5py
 import threading
 from datetime import datetime
-from Batch import process_condensates_h5
+from Batch import process_condensates
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
@@ -20,10 +19,8 @@ from pathlib import Path
 from postprocessing import generate_excel_stats, generate_plots
 
 DEFAULT_SETTINGS = {
-    "adv_sigma": 1.0,
     "adv_pixel_size": 58.0,
     "adv_z_step": 250.0,
-    "adv_prob_ch": 0,
     "adv_signal_ch": 1,
     "adv_dapi_ch": 0,
 }
@@ -60,7 +57,8 @@ class AnalysisWorker(QThread):
                 self.progress.emit("Done")
                 return
 
-            raw_files = [f for f in sorted(folder_path.glob("*.tif")) if "Probabilities" not in f.name and "Final" not in f.name]
+
+            raw_files = [f for f in sorted(folder_path.glob("*.tif")) if "Mask" not in f.name and "Final" not in f.name]
             all_dataframes = []
 
             for raw_tif in raw_files:
@@ -68,27 +66,25 @@ class AnalysisWorker(QThread):
                     self.progress.emit("Analysis stopped by user.")
                     break
 
-                h5_file = raw_tif.with_name(f"{raw_tif.stem}_Probabilities.h5")
-                if not h5_file.exists():
+                mask_file = raw_tif.with_name(f"{raw_tif.stem}_Mask.tif")
+                if not mask_file.exists():
+                    self.progress.emit(f"Skipping {raw_tif.name}: Mask not found.")
                     continue
 
                 self.progress.emit(f"Processing: {raw_tif.name}")
 
                 try:
-                    df_file = process_condensates_h5(
+                    df_file = process_condensates(
                         tif_path=raw_tif,
-                        h5_path=h5_file,
+                        mask_path=mask_file,
                         mode=self.params["mode"],
                         expansion_factor=self.params["expansion_factor"],
-                        prob_threshold=self.params["prob_threshold"],
-                        sigma=self.params["sigma"],
                         min_voxels=self.params.get("min_voxels", 5),
                         auto_roi=self.params["auto_roi"],
                         send_layer_func=self.layer_ready.emit if self.params.get("show_napari", True) else None,
                         request_roi_func=self.request_roi_callback if not self.params.get("auto_roi", False) else None,
                         pixel_size_nm=self.params["pixel_size_nm"],
                         z_step_nm=self.params["z_step_nm"],
-                        prob_channel=self.params["prob_channel"],
                         signal_channel=self.params["signal_channel"],
                         dapi_channel=self.params["dapi_channel"]
                     )
@@ -121,20 +117,17 @@ class AnalysisWorker(QThread):
 
                 metadata = {
                     "timestamp": datetime.now().isoformat(),
-                    "software": "ExQt v1.0",
+                    "software": "ExQt",
                     "parameters": {
                         "mode": self.params["mode"],
                         "expansion_factor": self.params["expansion_factor"],
-                        "prob_threshold": self.params["prob_threshold"],
                         "min_voxels": self.params.get("min_voxels", 5),
-                        "gaussian_sigma": self.params["sigma"],
                         "pixel_size_nm": self.params["pixel_size_nm"],
                         "z_step_nm": self.params["z_step_nm"],
                         "plot_min_size": self.params.get("plot_min_size", 0.0001),
                         "plot_max_size": self.params.get("plot_max_size", 2.0)
                     },
                     "channels": {
-                        "prob_channel": self.params["prob_channel"],
                         "signal_channel": self.params["signal_channel"],
                         "dapi_channel": self.params["dapi_channel"]
                     }
@@ -183,10 +176,6 @@ class AdvancedSettingsDialog(QDialog):
         layout = QVBoxLayout()
         form = QFormLayout()
 
-        self.sigma_spin = QDoubleSpinBox()
-        self.sigma_spin.setSingleStep(0.5)
-        form.addRow("Gaussian Sigma:", self.sigma_spin)
-
         self.pixel_size_spin = QDoubleSpinBox()
         self.pixel_size_spin.setRange(10.0, 2000.0)
         self.pixel_size_spin.setSingleStep(0.1)
@@ -199,9 +188,6 @@ class AdvancedSettingsDialog(QDialog):
         self.z_step_spin.setDecimals(1)
         form.addRow("Z-step (nm):", self.z_step_spin)
         self.z_step_label = form.labelForField(self.z_step_spin)
-
-        self.prob_spin = QSpinBox()
-        form.addRow("Probability Channel:", self.prob_spin)
 
         self.signal_spin = QSpinBox()
         form.addRow("Signal Channel:", self.signal_spin)
@@ -230,18 +216,14 @@ class AdvancedSettingsDialog(QDialog):
         self.z_step_spin.setToolTip(tooltip)
 
     def load_adv_settings(self):
-        self.sigma_spin.setValue(float(self.settings.value("adv_sigma", DEFAULT_SETTINGS["adv_sigma"])))
         self.pixel_size_spin.setValue(float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"])))
         self.z_step_spin.setValue(float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])))
-        self.prob_spin.setValue(int(self.settings.value("adv_prob_ch", DEFAULT_SETTINGS["adv_prob_ch"])))
         self.signal_spin.setValue(int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])))
         self.dapi_spin.setValue(int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])))
 
     def accept(self):
-        self.settings.setValue("adv_sigma", self.sigma_spin.value())
         self.settings.setValue("adv_pixel_size", self.pixel_size_spin.value())
         self.settings.setValue("adv_z_step", self.z_step_spin.value())
-        self.settings.setValue("adv_prob_ch", self.prob_spin.value())
         self.settings.setValue("adv_signal_ch", self.signal_spin.value())
         self.settings.setValue("adv_dapi_ch", self.dapi_spin.value())
         super().accept()
@@ -260,7 +242,7 @@ class ExQt(QMainWindow):
 
         folder_layout = QHBoxLayout()
         self.folder_input = QLineEdit()
-        self.folder_input.setPlaceholderText("Choose folder with TIF and H5 files...")
+        self.folder_input.setPlaceholderText("Choose folder with TIF images and TIF masks...")
         self.folder_input.setReadOnly(True)
         
         self.btn_browse = QPushButton("Browse")
@@ -301,12 +283,6 @@ class ExQt(QMainWindow):
         self.exp_factor_spin.setValue(4.0)
         self.exp_factor_spin.setDecimals(1)
         form_layout.addRow("Expansion Factor:", self.exp_factor_spin)
-
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.0, 1.0)
-        self.threshold_spin.setSingleStep(0.05)
-        self.threshold_spin.setValue(0.3)
-        form_layout.addRow("Probability Threshold:", self.threshold_spin)
 
         self.min_voxel_spinbox = QSpinBox()
         self.min_voxel_spinbox.setRange(1, 10000)
@@ -364,7 +340,7 @@ class ExQt(QMainWindow):
         self.btn_next_image.clicked.connect(self.next_image_confirmed)
         self.left_panel_layout.addWidget(self.btn_next_image)
 
-        self.btn_stop_review = QPushButton("Stop && Discard This Image")
+        self.btn_stop_review = QPushButton("Stop and Discard This Image")
         self.btn_stop_review.setStyleSheet("background-color: #d9534f; color: white; padding: 10px; font-weight: bold;")
         self.btn_stop_review.setToolTip("Stops the batch here and discards the image currently shown. Previously approved images are still saved.")
         self.btn_stop_review.hide()
@@ -402,6 +378,7 @@ class ExQt(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Choose folder with data")
         if folder:
             self.folder_input.setText(folder)
+            
     def create_menu(self):
         menu_bar = self.menuBar()
 
@@ -427,7 +404,6 @@ class ExQt(QMainWindow):
     def open_advanced_settings(self):
         dialog = AdvancedSettingsDialog(self, mode=self.mode_combo.currentText())
         dialog.exec()
-        
 
     def choose_output_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
@@ -458,14 +434,28 @@ class ExQt(QMainWindow):
         event.accept()
 
     def start_analysis(self):
+        folder_path = self.folder_input.text()
+        if not folder_path or not os.path.isdir(folder_path):
+            QMessageBox.warning(self, "Error", "Please select a valid input folder first.")
+            return
+
+        folder = Path(folder_path)
+        files = [f for f in folder.glob("*.tif") if "Mask" not in f.name and "Final" not in f.name]
+        if not files:
+            QMessageBox.warning(self, "Error", "In the selected folder, no source TIF files were found.")
+            return
+        missing_masks = [f.name for f in files if not (folder / f"{f.stem}_Mask.tif").exists()]
+
+        if missing_masks:
+            QMessageBox.warning(self, "Missing Masks", f"For these files there are no corresponding mask files:\n{', '.join(missing_masks)}")
+            return 
+
         params = {
-            "input_folder": self.folder_input.text(),
+            "input_folder": folder_path,
             "output_folder": self.output_path_edit.text(),
             "mode": self.mode_combo.currentText(),
             "expansion_factor": self.exp_factor_spin.value(),
-            "prob_threshold": self.threshold_spin.value(),
             "min_voxels": self.min_voxel_spinbox.value(),
-            "sigma": float(self.settings.value("adv_sigma", DEFAULT_SETTINGS["adv_sigma"])),
             "auto_roi": self.auto_roi_check.isChecked(),
             "review_each_image": self.review_check.isChecked(),
             "show_napari": self.show_napari_check.isChecked(),
@@ -475,7 +465,6 @@ class ExQt(QMainWindow):
             "plot_max_size": self.plot_max_size_spin.value(),
             "pixel_size_nm": float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"])),
             "z_step_nm": float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"])),
-            "prob_channel": int(self.settings.value("adv_prob_ch", DEFAULT_SETTINGS["adv_prob_ch"])),
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
             "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"]))
         }
