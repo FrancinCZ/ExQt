@@ -18,3 +18,6 @@ ExQt Analysis Settings
 * Segmentation Source: Labkit (TIF Mask: SON_seg_Mask.tif)
 * Min. Size Filter: 750 voxels (~0.5 µm3 biological volume)
 * Plot Min Size: 2.0 µm3
+
+
+Link to Google Drive - https://drive.google.com/drive/folders/1etZ91PPBx44MIvfbsky56abGiHO-bIKI?usp=drive_link
