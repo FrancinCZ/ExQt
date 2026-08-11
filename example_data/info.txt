@@ -1,0 +1,20 @@
+Dataset Metadata: SON Protein (Nuclear Speckles)
+
+Microscope & Acquisition Parameters
+* File Name: SON_seg.tif
+* Microscope: Confocal (Leica Stellaris 5)
+* Pixel Size XY: 205.2 nm
+* Z-step (Voxel depth): 1000.0 nm
+* Slices (Z): 138
+
+Expansion Microscopy (ExM) Settings
+* Expansion Factor: 4.0
+
+Channel Configuration
+* Signal Channel (Condensates / SON): Channel 1
+* DAPI Channel (Nucleus): Channel 0
+
+ExQt Analysis Settings
+* Segmentation Source: Labkit (TIF Mask: SON_seg_Mask.tif)
+* Min. Size Filter: 750 voxels (~0.5 µm3 biological volume)
+* Plot Min Size: 2.0 µm3
