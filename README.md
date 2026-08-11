@@ -91,7 +91,7 @@ The main interface of ExQt provides parameters required to correctly process and
 Accessible via the top menu bar (`Settings -> Advanced...`), this menu defines hardware and channel configurations as well as physical dimensions.
 
 * **Pixel Size XY (nm):** The physical lateral dimension of a single pixel as acquired by the microscope (e.g., 205.2 nm). Essential for calculating true areas and volumes.
-* **Z-step (nm):** The physical axial distance between consecutive slices in a 3D stack (e.g., 1000.0 nm). Used in 3D mode for accurate biological volume calculations.
+* **Z-step (nm):** The physical axial distance between consecutive slices in a 3D stack. Used in 3D mode for accurate biological volume calculations.
 * **Signal Channel:** The channel index in your raw multi-channel `.tif` image containing the specific condensate signal to quantify (default is channel 1).
 * **DAPI Channel:** The channel index corresponding to the nuclear stain (default is channel 0).
 
