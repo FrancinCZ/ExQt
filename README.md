@@ -105,5 +105,4 @@ ExQt is open-source software released under the [MIT License](https://www.google
 
 The workflow is tailored for segmentation masks generated via tools like [Labkit](https://imagej.net/plugins/labkit/) or [Ilastik](https://www.ilastik.org/).
 
-```
 
