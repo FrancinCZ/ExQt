@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 def generate_excel_stats(csv_filename):
+
     csv_path = Path(csv_filename)
 
     if not csv_path.exists():
@@ -38,6 +39,7 @@ def generate_excel_stats(csv_filename):
         return
 
     df["equivalent_diameter_nm"] = df["equivalent_diameter_um"] * 1000.0
+
 
     summary_stats = (
         df.groupby(["filename", "cell_id"])
@@ -73,6 +75,7 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
 
     folder_name = csv_path.resolve().parent.name
     df = pd.read_csv(csv_path)
+
 
     if "volume_bio_um3" in df.columns:
         df["size_plot"] = df["volume_bio_um3"]
@@ -143,9 +146,137 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
     axes[1, 2].set_xlabel(xlabel_text)
     axes[1, 2].set_ylabel("Mean Intensity (a.u.)")
 
+
     plt.tight_layout()
     output_plot = csv_path.parent / f"{folder_name}_Analysis_Plots.png"
     plt.savefig(output_plot, dpi=300)
     plt.close(fig)
 
     print(f"Graphs were successfuly generated to: '{output_plot}'")
+
+
+def _as_bool_series(series):
+    #Interpret CSV booleans safely after pandas reloads them as text or bool
+    return series.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "on"})
+
+
+def generate_rezim_a_plots(csv_filename):
+    #Create a separate Core-Shell FA + QC report without changing standard ExQt plots
+    sns.set_theme(style="whitegrid", palette="colorblind")
+    plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
+
+    csv_path = Path(csv_filename)
+    if not csv_path.exists():
+        print(f"Error: File '{csv_filename}' not found!")
+        return None
+
+    df = pd.read_csv(csv_path)
+    required_columns = {
+        "A_shell", "A_core", "Delta_A_core_shell", "mode_a_primary_include",
+        "A_object_valid", "A_shell_valid", "A_middle_valid", "A_core_valid",
+        "mode_a_qc_reason",
+    }
+    missing_columns = sorted(required_columns.difference(df.columns))
+    if missing_columns:
+        print("Rezim A plots skipped: missing columns: " + ", ".join(missing_columns))
+        return None
+
+    #Primary plots intentionally include only complete and QC-approved FA rows
+    valid_flags = np.ones(len(df), dtype=bool)
+    for column in ("A_object_valid", "A_shell_valid", "A_middle_valid", "A_core_valid"):
+        valid_flags &= _as_bool_series(df[column]).to_numpy()
+
+    numeric_columns = ["A_shell", "A_core", "Delta_A_core_shell"]
+    for column in numeric_columns:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    complete_fa = valid_flags & df[numeric_columns].notna().all(axis=1).to_numpy()
+    primary_include = _as_bool_series(df["mode_a_primary_include"]).to_numpy()
+    primary = df.loc[complete_fa & primary_include].copy()
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 11))
+    fig.suptitle(
+        "Rezim A: Core-Shell Fractional Anisotropy and QC Overview\n"
+        "Core-Shell panels contain only complete, QC-approved objects.",
+        fontsize=15,
+        fontweight="bold",
+    )
+
+    def no_primary_data(ax, title):
+        ax.set_title(title, fontsize=12, fontweight="bold")
+        ax.text(
+            0.5, 0.5,
+            "No primary QC-valid objects\nfor this batch.",
+            ha="center", va="center", transform=ax.transAxes, fontsize=12,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    paired_ax = axes[0, 0]
+    paired_ax.set_title("A) Paired Shell vs. Core FA", fontsize=12, fontweight="bold")
+    if primary.empty:
+        no_primary_data(paired_ax, "A) Paired Shell vs. Core FA")
+    else:
+        rng = np.random.default_rng(0)
+        for _, row in primary.iterrows():
+            paired_ax.plot([0, 1], [row["A_shell"], row["A_core"]], color="#6c757d", alpha=0.45, linewidth=1)
+        paired_ax.scatter(rng.normal(0, 0.025, len(primary)), primary["A_shell"], color="#0f766e", label="Shell", zorder=3)
+        paired_ax.scatter(rng.normal(1, 0.025, len(primary)), primary["A_core"], color="#c2410c", label="Core", zorder=3)
+        paired_ax.set_xticks([0, 1], ["Shell", "Core"])
+        paired_ax.set_ylabel("Fractional Anisotropy (FA)")
+        paired_ax.set_ylim(0, 1)
+        paired_ax.legend(frameon=True)
+
+    scatter_ax = axes[0, 1]
+    scatter_ax.set_title("B) Shell FA vs. Core FA", fontsize=12, fontweight="bold")
+    if primary.empty:
+        no_primary_data(scatter_ax, "B) Shell FA vs. Core FA")
+    else:
+        scatter_ax.scatter(primary["A_shell"], primary["A_core"], s=48, color="#2563eb", alpha=0.78)
+        scatter_ax.plot([0, 1], [0, 1], linestyle="--", color="#6b7280", linewidth=1, label="Core = shell")
+        scatter_ax.set_xlim(0, 1)
+        scatter_ax.set_ylim(0, 1)
+        scatter_ax.set_xlabel("Shell FA")
+        scatter_ax.set_ylabel("Core FA")
+        scatter_ax.legend(frameon=True)
+
+    delta_ax = axes[1, 0]
+    delta_ax.set_title("C) Delta A = Core FA − Shell FA", fontsize=12, fontweight="bold")
+    if primary.empty:
+        no_primary_data(delta_ax, "C) Delta A = Core FA − Shell FA")
+    else:
+        sns.histplot(primary["Delta_A_core_shell"], bins=min(20, max(5, len(primary))), kde=len(primary) >= 5,
+                    color="#7c3aed", ax=delta_ax)
+        delta_ax.axvline(0, color="#374151", linestyle="--", linewidth=1)
+        delta_ax.set_xlabel("Delta A (geometric difference)")
+        delta_ax.set_ylabel("Object count")
+
+    qc_ax = axes[1, 1]
+    qc_ax.set_title("D) Rezim A QC Funnel", fontsize=12, fontweight="bold")
+    qc_counts = pd.Series(
+        [len(df), int(complete_fa.sum()), len(primary)],
+        index=["All segmented\nobjects", "Complete FA\nset", "Primary\nQC-valid"],
+    )
+    bars = qc_ax.bar(qc_counts.index, qc_counts.values, color=["#94a3b8", "#f59e0b", "#16a34a"])
+    qc_ax.set_ylabel("Object count")
+    for bar, value in zip(bars, qc_counts.values):
+        qc_ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), str(value), ha="center", va="bottom")
+
+    excluded_reasons = (
+        df.loc[~(complete_fa & primary_include), "mode_a_qc_reason"]
+        .fillna("")
+        .str.split(";")
+        .explode()
+    )
+    excluded_reasons = excluded_reasons[excluded_reasons != ""]
+    if not excluded_reasons.empty:
+        top_reasons = excluded_reasons.value_counts().head(3)
+        reason_text = "Top QC reasons:\n" + "\n".join(f"{name}: {count}" for name, count in top_reasons.items())
+        qc_ax.text(1.04, 0.96, reason_text, transform=qc_ax.transAxes, va="top", fontsize=9)
+
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    output_plot = csv_path.parent / f"{csv_path.parent.name}_Rezim_A_Plots.png"
+    fig.savefig(output_plot, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Rezim A plots were generated to: '{output_plot}'")
+    return output_plot
