@@ -1,9 +1,8 @@
-
 from __future__ import annotations
 
 
 def summarize_calibrations(metadata_by_file: dict) -> dict:
-    #Report whether detected TIFF calibrations are consistent within one batch
+    #Report whether detected TIFF calibrations are consistent within one batch.
     pairs = {
         (
             round(float(values["pixel_size_nm"]), 6),
