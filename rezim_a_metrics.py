@@ -5,6 +5,9 @@ from rezim_a_anisotropy import shape_anisotropy
 from rezim_a_core_shell import split_core_middle_shell
 
 
+MODE_A_LAYER_SCHEME = "edt_over_max_thirds_v1"
+
+
 def compute_core_shell_metrics(
     object_mask,
     *,
@@ -52,6 +55,8 @@ def compute_core_shell_metrics(
         results[f"A_{name}_valid"] = result["anisotropy_valid"]
 
     #The delta is a geometric comparison and remains NaN when a layer is empty, preserving the QC signal instead of inventing a value.
+    results["delta_A_middle_shell"] = results["A_middle"] - results["A_shell"]
+    results["delta_A_core_middle"] = results["A_core"] - results["A_middle"]
     results["delta_A_core_shell"] = results["A_core"] - results["A_shell"]
     results["core_valid"] = bool(layers["qc"]["core_valid"])
     results["layer_qc"] = layers["qc"]
