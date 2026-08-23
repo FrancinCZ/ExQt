@@ -2,7 +2,15 @@ import os
 import json
 import threading
 from datetime import datetime
-from Batch import process_condensates, get_metadata_from_tif
+from Batch import (
+    MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
+    MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
+    MODE_A_Z_SPLIT_PASS_FRACTION,
+    MODE_A_Z_SPLIT_REVIEW_FRACTION,
+    get_metadata_from_tif,
+    process_condensates,
+)
+from rezim_a_metrics import MODE_A_LAYER_SCHEME
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
@@ -16,7 +24,13 @@ import numpy as np
 import tifffile
 import pandas as pd
 from pathlib import Path
-from postprocessing import generate_excel_stats, generate_plots, generate_rezim_a_plots
+from postprocessing import (
+    QCPolicyMismatchError,
+    generate_excel_stats,
+    generate_plots,
+    generate_rezim_a_plots,
+    merge_statistics_folder,
+)
 from calibration_policy import summarize_calibrations
 
 DEFAULT_SETTINGS = {
@@ -24,9 +38,23 @@ DEFAULT_SETTINGS = {
     "adv_z_step": 250.0,
     "adv_signal_ch": 1,
     "adv_dapi_ch": 0,
+    "raw_min_voxels": 5,
     "mode_a_enabled": False,
     "mode_a_min_core_voxels": 20,
     "mode_a_exclude_split_slices": True,
+    "mode_a_z_split_min_component_voxels": MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
+    "mode_a_z_split_min_component_fraction": MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
+    "mode_a_z_split_pass_fraction": MODE_A_Z_SPLIT_PASS_FRACTION,
+    "mode_a_z_split_review_fraction": MODE_A_Z_SPLIT_REVIEW_FRACTION,
+}
+
+REPORT_DEFAULTS = {
+    "report_excel": True,
+    "report_primary_csv": True,
+    "report_excluded_csv": True,
+    "report_raw_audit_csv": False,
+    "report_standard_plots": True,
+    "report_mode_a_plots": True,
 }
 
 def _safe_float(value, default):
@@ -121,6 +149,10 @@ class AnalysisWorker(QThread):
                         mode_a_enabled=self.params.get("mode_a_enabled", False),
                         mode_a_min_core_voxels=self.params.get("mode_a_min_core_voxels", 20),
                         mode_a_exclude_split_slices=self.params.get("mode_a_exclude_split_slices", True),
+                        mode_a_z_split_min_component_voxels=self.params.get("mode_a_z_split_min_component_voxels", MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS),
+                        mode_a_z_split_min_component_fraction=self.params.get("mode_a_z_split_min_component_fraction", MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION),
+                        mode_a_z_split_pass_fraction=self.params.get("mode_a_z_split_pass_fraction", MODE_A_Z_SPLIT_PASS_FRACTION),
+                        mode_a_z_split_review_fraction=self.params.get("mode_a_z_split_review_fraction", MODE_A_Z_SPLIT_REVIEW_FRACTION),
                     )
                     appended_this_round = False
                     if df_file is not None and not df_file.empty:
@@ -163,6 +195,7 @@ class AnalysisWorker(QThread):
                         "z_step_nm": self.params["z_step_nm"],
                         # Keep the applied and detected calibration evidence together in metadata JSON.
                         "calibration_policy": self.params.get("calibration_policy", "one_explicit_calibration_per_batch"),
+                        "calibration_confirmation": self.params.get("calibration_confirmation", "unknown"),
                         "detected_metadata_by_file": self.params.get("detected_metadata_by_file", {}),
                         "plot_min_size": self.params.get("plot_min_size", 0.0001),
                         "plot_max_size": self.params.get("plot_max_size", 2.0)
@@ -175,12 +208,31 @@ class AnalysisWorker(QThread):
                         "enabled": self.params.get("mode_a_enabled", False),
                         "available_in_mode": "3d",
                         "min_core_voxels": self.params.get("mode_a_min_core_voxels", 20),
+                        "minimum_voxel_policy": "same minimum applied to object, shell, middle, and core FA validity; also used as minimum core size",
                         "exclude_split_slices_from_primary": self.params.get("mode_a_exclude_split_slices", True),
-                        "layer_scheme": "baseline_thirds",
+                        "require_z_topology_pass_for_primary": self.params.get("mode_a_exclude_split_slices", True),
+                        "z_split_policy": "substantial_component_fraction_v1",
+                        "z_split_min_component_voxels": self.params.get("mode_a_z_split_min_component_voxels", MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS),
+                        "z_split_min_component_fraction": self.params.get("mode_a_z_split_min_component_fraction", MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION),
+                        "z_split_pass_fraction": self.params.get("mode_a_z_split_pass_fraction", MODE_A_Z_SPLIT_PASS_FRACTION),
+                        "z_split_review_fraction": self.params.get("mode_a_z_split_review_fraction", MODE_A_Z_SPLIT_REVIEW_FRACTION),
+                        "layer_scheme": MODE_A_LAYER_SCHEME,
                         "sampling_order": "Z,Y,X",
-                        "metrics": ["A_object", "A_shell", "A_middle", "A_core", "Delta_A_core_shell"],
+                        "metrics": [
+                            "A_object", "A_shell", "A_middle", "A_core",
+                            "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
+                        ],
                         "interpretation": "Geometric structural-response metrics; not direct stiffness, liquidity, or viscosity measurements."
-                    }
+                    },
+                    "reporting": {
+                        "enabled": self.params.get("generate_reports", False),
+                        "excel": self.params.get("report_excel", True),
+                        "primary_csv": self.params.get("report_primary_csv", True),
+                        "excluded_csv": self.params.get("report_excluded_csv", True),
+                        "raw_audit_csv": self.params.get("report_raw_audit_csv", False),
+                        "standard_plots": self.params.get("report_standard_plots", True),
+                        "mode_a_plots": self.params.get("report_mode_a_plots", True),
+                    },
                 }
                 meta_path = output_folder / f"{folder_path.name}_Output_Batch_{self.params['mode']}_metadata.json"
                 try:
@@ -190,14 +242,29 @@ class AnalysisWorker(QThread):
                 except Exception as e:
                     self.progress.emit(f"Error saving metadata: {str(e)}")
 
-                if self.params.get("gen_excel"):
+                report_tables_requested = self.params.get("generate_reports", False) and any((
+                    self.params.get("report_excel", True),
+                    self.params.get("report_primary_csv", True),
+                    self.params.get("report_excluded_csv", True),
+                    self.params.get("report_raw_audit_csv", False),
+                ))
+                if report_tables_requested:
                     try:
-                        generate_excel_stats(str(output_csv))
-                        self.progress.emit("Excel was generated.")
+                        report_result = generate_excel_stats(
+                            str(output_csv),
+                            min_size=self.params.get("plot_min_size", 0.0001),
+                            max_size=self.params.get("plot_max_size", 2.0),
+                            generate_excel=self.params.get("report_excel", True),
+                            generate_primary_csv=self.params.get("report_primary_csv", True),
+                            generate_excluded_csv=self.params.get("report_excluded_csv", True),
+                            generate_raw_audit_csv=self.params.get("report_raw_audit_csv", False),
+                        )
+                        generated = [name for name in ("excel", "primary_csv", "excluded_csv", "all_objects_csv") if report_result.get(name)]
+                        self.progress.emit(f"Selected tables generated: {', '.join(generated)}")
                     except Exception as e:
-                        self.progress.emit(f"Error generating Excel: {str(e)}")
+                        self.progress.emit(f"Error generating report tables: {str(e)}")
 
-                if self.params.get("gen_plots"):
+                if self.params.get("generate_reports", False) and self.params.get("report_standard_plots", True):
                     try:
                         generate_plots(
                             str(output_csv),
@@ -208,11 +275,19 @@ class AnalysisWorker(QThread):
                     except Exception as e:
                         self.progress.emit(f"Error generating graphs: {str(e)}")
 
-                # Rezim A creates an additional audit report. Standard ExQt plots above
-                # remain unchanged and do not contain Core-Shell FA values.
-                if self.params.get("gen_plots") and self.params.get("mode_a_enabled") and self.params["mode"] == "3d":
+                #Rezim A creates an additional audit report. Standard ExQt plots above remain unchanged and do not contain Core-Shell FA values.
+                if (
+                    self.params.get("generate_reports", False)
+                    and self.params.get("report_mode_a_plots", True)
+                    and self.params.get("mode_a_enabled")
+                    and self.params["mode"] == "3d"
+                ):
                     try:
-                        generate_rezim_a_plots(str(output_csv))
+                        generate_rezim_a_plots(
+                            str(output_csv),
+                            min_size=self.params.get("plot_min_size"),
+                            max_size=self.params.get("plot_max_size"),
+                        )
                         self.progress.emit("Rezim A QC plots were generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating Rezim A plots: {str(e)}")
@@ -223,6 +298,52 @@ class AnalysisWorker(QThread):
         except Exception as e:
             self.progress.emit(f"Error when loading: {str(e)}")
             self.progress.emit("Done")
+
+class ReportOptionsDialog(QDialog):
+    #Choose derived outputs without changing the source audit CSV
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Generated Output Options")
+        self.setMinimumWidth(470)
+        self.settings = QSettings("MyLab", "ExQt")
+
+        layout = QVBoxLayout(self)
+        note = QLabel(
+            "The original *_Output_Batch_*.csv is always saved as the complete machine/audit table.\n"
+            "Choose only the additional human-facing reports you need."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        self.controls = {}
+        choices = [
+            ("report_excel", "Clean Excel report", "Summary plus primary, excluded, raw and QC-policy sheets."),
+            ("report_primary_csv", "Primary QC-valid CSV", "Compact table used for primary analysis."),
+            ("report_excluded_csv", "QC-excluded CSV", "Reason-focused table for troubleshooting exclusions."),
+            ("report_standard_plots", "Standard descriptive plots", "Volume, intensity and density overview."),
+            ("report_mode_a_plots", "Rezim A shell-middle-core plots", "Generated only when Rezim A is active in 3D."),
+            ("report_raw_audit_csv", "Extra full raw audit CSV", "Usually unnecessary: duplicates the source table with reporting flags and diameters."),
+        ]
+        for key, label, tooltip in choices:
+            checkbox = QCheckBox(label)
+            checkbox.setToolTip(tooltip)
+            checkbox.setChecked(_safe_bool(
+                self.settings.value(key, REPORT_DEFAULTS[key]), REPORT_DEFAULTS[key]
+            ))
+            self.controls[key] = checkbox
+            layout.addWidget(checkbox)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self):
+        for key, checkbox in self.controls.items():
+            self.settings.setValue(key, checkbox.isChecked())
+        super().accept()
+
 
 class AdvancedSettingsDialog(QDialog):
     #Edit and persist calibration, channel, and Rezim A settings
@@ -255,6 +376,14 @@ class AdvancedSettingsDialog(QDialog):
         self.dapi_spin = QSpinBox()
         form.addRow("DAPI Channel:", self.dapi_spin)
 
+        self.raw_min_voxels_spin = QSpinBox()
+        self.raw_min_voxels_spin.setRange(1, 10000)
+        self.raw_min_voxels_spin.setToolTip(
+            "Early connected-component noise floor before calibrated biological-size filtering. "
+            "This is separate from the analyzed µm²/µm³ range and from Rezim A layer validity."
+        )
+        form.addRow("Raw noise filter (pixels/voxels):", self.raw_min_voxels_spin)
+
         self.mode_a_enabled_check = QCheckBox("Enable Rezim A (3D core-shell FA)")
         self.mode_a_enabled_check.setToolTip(
             "Adds geometric core-shell Fractional Anisotropy metrics. "
@@ -265,16 +394,17 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin = QSpinBox()
         self.mode_a_min_core_spin.setRange(1, 100000)
         self.mode_a_min_core_spin.setToolTip(
-            "Minimum core voxels required before the primary core FA is QC-valid."
+            "Minimum voxels required for a layer FA to be valid; the same value also sets the minimum core size."
         )
-        form.addRow("Rezim A min. core voxels:", self.mode_a_min_core_spin)
+        form.addRow("Rezim A min. voxels per FA layer:", self.mode_a_min_core_spin)
         self.mode_a_label = form.labelForField(self.mode_a_min_core_spin)
 
         self.mode_a_exclude_split_check = QCheckBox(
-            "Exclude split Z-slice silhouettes from primary comparison"
+            "Require Z-topology PASS for primary comparison"
         )
         self.mode_a_exclude_split_check.setToolTip(
-            "Keeps flagged objects in the CSV but marks them as unsuitable for the primary biological comparison."
+            "Ignores tiny detached components, grades persistent substantial splitting as PASS/REVIEW/FAIL, "
+            "and keeps REVIEW/FAIL objects in the CSV outside the primary comparison."
         )
         form.addRow("", self.mode_a_exclude_split_check)
 
@@ -312,6 +442,7 @@ class AdvancedSettingsDialog(QDialog):
         self.z_step_spin.setValue(_safe_float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]), DEFAULT_SETTINGS["adv_z_step"]))
         self.signal_spin.setValue(int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])))
         self.dapi_spin.setValue(int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])))
+        self.raw_min_voxels_spin.setValue(int(self.settings.value("raw_min_voxels", DEFAULT_SETTINGS["raw_min_voxels"])))
         self.mode_a_enabled_check.setChecked(_safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])))
         self.mode_a_min_core_spin.setValue(int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])))
         self.mode_a_exclude_split_check.setChecked(_safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])))
@@ -322,6 +453,7 @@ class AdvancedSettingsDialog(QDialog):
         self.settings.setValue("adv_z_step", self.z_step_spin.value())
         self.settings.setValue("adv_signal_ch", self.signal_spin.value())
         self.settings.setValue("adv_dapi_ch", self.dapi_spin.value())
+        self.settings.setValue("raw_min_voxels", self.raw_min_voxels_spin.value())
         self.settings.setValue("mode_a_enabled", self.mode_a_enabled_check.isChecked())
         self.settings.setValue("mode_a_min_core_voxels", self.mode_a_min_core_spin.value())
         self.settings.setValue("mode_a_exclude_split_slices", self.mode_a_exclude_split_check.isChecked())
@@ -384,13 +516,6 @@ class ExQt(QMainWindow):
         self.exp_factor_spin.setDecimals(1)
         form_layout.addRow("Expansion Factor:", self.exp_factor_spin)
 
-        self.min_voxel_spinbox = QSpinBox()
-        self.min_voxel_spinbox.setRange(1, 10000)
-        self.min_voxel_spinbox.setValue(5)
-        self.min_voxel_spinbox.setToolTip("Ignore objects smaller than this number of voxels/pixels (noise filtering).")
-        form_layout.addRow("Min. size (voxels):", self.min_voxel_spinbox)
-        self.min_voxel_label = form_layout.labelForField(self.min_voxel_spinbox)
-
         self.show_napari_check = QCheckBox("Show Napari preview")
         self.show_napari_check.setChecked(True)
         form_layout.addRow("", self.show_napari_check)
@@ -402,23 +527,34 @@ class ExQt(QMainWindow):
         self.review_check = QCheckBox("Pause and review segmentations")
         form_layout.addRow("", self.review_check)
 
-        self.generate_excel_check = QCheckBox("Generate Excel stats")
-        form_layout.addRow("", self.generate_excel_check)
-
-        self.generate_plots_check = QCheckBox("Generate plots")
-        form_layout.addRow("", self.generate_plots_check)
+        report_row = QHBoxLayout()
+        self.generate_reports_check = QCheckBox("Generate selected reports")
+        self.generate_reports_check.setToolTip(
+            "The original machine/audit CSV is always saved. This switch controls only additional reports."
+        )
+        self.report_options_button = QPushButton("Configure...")
+        self.report_options_button.clicked.connect(self.open_report_options)
+        report_row.addWidget(self.generate_reports_check)
+        report_row.addWidget(self.report_options_button)
+        form_layout.addRow("Reports:", report_row)
 
         self.plot_min_size_spin = QDoubleSpinBox()
         self.plot_min_size_spin.setRange(0.0, 1000.0)
         self.plot_min_size_spin.setDecimals(4)
-        self.plot_min_size_spin.setToolTip("Objects smaller than this (in µm² or µm³) are excluded from the plots only - not from the CSV.")
-        form_layout.addRow("Plot Min Size (µm²/µm³):", self.plot_min_size_spin)
+        self.plot_min_size_spin.setToolTip(
+            "Lower calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
+            "The original raw audit CSV remains unfiltered."
+        )
+        form_layout.addRow("Analyzed Size Min (µm²/µm³):", self.plot_min_size_spin)
 
         self.plot_max_size_spin = QDoubleSpinBox()
         self.plot_max_size_spin.setRange(0.0001, 100000.0)
         self.plot_max_size_spin.setDecimals(2)
-        self.plot_max_size_spin.setToolTip("Objects larger than this (in µm² or µm³) are excluded from the plots only - not from the CSV.")
-        form_layout.addRow("Plot Max Size (µm²/µm³):", self.plot_max_size_spin)
+        self.plot_max_size_spin.setToolTip(
+            "Upper calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
+            "The original raw audit CSV remains unfiltered."
+        )
+        form_layout.addRow("Analyzed Size Max (µm²/µm³):", self.plot_max_size_spin)
 
         self.left_panel_layout.addLayout(form_layout)
         self.left_panel_layout.addStretch()
@@ -463,6 +599,7 @@ class ExQt(QMainWindow):
         # TIFF metadata is advisory only; the user controls the calibration in Advanced Settings.
         self.detected_metadata_by_file = {}
         self.calibration_warning = ""
+        self.metadata_scanned_folder = None
         self.load_settings()
 
         self.btn_run.clicked.connect(self.start_analysis)
@@ -470,11 +607,8 @@ class ExQt(QMainWindow):
         self.on_mode_changed(self.mode_combo.currentText()) 
 
     def on_mode_changed(self, mode):
-        #Keep size terminology aligned with 2D pixels versus 3D voxels
-        is_3d = mode == "3d"
-        unit_label = "voxels" if is_3d else "pixels"
-        if self.min_voxel_label is not None:
-            self.min_voxel_label.setText(f"Min. size ({unit_label}):")
+        #Rezim A itself is still restricted to 3D; the raw component noise floor lives in Advanced Settings and does not need a main-form label.
+        pass
 
     def choose_folder(self):
         #Select the input folder and opportunistically load TIFF calibration
@@ -486,6 +620,7 @@ class ExQt(QMainWindow):
     def _try_auto_fill_metadata(self, folder_path):
         #Inspect every source TIFF, but never silently overwrite the user's calibration.
         folder = Path(folder_path)
+        self.metadata_scanned_folder = str(folder.resolve())
         files = sorted(
             f for f in folder.glob("*.tif")
             if "Mask" not in f.name and "Final" not in f.name
@@ -499,6 +634,7 @@ class ExQt(QMainWindow):
                 self.detected_metadata_by_file[tif_path.name] = {
                     "pixel_size_nm": float(meta["pixel_size"]),
                     "z_step_nm": float(meta["z_step"]),
+                    "sources": meta.get("sources", {}),
                 }
 
         summary = summarize_calibrations(self.detected_metadata_by_file)
@@ -511,10 +647,29 @@ class ExQt(QMainWindow):
             QMessageBox.warning(self, "Calibration mismatch", self.calibration_warning)
         elif summary["calibration_count"] == 1:
             pixel_size_nm, z_step_nm = summary["calibrations"][0]
-            self.status_label.setText(
-                f"Detected metadata: XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm. "
-                "Values were not applied automatically; review Advanced Settings."
+            reply = QMessageBox.question(
+                self,
+                "Use detected TIFF calibration?",
+                (
+                    "All readable input files report the same calibration:\n\n"
+                    f"XY pixel size: {pixel_size_nm:g} nm\n"
+                    f"Z-step: {z_step_nm:g} nm\n\n"
+                    "Use these values in ExQt Advanced Settings? They will still be shown "
+                    "for confirmation before analysis starts."
+                ),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
             )
+            if reply == QMessageBox.Yes:
+                self.settings.setValue("adv_pixel_size", pixel_size_nm)
+                self.settings.setValue("adv_z_step", z_step_nm)
+                self.status_label.setText(
+                    f"TIFF calibration selected: XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm."
+                )
+            else:
+                self.status_label.setText(
+                    f"Detected XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm; current manual settings retained."
+                )
         elif files:
             self.status_label.setText(
                 "No usable physical metadata detected; enter calibration manually in Advanced Settings."
@@ -522,6 +677,14 @@ class ExQt(QMainWindow):
             
     def create_menu(self):
         menu_bar = self.menuBar()
+
+        tools_menu = menu_bar.addMenu("Tools")
+        self.merge_runs_action = QAction("Merge existing runs...", self)
+        self.merge_runs_action.setToolTip(
+            "Recursively merge compatible ExQt batch CSVs from one folder tree."
+        )
+        tools_menu.addAction(self.merge_runs_action)
+        self.merge_runs_action.triggered.connect(self.merge_existing_runs)
 
         settings_menu = menu_bar.addMenu("Settings")
         self.dark_mode_action = QAction("Dark Mode", self)
@@ -548,6 +711,61 @@ class ExQt(QMainWindow):
         dialog = AdvancedSettingsDialog(self, mode=self.mode_combo.currentText())
         dialog.exec()
 
+    def open_report_options(self):
+        ReportOptionsDialog(self).exec()
+
+    def merge_existing_runs(self):
+        root = QFileDialog.getExistingDirectory(
+            self,
+            "Choose folder containing ExQt run CSVs",
+            self.output_path_edit.text() or self.folder_input.text(),
+        )
+        if not root:
+            return
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save merged statistics",
+            str(Path(root) / "Merged_Stats.xlsx"),
+            "Excel workbook (*.xlsx)",
+        )
+        if not output_path:
+            return
+        if not output_path.lower().endswith(".xlsx"):
+            output_path += ".xlsx"
+        include_raw = QMessageBox.question(
+            self,
+            "Include merged raw audit?",
+            (
+                "Include every raw connected component in an additional workbook sheet?\n\n"
+                "Recommended: No. Primary and QC-excluded objects plus per-run summaries are normally sufficient."
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) == QMessageBox.Yes
+        try:
+            result = merge_statistics_folder(root, output_path, include_raw=include_raw)
+        except QCPolicyMismatchError as exc:
+            QMessageBox.critical(
+                self,
+                "Runs cannot be merged",
+                str(exc),
+            )
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Merge failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Merge completed",
+            (
+                f"Merged {result['run_count']} compatible runs.\n"
+                f"Primary objects: {result['primary_count']}\n"
+                f"QC-excluded objects: {result['excluded_count']}\n\n"
+                f"Workbook:\n{result['excel']}\n\n"
+                f"Merged graph:\n{result['plot']}"
+            ),
+        )
+
     def choose_output_folder(self):
         #Select the destination used for generated CSV and derived outputs.
         folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
@@ -571,6 +789,7 @@ class ExQt(QMainWindow):
         
         self.plot_min_size_spin.setValue(_safe_float(self.settings.value("plot_min_size", 0.0001), 0.0001))
         self.plot_max_size_spin.setValue(_safe_float(self.settings.value("plot_max_size", 2.0), 2.0))
+        self.generate_reports_check.setChecked(_safe_bool(self.settings.value("generate_reports", False)))
         
         same_folder_saved = self.settings.value("same_folder", "false")
         if str(same_folder_saved).lower() == "true":
@@ -583,6 +802,7 @@ class ExQt(QMainWindow):
         self.settings.setValue("same_folder", self.same_folder_checkbox.isChecked())
         self.settings.setValue("plot_min_size", self.plot_min_size_spin.value())
         self.settings.setValue("plot_max_size", self.plot_max_size_spin.value())
+        self.settings.setValue("generate_reports", self.generate_reports_check.isChecked())
         event.accept()
 
     def start_analysis(self):
@@ -603,35 +823,86 @@ class ExQt(QMainWindow):
             QMessageBox.warning(self, "Missing Masks", f"For these files there are no corresponding mask files:\n{', '.join(missing_masks)}")
             return 
 
+        if self.metadata_scanned_folder != str(folder.resolve()):
+            self._try_auto_fill_metadata(folder_path)
+
         if self.calibration_warning:
             QMessageBox.warning(self, "Calibration mismatch", self.calibration_warning)
             return
 
-        #Snapshot all GUI values before starting the thread so worker
-        #execution is independent of subsequent widget changes.
+        pixel_size_nm = _safe_float(
+            self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"]),
+            DEFAULT_SETTINGS["adv_pixel_size"],
+        )
+        z_step_nm = _safe_float(
+            self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]),
+            DEFAULT_SETTINGS["adv_z_step"],
+        )
+        expansion_factor = self.exp_factor_spin.value()
+        if self.mode_combo.currentText() == "3d":
+            calibration_text = (
+                f"Acquisition XY pixel size: {pixel_size_nm:g} nm\n"
+                f"Acquisition Z-step: {z_step_nm:g} nm\n"
+                f"Expansion factor: {expansion_factor:g}×\n\n"
+                f"Effective biological sampling: Z={z_step_nm / expansion_factor:g} nm, "
+                f"Y/X={pixel_size_nm / expansion_factor:g} nm"
+            )
+        else:
+            calibration_text = (
+                f"Acquisition XY pixel size: {pixel_size_nm:g} nm\n"
+                f"Expansion factor: {expansion_factor:g}×\n\n"
+                f"Effective biological XY sampling: {pixel_size_nm / expansion_factor:g} nm"
+            )
+        if _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])):
+            calibration_text += (
+                "\n\nRezim A min. voxels per FA layer: "
+                f"{int(self.settings.value('mode_a_min_core_voxels', DEFAULT_SETTINGS['mode_a_min_core_voxels']))}"
+            )
+        reply = QMessageBox.question(
+            self,
+            "Confirm calibration",
+            calibration_text + "\n\nContinue with these values?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.status_label.setText("Analysis cancelled: calibration was not confirmed.")
+            return
+
+        #Snapshot all GUI values before starting the thread so worker execution is independent of subsequent widget changes.
         params = {
             "input_folder": folder_path,
             "output_folder": self.output_path_edit.text(),
             "mode": self.mode_combo.currentText(),
-            "expansion_factor": self.exp_factor_spin.value(),
-            "min_voxels": self.min_voxel_spinbox.value(),
+            "expansion_factor": expansion_factor,
+            "min_voxels": int(self.settings.value("raw_min_voxels", DEFAULT_SETTINGS["raw_min_voxels"])),
             "auto_roi": self.auto_roi_check.isChecked(),
             "review_each_image": self.review_check.isChecked(),
             "show_napari": self.show_napari_check.isChecked(),
-            "gen_excel": self.generate_excel_check.isChecked(),
-            "gen_plots": self.generate_plots_check.isChecked(),
+            "generate_reports": self.generate_reports_check.isChecked(),
+            "report_excel": _safe_bool(self.settings.value("report_excel", REPORT_DEFAULTS["report_excel"]), REPORT_DEFAULTS["report_excel"]),
+            "report_primary_csv": _safe_bool(self.settings.value("report_primary_csv", REPORT_DEFAULTS["report_primary_csv"]), REPORT_DEFAULTS["report_primary_csv"]),
+            "report_excluded_csv": _safe_bool(self.settings.value("report_excluded_csv", REPORT_DEFAULTS["report_excluded_csv"]), REPORT_DEFAULTS["report_excluded_csv"]),
+            "report_raw_audit_csv": _safe_bool(self.settings.value("report_raw_audit_csv", REPORT_DEFAULTS["report_raw_audit_csv"]), REPORT_DEFAULTS["report_raw_audit_csv"]),
+            "report_standard_plots": _safe_bool(self.settings.value("report_standard_plots", REPORT_DEFAULTS["report_standard_plots"]), REPORT_DEFAULTS["report_standard_plots"]),
+            "report_mode_a_plots": _safe_bool(self.settings.value("report_mode_a_plots", REPORT_DEFAULTS["report_mode_a_plots"]), REPORT_DEFAULTS["report_mode_a_plots"]),
             "plot_min_size": self.plot_min_size_spin.value(),
             "plot_max_size": self.plot_max_size_spin.value(),
-            "pixel_size_nm": _safe_float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"]), DEFAULT_SETTINGS["adv_pixel_size"]),
-            "z_step_nm": _safe_float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]), DEFAULT_SETTINGS["adv_z_step"]),
-            # The normal GUI workflow uses one deliberate calibration per batch.
+            "pixel_size_nm": pixel_size_nm,
+            "z_step_nm": z_step_nm,
+            #The normal GUI workflow uses one deliberate calibration per batch.
             "calibration_policy": "one_explicit_calibration_per_batch",
+            "calibration_confirmation": "confirmed_by_user_at_run_start",
             "detected_metadata_by_file": self.detected_metadata_by_file,
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
             "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])),
             "mode_a_enabled": _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])),
             "mode_a_min_core_voxels": int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])),
             "mode_a_exclude_split_slices": _safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])),
+            "mode_a_z_split_min_component_voxels": DEFAULT_SETTINGS["mode_a_z_split_min_component_voxels"],
+            "mode_a_z_split_min_component_fraction": DEFAULT_SETTINGS["mode_a_z_split_min_component_fraction"],
+            "mode_a_z_split_pass_fraction": DEFAULT_SETTINGS["mode_a_z_split_pass_fraction"],
+            "mode_a_z_split_review_fraction": DEFAULT_SETTINGS["mode_a_z_split_review_fraction"],
         }
 
         self.btn_run.setEnabled(False)
