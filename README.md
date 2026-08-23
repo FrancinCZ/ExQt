@@ -1,108 +1,212 @@
-# ExQt: Expansion microscopy Quantification analysis of Nuclear Condensates
+# ExQt: Expansion Microscopy Quantification of Nuclear Condensates
 
-ExQt is an open-source, PySide6-based desktop application designed for the flexible analysis of 3D/2D biological image data, specifically optimized for Expansion Microscopy (ExM). It bridges the gap between raw imaging data, segmentation masks (e.g., from Labkit or Fiji), and interactive visualization using `napari`.
+ExQt is an open-source desktop application for quantitative analysis of 2D and 3D microscopy images, with an emphasis on expansion microscopy (ExM) and nuclear condensates. It combines raw TIFF intensity data with a user-provided segmentation mask, applies physical calibration and the expansion factor, and produces auditable object-level measurements, quality-control results, reports, and plots.
 
-## Features
-*   **Interactive 3D/2D Visualization:** Integration with `napari` for visual inspection of raw data, segmentation masks, and analyzed condensates.
-*   **Segmentation & Filtering:** Employs user-provided TIF masks combined with minimum size constraints to strictly filter out sub-resolution noise and artifacts.
-*   **Batch Processing:** Automated pipeline for processing multiple `.tif` files, outputting comprehensive spatial coordinates (Z, Y, X), biological volumes, equivalent diameters, and signal intensities.
-*   **Auditability & Reproducibility:** Automatically generates statistics and graphs with metadata logs (JSON) for every batch, detailing all applied parameters (expansion factor, pixel size, thresholds).
+ExQt does **not** perform segmentation itself. Masks can be prepared in software such as [Labkit](https://imagej.net/plugins/labkit/), [ilastik](https://www.ilastik.org/), Fiji, or another segmentation tool capable of exporting TIFF masks.
 
----
+## Main features
+
+- Analysis of full 3D stacks, maximum-intensity projections, or a selected single slice.
+- Binary-mask and instance-label-mask support with defensive validation.
+- Physical calibration using XY pixel size, Z-step, and the sample expansion factor.
+- Object coordinates, calibrated area or volume, equivalent diameter, and intensity measurements.
+- Optional manual ROI selection and napari preview.
+- Reproducible batch processing with a machine-readable CSV and metadata JSON.
+- Configurable human-readable Excel, CSV, and plot reports.
+- Optional **Rezim A** analysis of radial Shell–Middle–Core geometric fractional anisotropy (FA).
+- Rezim A quality control for image/ROI edges, incomplete radial layers, and persistent splitting across Z.
+- Optional merging of compatible completed runs into one Excel workbook and overview plot.
+
+> [!IMPORTANT]
+> Rezim A measures a geometric pattern: how shape anisotropy changes from the outer shell toward the core. It does not directly measure liquidity, viscosity, stiffness, molecular exchange, or phase separation. A positive Shell-to-Core trend may be biologically interesting, but it is not by itself proof of LLPS.
 
 ## Installation
 
-Installing ExQt is recommended inside an isolated virtual environment using [Conda](https://docs.conda.io/en/latest/miniconda.html) (or Mamba) to prevent dependency conflicts with other Python packages on your system.
+An isolated Conda environment is recommended.
 
 ### 1. Clone the repository
-First, download the source code to your local machine:
 
-```Bash
-git clone [https://github.com/FrancinCZ/ExQt.git](https://github.com/FrancinCZ/ExQt.git)
+```bash
+git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
-
 ```
 
-### 2. Create a Conda environment
+### 2. Create and activate the environment
 
-environment.yml is provided so that it automatically handles the installation of Python and all required dependencies (including napari and PySide6). Create and activate the environment by running:
-
-```Bash
+```bash
 conda env create -f environment.yml
 conda activate exqt-env
-
 ```
 
-(Note: If you prefer using pure Python without Conda, you can alternatively install the dependencies via pip install -r requirements.txt)
+The environment file already installs the application dependencies. Alternatively, dependencies can be installed into an existing environment:
 
-### 3. Install dependencies
-
-Install the required packages. Ensure your activated environment is running, then install the dependencies via pip:
-
-```Bash
-pip install -r requirements.txt
-
+```bash
+python -m pip install -r requirements.txt
 ```
 
-(Note: If you encounter issues with napari or PySide6 on specific operating systems, refer to their official documentation for OS-specific binaries).
+### 3. Start ExQt
 
-### 4. Run the application
-
-Once everything is installed, you can launch the graphical user interface by running:
-
-```Bash
+```bash
 python App.py
-
 ```
 
----
+## Input data
 
-## Quick Start
+For every raw TIFF, ExQt expects a mask in the same input directory with the suffix `_Mask`:
 
-To help you get familiar with ExQt, a sample dataset is provided in the `example_data/` directory.
+```text
+sample.tif
+sample_Mask.tif
+```
 
-1. **Launch the app:** Run `python App.py`.
-2. **Choose the folder:** Click **Browse** and select your data directory. ExQt expects each raw image `sample.tif` to have a matching segmentation mask named `sample_Mask.tif` in the same folder.
-3. **Set Parameters:** Select a **Process mode** (`3d`, `2d`, or `single_slice`) and adjust settings (e.g., Expansion Factor, Z-step, Pixel size, Min. size) according to your sample metadata.
-4. **Run Analysis:** Click **Start analysis** to begin processing the data.
-5. **Review:** If you enable the **"Pause and review segmentations"** option, ExQt will pause after each image to let you visually inspect the intermediate steps in `napari` before continuing. Otherwise, processing proceeds automatically.
-6. **Output:** The software outputs a CSV file containing spatial coordinates (Z, Y, X), biological volumes, and morphological data of detected condensates. A JSON metadata file is created alongside it for reproducibility. If enabled, Excel statistics and distribution plots are generated automatically in the output folder.
+The raw image and mask must describe the same spatial field and have compatible dimensions.
 
-## Configuration Parameters
+### Supported masks
 
-### Main Settings
+- **Binary masks:** background is zero and all positive pixels/voxels are foreground. Conventional `0/1` and `0/255` masks are accepted and connected components are labeled automatically.
+- **Instance masks:** background is zero and every object has its own positive integer ID.
 
-The main interface of ExQt provides parameters required to correctly process and scale your data.
+Non-integer values, negative labels, NaN/Inf values, and reused instance IDs in disconnected regions are rejected instead of being silently interpreted. For automatic connected-component labeling, export a binary mask. For instance segmentation, use one unique integer ID per 3D object.
 
-* **Input / Output Directories:** Define the source folder containing your raw `.tif` images and corresponding `.tif` masks (named `sample_Mask.tif`). Select the destination folder for results, or check **Save to the same folder as input**.
-* **Process mode:** ExQt handles full 3D volumes (`3d`), 2D images via Maximum Intensity Projection (`2d`), or single-slice extraction (`single_slice`). In `single_slice` mode, ExQt automatically selects the sharpest Z-slice using a focus-quality metric (variance of the Laplacian).
-* **Expansion Factor:** The physical expansion ratio of your biological sample (e.g., 4.0). Essential for calculating true biological volumes and spatial coordinates. Set to 1.0 for non-expanded data.
-* **Min. size (voxels / pixels):** The minimum number of connected voxels (in `3d` mode) or pixels (in `2d`/`single_slice` mode) required to classify a segmented object as a valid condensate, filtering out sub-resolution noise.
-* **Process Controls:**
-* *Show Napari preview:* Toggles visual rendering of image data and detected condensates in `napari`.
-* *Auto-ROI:* When enabled, treats the entire field of view as a single region of interest. If disabled, prompts the user to draw a custom ROI for per-cell (`cell_id`) statistics.
-* *Pause and review segmentations:* Halts the batch processing pipeline after each image for visual verification.
-* *Generate Excel stats & Generate plots:* Toggles automatic creation of descriptive statistics and distribution plots.
+## Quick start
 
+1. Start ExQt with `python App.py`.
+2. Select the folder containing the raw TIFF files and matching `_Mask.tif` files.
+3. Select an output folder, or enable **Save to the same folder as input**.
+4. Choose the process mode: `3d`, `2d`, or `single_slice`.
+5. Set the expansion factor and the analyzed biological-size range.
+6. Open **Settings → Advanced...** and verify calibration, channels, the raw noise filter, and optional Rezim A settings.
+7. Choose whether to use the whole image (**Auto-ROI**) or draw a manual ROI.
+8. Optionally enable napari preview or pause-and-review.
+9. Enable **Generate selected reports** and use **Configure...** to select the desired outputs.
+10. Start the analysis and confirm the calibration summary shown before processing.
 
+## Calibration and expansion factor
 
-### Advanced Settings
+ExQt distinguishes acquisition calibration from effective biological sampling:
 
-Accessible via the top menu bar (`Settings -> Advanced...`), this menu defines hardware and channel configurations as well as physical dimensions.
+- **Pixel Size XY (nm):** lateral sampling of the acquired image.
+- **Z-step (nm):** distance between acquired Z planes; used only for 3D analysis.
+- **Expansion Factor:** physical sample expansion ratio. Use `1.0` for non-expanded data.
 
-* **Pixel Size XY (nm):** The physical lateral dimension of a single pixel as acquired by the microscope (e.g., 205.2 nm). Essential for calculating true areas and volumes.
-* **Z-step (nm):** The physical axial distance between consecutive slices in a 3D stack. Used in 3D mode for accurate biological volume calculations.
-* **Signal Channel:** The channel index in your raw multi-channel `.tif` image containing the specific condensate signal to quantify (default is channel 1).
-* **DAPI Channel:** The channel index corresponding to the nuclear stain (default is channel 0).
+For example, an acquisition pixel size of 58 nm with a 4× expansion factor corresponds to an effective biological XY sampling of 14.5 nm.
 
-## Acknowledgments and Third-Party Licenses
+ExQt attempts to read usable TIFF metadata and can recommend detected calibration values. Detection is advisory: the values actually used are shown for explicit confirmation before every run. The applied values and detected metadata evidence are recorded in the run metadata JSON.
 
-ExQt is open-source software released under the [MIT License](https://www.google.com/search?q=LICENSE). It relies on several awesome open-source libraries:
+## Process modes
 
-* **PySide6** (Qt for Python) for the graphical user interface (LGPLv3).
-* **napari** for multidimensional image visualization (BSD 3-Clause License).
-* **SciPy**, **NumPy**, and **pandas** for data processing and spatial evaluation (BSD 3-Clause License).
+- **`3d`:** analyzes connected components throughout the complete volume. Z-step and voxel volume are used. Rezim A is available only in this mode.
+- **`2d`:** analyzes a maximum-intensity projection and the projected mask.
+- **`single_slice`:** extracts one selected/focus-ranked Z plane and analyzes it as a 2D image.
 
-The workflow is tailored for segmentation masks generated via tools like [Labkit](https://imagej.net/plugins/labkit/) or [Ilastik](https://www.ilastik.org/).
+## Size settings: three different purposes
+
+These settings are intentionally separate and should not be interpreted as interchangeable:
+
+1. **Raw noise filter (pixels/voxels)** — an early connected-component noise floor. It removes tiny fragments before the main analysis.
+2. **Analyzed biological-size range (µm² or µm³)** — the calibrated lower and upper bounds used by primary statistics, clean report tables, and plots.
+3. **Rezim A minimum voxels per FA layer** — the minimum amount of data required for valid Shell, Middle, and Core FA calculations. The same value also sets the minimum valid core size.
+
+The raw machine/audit CSV may therefore contain more components than the final size-eligible or primary QC-valid sets. This is expected and allows exclusions to remain auditable.
+
+## Rezim A: Shell–Middle–Core FA
+
+Rezim A divides each eligible 3D object into three normalized radial regions using a distance-transform-based scheme:
+
+- **Shell:** outer radial layer
+- **Middle:** intermediate radial layer
+- **Core:** inner radial layer
+
+Geometric fractional anisotropy is calculated independently for each layer using physically scaled coordinates. The main derived values are:
+
+- `Middle − Shell`
+- `Core − Middle`
+- `Delta A = Core FA − Shell FA`
+
+A positive Delta A means that the object's core is geometrically more anisotropic than its shell. The per-object paired plots show whether this pattern is consistent across condensates rather than being driven only by a pooled average.
+
+### Rezim A quality control
+
+Primary Rezim A plots use only objects that are:
+
+- inside the selected biological-size range;
+- complete, with valid Shell, Middle, and Core measurements;
+- not touching a disallowed image or ROI edge; and
+- accepted by the configured Z-topology policy.
+
+Z-topology assessment ignores insignificant detached fragments and classifies persistent substantial splitting across slices as:
+
+- **PASS:** suitable for primary analysis;
+- **REVIEW:** uncertain topology, retained for audit but excluded from the primary set when strict Z-topology is enabled;
+- **FAIL:** strong evidence of persistent splitting or clutter, retained for audit but excluded from the primary set.
+
+The option **Require Z-topology PASS for primary comparison** is deliberately conservative: uncertain objects remain visible in the outputs, but do not silently influence the primary Shell–Middle–Core comparison.
+
+## Generated files
+
+The source batch CSV and its metadata JSON are always the reproducibility backbone of a run. Additional human-facing outputs are optional.
+
+### Always generated
+
+- `*_Output_Batch_<mode>.csv` — complete machine/audit table with measurements and QC fields.
+- `*_Output_Batch_<mode>_metadata.json` — applied calibration, channels, report settings, Rezim A settings, QC policy, and provenance.
+
+### Optional report outputs
+
+The **Configure...** dialog can enable or disable:
+
+- a readable Excel report;
+- a compact primary QC-valid CSV;
+- a QC-excluded CSV with exclusion reasons;
+- an additional full raw audit CSV;
+- standard size/intensity plots;
+- Rezim A Shell–Middle–Core and QC plots.
+
+The Excel report separates summary, primary objects, excluded objects, raw measurements, QC policy, and explanatory content into dedicated sheets instead of presenting one unstructured table.
+
+## Merging completed runs
+
+Use **Tools → Merge existing runs...** to recursively scan a folder containing completed ExQt run CSV files.
+
+Each source batch CSV must have its matching metadata file beside it:
+
+```text
+sample_Output_Batch_3d.csv
+sample_Output_Batch_3d_metadata.json
+```
+
+Before merging, ExQt compares the QC-policy fingerprints. Runs with incompatible analysis or QC settings are rejected rather than silently pooled. Acquisition pixel size and Z-step may differ and remain recorded per run, but the settings that define the analyzed population and QC policy must be compatible.
+
+The merge produces:
+
+- `Merged_Stats.xlsx` — per-run summaries, primary objects, QC-excluded objects, QC-policy comparison, and optionally the complete raw audit table;
+- `Merged_Stats.png` — per-run median radial FA, median Delta A, QC acceptance, and descriptive object-level Delta A distributions.
+
+Pooled condensates are descriptive observations, not independent biological replicates. For biological inference, the experimental unit should normally remain the independently acquired image, cell, or sample, depending on the study design.
+
+## Interpreting the main plots
+
+- **Per-object Shell → Middle → Core FA:** shows paired radial changes for every accepted object.
+- **Layer-to-layer FA changes:** separates the Shell-to-Middle and Middle-to-Core contributions.
+- **Delta A distribution:** summarizes `Core FA − Shell FA`; values above zero indicate greater core anisotropy.
+- **QC funnel:** shows the transition from all segmented components to size-eligible, complete-FA, and primary QC-valid objects.
+- **Standard plots:** describe calibrated size, intensity, density, and the number of condensates per selected ROI/cell.
+
+Interpretation should consider the number of independent runs, run-to-run consistency, segmentation quality, acquisition calibration, and QC acceptance. A consistent trend across several independently acquired images is stronger evidence than many condensates from a single image.
+
+## Reproducibility recommendations
+
+- Keep every batch CSV together with its metadata JSON.
+- Confirm XY pixel size, Z-step, and expansion factor for every acquisition.
+- Use the same segmentation and QC policy for runs intended for comparison.
+- Do not choose size or QC thresholds after inspecting the desired biological result.
+- Preserve QC-excluded objects and reasons instead of deleting them.
+- Treat Rezim A as a geometric pattern analysis unless validated against an independent reference or biological control.
+
+## License and acknowledgments
+
+ExQt is released under the [MIT License](LICENSE). See [About.md](About.md) for project and author information.
+
+The application relies on open-source projects including PySide6, napari, NumPy, pandas, SciPy, scikit-image, tifffile, openpyxl, matplotlib, and seaborn.
 
 
