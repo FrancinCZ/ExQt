@@ -1,11 +1,91 @@
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import tifffile
-from scipy.ndimage import laplace
+from scipy.ndimage import binary_dilation, laplace
 from skimage.measure import regionprops, label
-from rezim_a_metrics import compute_core_shell_metrics
+from rezim_a_metrics import MODE_A_LAYER_SCHEME, compute_core_shell_metrics
+
+
+MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS = 20
+MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION = 0.10
+MODE_A_Z_SPLIT_PASS_FRACTION = 0.10
+MODE_A_Z_SPLIT_REVIEW_FRACTION = 0.30
+
+
+def _positive_finite(value, name):
+    #Return a finite positive float or fail before calibrated measurements
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a positive number; received {value!r}.") from error
+    if not np.isfinite(result) or result <= 0:
+        raise ValueError(f"{name} must be finite and greater than zero; received {value!r}.")
+    return result
+
+
+def _physical_value_to_nm(value, unit):
+    #Convert common OME/ImageJ physical-length units to nanometres
+    if value is None or unit is None:
+        return None
+    normalized = str(unit).strip().lower().replace("μ", "u").replace("µ", "u")
+    factors = {
+        "nm": 1.0,
+        "nanometer": 1.0,
+        "nanometers": 1.0,
+        "um": 1_000.0,
+        "micron": 1_000.0,
+        "microns": 1_000.0,
+        "micrometer": 1_000.0,
+        "micrometers": 1_000.0,
+        "mm": 1_000_000.0,
+        "millimeter": 1_000_000.0,
+        "millimeters": 1_000_000.0,
+        "cm": 10_000_000.0,
+        "m": 1_000_000_000.0,
+        "inch": 25_400_000.0,
+        "in": 25_400_000.0,
+    }
+    factor = factors.get(normalized)
+    if factor is None:
+        return None
+    converted = float(value) * factor
+    return converted if np.isfinite(converted) and converted > 0 else None
+
+
+def _prepare_labeled_mask(mask):
+    #Validate a binary/instance mask and never silently merge 0/255 objects.
+    array = np.asarray(mask)
+    if not np.issubdtype(array.dtype, np.number):
+        raise ValueError(f"Mask must be numeric; received dtype {array.dtype}.")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("Mask contains NaN or infinite values.")
+    if np.any(array < 0):
+        raise ValueError("Mask contains negative labels.")
+    rounded = np.rint(array)
+    if not np.allclose(array, rounded):
+        raise ValueError(
+            "Mask contains non-integer values. Export a binary mask or an integer instance-label mask, "
+            "not probabilities or an interpolated image."
+        )
+
+    integer_mask = rounded.astype(np.int64, copy=False)
+    positive_labels = np.unique(integer_mask[integer_mask > 0])
+    if positive_labels.size <= 1:
+        #Covers conventional 0/1 and 0/255 binary masks.
+        return label(integer_mask > 0)
+
+    #Multiple positive values are interpreted as instance IDs. Reused IDs on disconnected objects would make regionprops merge unrelated structures.
+    for object_id in positive_labels:
+        if int(label(integer_mask == object_id).max()) > 1:
+            raise ValueError(
+                f"Mask label {int(object_id)} occurs in multiple disconnected components. "
+                "Export a binary mask for automatic connected-component labeling, or a true "
+                "instance-label mask with one unique ID per 3D object."
+            )
+    return integer_mask
 
 
 def _touches_image_edge(region, image_shape):
@@ -15,6 +95,31 @@ def _touches_image_edge(region, image_shape):
     return any(start == 0 or end == size for start, end, size in zip(bbox_min, bbox_max, image_shape))
 
 
+def _touches_roi_edge(region, roi_mask):
+    """Return True when an object is directly adjacent to excluded ROI space."""
+    roi = np.asarray(roi_mask, dtype=bool)
+    if roi.ndim != region.image.ndim:
+        raise ValueError("ROI and labeled object must have the same dimensionality.")
+    if np.all(roi):
+        return False
+
+    ndim = region.image.ndim
+    bbox_min = tuple(int(value) for value in region.bbox[:ndim])
+    bbox_max = tuple(int(value) for value in region.bbox[ndim:])
+    crop_min = tuple(max(0, start - 1) for start in bbox_min)
+    crop_max = tuple(min(size, end + 1) for end, size in zip(bbox_max, roi.shape))
+    crop_slices = tuple(slice(start, end) for start, end in zip(crop_min, crop_max))
+
+    local_object = np.zeros(tuple(end - start for start, end in zip(crop_min, crop_max)), dtype=bool)
+    object_slices = tuple(
+        slice(start - crop_start, end - crop_start)
+        for start, end, crop_start in zip(bbox_min, bbox_max, crop_min)
+    )
+    local_object[object_slices] = region.image.astype(bool)
+    adjacent = binary_dilation(local_object) & ~local_object
+    return bool(np.any(adjacent & ~roi[crop_slices]))
+
+
 def _max_components_per_z_slice(object_mask):
     #Detect split silhouettes without deciding biological object identity.
 
@@ -22,9 +127,75 @@ def _max_components_per_z_slice(object_mask):
         return 1
     return max(int(label(object_mask[z]).max()) for z in range(object_mask.shape[0]))
 
+
+def _assess_z_split_topology(
+    object_mask,
+    min_component_voxels=20,
+    min_component_fraction=0.10,
+    pass_fraction=0.10,
+    review_fraction=0.30,
+):
+
+    mask = np.asarray(object_mask, dtype=bool)
+    if mask.ndim != 3:
+        raise ValueError("Z-split topology assessment requires a 3D object mask.")
+
+    min_component_voxels = int(min_component_voxels)
+    min_component_fraction = float(min_component_fraction)
+    pass_fraction = float(pass_fraction)
+    review_fraction = float(review_fraction)
+    if min_component_voxels < 1:
+        raise ValueError("min_component_voxels must be at least 1.")
+    if not 0.0 <= min_component_fraction <= 1.0:
+        raise ValueError("min_component_fraction must be between 0 and 1.")
+    if not 0.0 <= pass_fraction <= review_fraction <= 1.0:
+        raise ValueError("Z-split fractions must satisfy 0 <= pass <= review <= 1.")
+
+    occupied_slices = 0
+    split_slices = 0
+    raw_max_components = 0
+    substantial_max_components = 0
+
+    for z_slice in mask:
+        foreground_voxels = int(np.count_nonzero(z_slice))
+        if foreground_voxels == 0:
+            continue
+        occupied_slices += 1
+
+        labeled_slice = label(z_slice)
+        component_areas = np.bincount(labeled_slice.ravel())[1:]
+        raw_max_components = max(raw_max_components, int(component_areas.size))
+
+        minimum_area = max(
+            float(min_component_voxels),
+            min_component_fraction * foreground_voxels,
+        )
+        substantial_components = int(np.count_nonzero(component_areas >= minimum_area))
+        substantial_max_components = max(
+            substantial_max_components,
+            substantial_components,
+        )
+        if substantial_components >= 2:
+            split_slices += 1
+
+    split_fraction = split_slices / occupied_slices if occupied_slices else 0.0
+    if split_fraction <= pass_fraction:
+        status = "pass"
+    elif split_fraction <= review_fraction:
+        status = "review"
+    else:
+        status = "fail"
+
+    return {
+        "raw_max_components_per_slice": raw_max_components,
+        "substantial_max_components_per_slice": substantial_max_components,
+        "occupied_slice_count": occupied_slices,
+        "split_slice_count": split_slices,
+        "split_slice_fraction": float(split_fraction),
+        "status": status,
+    }
+
 def _select_focus_slice(volume):
-    #Choose the sharpest Z slice for single-slice processing
-    # Laplacian variance favors slices with the strongest visible structure
     scores = [laplace(volume[z].astype(np.float32)).var() for z in range(volume.shape[0])]
     return int(np.argmax(scores))
 
@@ -48,25 +219,68 @@ def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
     raise ValueError(f"Could not confidently identify the channel axis for TIF shape {sizes}.")
 
 def get_metadata_from_tif(tif_path):
-    #Read physical pixel spacing from ImageJ metadata and TIFF tags.
-
+    #Read calibrated XY/Z spacing without guessing an unspecified TIFF unit
     with tifffile.TiffFile(tif_path) as tif:
         try:
-            imagej_metadata = tif.imagej_metadata
             meta = {}
+            sources = {}
+
+            #OME PhysicalSize fields are the most explicit source because each value carries its own unit.
+            if tif.ome_metadata:
+                root = ET.fromstring(tif.ome_metadata)
+                pixels = next(
+                    (item for item in root.iter() if item.tag.rsplit("}", 1)[-1] == "Pixels"),
+                    None,
+                )
+                if pixels is not None:
+                    pixel_size = _physical_value_to_nm(
+                        pixels.attrib.get("PhysicalSizeX"),
+                        pixels.attrib.get("PhysicalSizeXUnit", "um"),
+                    )
+                    z_step = _physical_value_to_nm(
+                        pixels.attrib.get("PhysicalSizeZ"),
+                        pixels.attrib.get("PhysicalSizeZUnit", "um"),
+                    )
+                    if pixel_size is not None:
+                        meta["pixel_size"] = pixel_size
+                        sources["pixel_size"] = "OME PhysicalSizeX"
+                    if z_step is not None:
+                        meta["z_step"] = z_step
+                        sources["z_step"] = "OME PhysicalSizeZ"
+
+            imagej_metadata = tif.imagej_metadata or {}
+            imagej_unit = imagej_metadata.get("unit")
             if imagej_metadata:
-                if 'spacing' in imagej_metadata:
-                    meta['z_step'] = float(imagej_metadata['spacing']) * 1000 
+                if "z_step" not in meta and "spacing" in imagej_metadata:
+                    z_step = _physical_value_to_nm(imagej_metadata["spacing"], imagej_unit)
+                    if z_step is not None:
+                        meta["z_step"] = z_step
+                        sources["z_step"] = f"ImageJ spacing ({imagej_unit})"
             
             tags = tif.pages[0].tags
-            if 'XResolution' in tags:
-                res = tags['XResolution'].value
-                if res[0] > 0 and res[1] > 0:
-                    pixel_size_um = res[1] / res[0]
-                    meta['pixel_size'] = pixel_size_um * 1000 
-            
-            return meta if meta else None
-        except Exception:
+            if "pixel_size" not in meta and "XResolution" in tags and "ResolutionUnit" in tags:
+                numerator, denominator = tags["XResolution"].value
+                resolution_unit = tags["ResolutionUnit"].value
+                unit_code = getattr(resolution_unit, "value", resolution_unit)
+                try:
+                    unit_code = int(unit_code)
+                except (TypeError, ValueError):
+                    unit_code = None
+                unit_name = {2: "inch", 3: "cm"}.get(unit_code)
+                if unit_name is None and _physical_value_to_nm(1.0, imagej_unit) is not None:
+                    unit_name = imagej_unit
+                if numerator > 0 and denominator > 0 and unit_name is not None:
+                    pixel_size = _physical_value_to_nm(denominator / numerator, unit_name)
+                    if pixel_size is not None:
+                        meta["pixel_size"] = pixel_size
+                        sources["pixel_size"] = f"TIFF XResolution ({unit_name})"
+
+            if not {"pixel_size", "z_step"}.intersection(meta):
+                return None
+            meta["sources"] = sources
+            meta["complete"] = "pixel_size" in meta and "z_step" in meta
+            return meta
+        except (ET.ParseError, TypeError, ValueError, KeyError, IndexError):
             return None
 
 
@@ -75,7 +289,11 @@ def process_condensates(
     min_voxels=5, show_napari=True, pixel_size_nm=None, z_step_nm=None,
     signal_channel=1, dapi_channel=0, channel_axis=1, auto_roi=True,
     send_layer_func=None, request_roi_func=None, mode_a_enabled=False,
-    mode_a_min_core_voxels=20, mode_a_exclude_split_slices=True
+    mode_a_min_core_voxels=20, mode_a_exclude_split_slices=True,
+    mode_a_z_split_min_component_voxels=MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
+    mode_a_z_split_min_component_fraction=MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
+    mode_a_z_split_pass_fraction=MODE_A_Z_SPLIT_PASS_FRACTION,
+    mode_a_z_split_review_fraction=MODE_A_Z_SPLIT_REVIEW_FRACTION,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
@@ -106,10 +324,25 @@ def process_condensates(
     if pixel_size_nm is None or z_step_nm is None:
         raise ValueError("Pixel size XY and Z-step must be provided by ExQt Settings or TIF metadata.")
 
+    pixel_size_nm = _positive_finite(pixel_size_nm, "Pixel size XY")
+    z_step_nm = _positive_finite(z_step_nm, "Z-step")
+    expansion_factor = _positive_finite(expansion_factor, "Expansion factor")
+
     #Channel selection is isolated here - downstream processing works with a
     #single intensity volume regardless of the original TIFF layout.
     if img_raw.ndim == 4:
         ch_axis = _resolve_channel_axis(img_raw, expected_axis=channel_axis)
+        channel_count = img_raw.shape[ch_axis]
+        if not 0 <= int(signal_channel) < channel_count:
+            raise ValueError(
+                f"Signal channel {signal_channel} is outside channel axis {ch_axis} "
+                f"with {channel_count} channels."
+            )
+        if not 0 <= int(dapi_channel) < channel_count:
+            raise ValueError(
+                f"DAPI channel {dapi_channel} is outside channel axis {ch_axis} "
+                f"with {channel_count} channels."
+            )
         img_dapi = np.take(img_raw, dapi_channel, axis=ch_axis)
         img_intensity = np.take(img_raw, signal_channel, axis=ch_axis)
     else:
@@ -127,8 +360,7 @@ def process_condensates(
     is_stack = img_intensity.ndim == 3
     print(f"      Mode: {mode}")
 
-    #Convert the requested mode into one processing image/mask pair. Rezim A
-    #is intentionally available only when this conversion preserves 3D data.
+    #Convert the requested mode into one processing image/mask pair. 
     if mode == "single_slice":
         if not is_stack:
             raise ValueError("single_slice mode needs a 3D (Z,Y,X) stack.")
@@ -154,8 +386,7 @@ def process_condensates(
         is_3d = True
 
     print(f"\n[2/5] ROI extraction (Auto-ROI: {auto_roi})")
-    #A manual ROI is requested through callbacks so the worker can pause
-    #without touching Qt widgets from its background thread.
+    #A manual ROI is requested through callbacks so the worker can pause and wait for user input. The ROI is applied to the mask before regionprops.
     if auto_roi or request_roi_func is None:
         roi_mask = np.ones_like(img_mask_process, dtype=bool)
         extruded_mask = np.ones_like(img_mask_process, dtype=int)
@@ -181,12 +412,8 @@ def process_condensates(
 
     img_mask_process = img_mask_process * roi_mask
 
-    #Binary masks need connected-component labeling pre-labeled masks keep
-    #their object IDs so cell/object associations survive the import.
-    if img_mask_process.max() == 1:
-        labeled_mask = label(img_mask_process > 0)
-    else:
-        labeled_mask = img_mask_process.astype(int)
+    #Binary 0/1 and 0/255 masks are labeled consistently.
+    labeled_mask = _prepare_labeled_mask(img_mask_process)
 
     print("[4/5] Extracting true signal metrics...")
     eff_pixel_size_nm = pixel_size_nm / expansion_factor
@@ -201,8 +428,7 @@ def process_condensates(
             f"(Z,Y,X)=({eff_z_step_nm:.3f}, {eff_pixel_size_nm:.3f}, {eff_pixel_size_nm:.3f}) nm"
         )
 
-    #Regionprops supplies geometry and intensity statistics used to build the
-    #stable CSV row schema consumed by postprocessing.py.
+    #Regionprops supplies geometry and intensity statistics used to build the stable CSV row schema consumed by postprocessing.py.
     props = regionprops(labeled_mask, intensity_image=img_intensity)
     objects_data = []
 
@@ -239,8 +465,7 @@ def process_condensates(
             "integrated_density": round(region.area * mean_int, 2),
         }
 
-        #Convert pixel counts into calibrated biological units while keeping
-        #raw counts for auditability and downstream QC.
+        #Convert pixel counts into calibrated biological units while keeping raw counts for auditability and downstream QC.
         if is_3d:
             voxel_volume_bio_um3 = ((eff_pixel_size_nm**2) * eff_z_step_nm) / 1e9
             row["volume_px"] = region.area
@@ -256,13 +481,23 @@ def process_condensates(
         if mode_a_enabled:
             object_mask = region.image.astype(bool)
             touches_edge = _touches_image_edge(region, labeled_mask.shape)
-            max_slice_components = _max_components_per_z_slice(object_mask)
+            touches_roi_edge = _touches_roi_edge(region, roi_mask)
+            topology = _assess_z_split_topology(
+                object_mask,
+                min_component_voxels=mode_a_z_split_min_component_voxels,
+                min_component_fraction=mode_a_z_split_min_component_fraction,
+                pass_fraction=mode_a_z_split_pass_fraction,
+                review_fraction=mode_a_z_split_review_fraction,
+            )
+            max_slice_components = topology["raw_max_components_per_slice"]
 
             qc_reasons = []
             if touches_edge:
                 qc_reasons.append("touches_image_edge")
-            if mode_a_exclude_split_slices and max_slice_components > 1:
-                qc_reasons.append("split_in_z_slice")
+            if touches_roi_edge:
+                qc_reasons.append("touches_roi_edge")
+            if mode_a_exclude_split_slices and topology["status"] != "pass":
+                qc_reasons.append(f"z_topology_{topology['status']}")
 
             metrics = compute_core_shell_metrics(
                 object_mask,
@@ -280,6 +515,16 @@ def process_condensates(
             if not metrics["core_valid"]:
                 qc_reasons.append("core_below_min_voxels")
 
+            for layer_name in ("object", "shell", "middle"):
+                if (
+                    layer_name not in empty_layer_names
+                    and not metrics[f"A_{layer_name}_valid"]
+                ):
+                    qc_reasons.append(f"invalid_anisotropy_{layer_name}")
+
+            if not metrics["layer_qc"]["complete_coverage"]:
+                qc_reasons.append("layer_coverage_error")
+
             if qc_reasons:
                 metrics["mode_a_primary_include"] = False
                 metrics["mode_a_qc_reason"] = ";".join(qc_reasons)
@@ -289,6 +534,8 @@ def process_condensates(
                 "A_shell": metrics["A_shell"],
                 "A_middle": metrics["A_middle"],
                 "A_core": metrics["A_core"],
+                "Delta_A_middle_shell": metrics["delta_A_middle_shell"],
+                "Delta_A_core_middle": metrics["delta_A_core_middle"],
                 "Delta_A_core_shell": metrics["delta_A_core_shell"],
                 "A_object_valid": metrics["A_object_valid"],
                 "A_shell_valid": metrics["A_shell_valid"],
@@ -299,7 +546,17 @@ def process_condensates(
                 "mode_a_empty_layers": metrics["mode_a_empty_layers"],
                 "mode_a_layer_complete_coverage": metrics["layer_qc"]["complete_coverage"],
                 "mode_a_object_touches_edge": touches_edge,
+                "mode_a_object_touches_roi_edge": touches_roi_edge,
                 "mode_a_max_components_per_z_slice": max_slice_components,
+                "mode_a_z_topology_status": topology["status"],
+                "mode_a_z_occupied_slices": topology["occupied_slice_count"],
+                "mode_a_z_split_slices": topology["split_slice_count"],
+                "mode_a_z_split_slice_fraction": topology["split_slice_fraction"],
+                "mode_a_z_max_substantial_components_per_slice": topology["substantial_max_components_per_slice"],
+                "mode_a_z_split_min_component_voxels": int(mode_a_z_split_min_component_voxels),
+                "mode_a_z_split_min_component_fraction": float(mode_a_z_split_min_component_fraction),
+                "mode_a_z_split_pass_fraction": float(mode_a_z_split_pass_fraction),
+                "mode_a_z_split_review_fraction": float(mode_a_z_split_review_fraction),
                 "mode_a_primary_include": metrics["mode_a_primary_include"],
                 "mode_a_qc_reason": metrics["mode_a_qc_reason"],
                 "mode_a_sampling_z_nm": metrics["mode_a_sampling_z_nm"],
@@ -307,7 +564,7 @@ def process_condensates(
                 "mode_a_sampling_x_nm": metrics["mode_a_sampling_x_nm"],
                 "mode_a_sampling_order": metrics["mode_a_sampling_order"],
                 "mode_a_min_core_voxels": metrics["mode_a_min_core_voxels"],
-                "mode_a_layer_scheme": "baseline_thirds",
+                "mode_a_layer_scheme": MODE_A_LAYER_SCHEME,
             })
 
         objects_data.append(row)
