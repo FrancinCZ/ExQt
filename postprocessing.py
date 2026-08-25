@@ -61,9 +61,9 @@ def _load_run_metadata(csv_path):
         return json.load(handle), metadata_path
 
 
+# Calibration is deliberately shown but excluded from the compatibility
+# fingerprint: correctly calibrated acquisitions may use different sampling.
 def _qc_policy_entries(metadata, df, min_size, max_size):
-    #Calibration is deliberately shown but excluded from the compatibility
-    #fingerprint: correctly calibrated acquisitions may use different sampling.
     fields = [
         ("analysis", "mode", _metadata_value(metadata, "parameters.mode", _single_column_value(df, "mode")), True,
         "Analysis dimensionality."),
@@ -80,7 +80,7 @@ def _qc_policy_entries(metadata, df, min_size, max_size):
         ("channels", "dapi_channel", _metadata_value(metadata, "channels.dapi_channel"), True,
         "DAPI channel index."),
         ("mode_a", "enabled", _metadata_value(metadata, "mode_a.enabled", "A_shell" in df.columns), True,
-        "Whether Rezim A metrics are active."),
+        "Whether Radial FA Profiling metrics are active."),
         ("mode_a", "min_core_voxels", _metadata_value(
             metadata, "mode_a.min_core_voxels", _single_column_value(df, "mode_a_min_core_voxels")
         ), True, "Minimum voxels required for each FA layer and core."),
@@ -265,6 +265,28 @@ def _build_per_cell_summary(report_df, size_col):
     return pd.DataFrame(rows)
 
 
+def _build_standard_cell_counts(raw_df, size_eligible_df):
+    """Return per-cell raw and size-eligible counts for standard plots.
+
+    Radial FA Profiling QC is deliberately not consulted here: these are descriptive
+    counts for the standard report, with the size filter made explicit.
+    """
+    cell_keys = ["filename", "cell_id"]
+    counts_all = (
+        raw_df.groupby(cell_keys, dropna=False)
+        .size()
+        .reset_index(name="all_segmented_count")
+    )
+    counts_eligible = (
+        size_eligible_df.groupby(cell_keys, dropna=False)
+        .size()
+        .reset_index(name="size_eligible_count")
+    )
+    counts = counts_all.merge(counts_eligible, on=cell_keys, how="left")
+    counts["size_eligible_count"] = counts["size_eligible_count"].fillna(0).astype(int)
+    return counts
+
+
 def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fingerprint, min_size, max_size):
     workbook = writer.book
     ws = workbook.create_sheet("Summary", 0)
@@ -308,7 +330,7 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
         ("Raw segmented components", f"={raw_count}", "All connected components before biological-size and QC filtering."),
         ("Size-eligible objects", f"={primary_count}+{excluded_count}", f"Objects within {min_size:g}–{max_size:g} {size_unit}."),
         ("Complete FA objects", f"={complete_formula}", "Size-eligible objects with valid shell, middle and core FA."),
-        ("Primary QC-valid objects", f"={primary_count}", "Objects used in primary Rezim A graphs and statistics."),
+        ("Primary QC-valid objects", f"={primary_count}", "Objects used in primary Radial FA Profiling graphs and statistics."),
         ("QC acceptance rate", "=IFERROR(B8/B6,0)", "Primary QC-valid divided by size-eligible; raw noise is not the denominator."),
     ]
     ws.append([])
@@ -968,48 +990,113 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
 
     df_filtered = df[(df["size_plot"] >= min_size) & (df["size_plot"] <= max_size)].copy()
 
-    if df_filtered.empty:
-        print("After filtration, no data left for plotting. Please check the input CSV file.")
-        return
+    # Standard plots are descriptive and intentionally independent of Radial FA Profiling
+    # QC.  Show both the segmented-component count and the biologically sized
+    # subset so the size filter cannot silently look like a low cell count.
+    counts_per_cell = _build_standard_cell_counts(df, df_filtered)
 
-    counts_per_cell = df_filtered.groupby(["filename", "cell_id"]).size().reset_index(name="condensate_count")
+    if counts_per_cell["filename"].nunique(dropna=False) == 1:
+        counts_per_cell["display_label"] = counts_per_cell["cell_id"].map(
+            lambda value: f"Cell {value}"
+        )
+    else:
+        counts_per_cell["display_label"] = counts_per_cell.apply(
+            lambda row: f"{Path(str(row['filename'])).stem}\nCell {row['cell_id']}",
+            axis=1,
+        )
 
     fig, axes = plt.subplots(2, 3, figsize=(22, 12))
 
-    sns.histplot(df_filtered["size_plot"], kde=True, ax=axes[0, 0], color="#2b5c8f", bins=30 if len(df_filtered) > 30 else 10)
-    median_size = df_filtered["size_plot"].median()
-    axes[0, 0].axvline(median_size, color="#d9534f", linestyle="--", linewidth=2, label=f"Median: {median_size:.4f} {unit_label}")
-    axes[0, 0].set_title(title_a, fontsize=13, fontweight="bold")
-    axes[0, 0].set_xlabel(xlabel_text)
-    axes[0, 0].set_ylabel("Count")
-    axes[0, 0].legend()
+    def show_empty_size_panel(axis, title):
+        axis.set_title(title, fontsize=13, fontweight="bold")
+        axis.text(
+            0.5,
+            0.5,
+            f"No objects within\n{min_size:g}–{max_size:g} {unit_label}",
+            ha="center",
+            va="center",
+            transform=axis.transAxes,
+            fontsize=12,
+        )
+        axis.set_xticks([])
+        axis.set_yticks([])
 
-    sns.boxplot(y=counts_per_cell["condensate_count"], ax=axes[0, 1], color="#8e44ad", width=0.3, boxprops=dict(alpha=0.7))
-    sns.stripplot(y=counts_per_cell["condensate_count"], ax=axes[0, 1], color="black", alpha=0.7, jitter=0.2, size=7)
-    axes[0, 1].set_title("B) Number of Condensates per Cell", fontsize=13, fontweight="bold")
-    axes[0, 1].set_ylabel("Number of Condensates")
+    if df_filtered.empty:
+        show_empty_size_panel(axes[0, 0], title_a)
+    else:
+        sns.histplot(df_filtered["size_plot"], kde=True, ax=axes[0, 0], color="#2b5c8f", bins=30 if len(df_filtered) > 30 else 10)
+        median_size = df_filtered["size_plot"].median()
+        axes[0, 0].axvline(median_size, color="#d9534f", linestyle="--", linewidth=2, label=f"Median: {median_size:.4f} {unit_label}")
+        axes[0, 0].set_title(title_a, fontsize=13, fontweight="bold")
+        axes[0, 0].set_xlabel(xlabel_text)
+        axes[0, 0].set_ylabel("Count")
+        axes[0, 0].legend()
 
-    sns.scatterplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], color="#2e7d32", s=40, alpha=0.5)
-    sns.regplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], scatter=False, color="#1b5e20")
-    axes[0, 2].set_title(title_c, fontsize=13, fontweight="bold")
-    axes[0, 2].set_xlabel(xlabel_text)
-    axes[0, 2].set_ylabel("Integrated Density (a.u.)")
+    cell_axis = axes[0, 1]
+    positions = np.arange(len(counts_per_cell))
+    bar_width = 0.38
+    bars_all = cell_axis.bar(
+        positions - bar_width / 2,
+        counts_per_cell["all_segmented_count"],
+        width=bar_width,
+        color="#9aa9bd",
+        label="All segmented components",
+    )
+    bars_eligible = cell_axis.bar(
+        positions + bar_width / 2,
+        counts_per_cell["size_eligible_count"],
+        width=bar_width,
+        color="#8e44ad",
+        label=f"Within {min_size:g}–{max_size:g} {unit_label}",
+    )
+    for bars in (bars_all, bars_eligible):
+        for bar in bars:
+            height = int(bar.get_height())
+            cell_axis.annotate(
+                str(height),
+                (bar.get_x() + bar.get_width() / 2, height),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+    cell_axis.set_xticks(positions)
+    cell_axis.set_xticklabels(counts_per_cell["display_label"])
+    if len(counts_per_cell) > 8:
+        cell_axis.tick_params(axis="x", labelrotation=45, labelsize=8)
+    cell_axis.set_title("B) Objects per Cell Label", fontsize=13, fontweight="bold")
+    cell_axis.set_xlabel("ROI / cell label")
+    cell_axis.set_ylabel("Object count")
+    cell_axis.legend(fontsize=9)
 
-    sns.violinplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="#f57c00", inner="quartile", alpha=0.7)
-    sns.stripplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="black", alpha=0.2, jitter=0.15, size=3)
-    axes[1, 0].set_title("D) Signal Concentration (Mean Intensity)", fontsize=13, fontweight="bold")
-    axes[1, 0].set_ylabel("Mean Intensity (a.u.)")
+    if df_filtered.empty:
+        show_empty_size_panel(axes[0, 2], title_c)
+        show_empty_size_panel(axes[1, 0], "D) Signal Concentration (Mean Intensity)")
+        show_empty_size_panel(axes[1, 1], "E) Size vs. Mean Intensity")
+        show_empty_size_panel(axes[1, 2], "F) 2D Density (Cluster Topography)")
+    else:
+        sns.scatterplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], color="#2e7d32", s=40, alpha=0.5)
+        sns.regplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], scatter=False, color="#1b5e20")
+        axes[0, 2].set_title(title_c, fontsize=13, fontweight="bold")
+        axes[0, 2].set_xlabel(xlabel_text)
+        axes[0, 2].set_ylabel("Integrated Density (a.u.)")
 
-    sns.scatterplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], color="#c0392b", s=40, alpha=0.5)
-    sns.regplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], scatter=False, color="#922b21")
-    axes[1, 1].set_title("E) Size vs. Mean Intensity", fontsize=13, fontweight="bold")
-    axes[1, 1].set_xlabel(xlabel_text)
-    axes[1, 1].set_ylabel("Mean Intensity (a.u.)")
+        sns.violinplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="#f57c00", inner="quartile", alpha=0.7)
+        sns.stripplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="black", alpha=0.2, jitter=0.15, size=3)
+        axes[1, 0].set_title("D) Signal Concentration (Mean Intensity)", fontsize=13, fontweight="bold")
+        axes[1, 0].set_ylabel("Mean Intensity (a.u.)")
 
-    sns.kdeplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 2], fill=True, cmap="YlOrBr", thresh=0.05, alpha=0.8)
-    axes[1, 2].set_title("F) 2D Density (Cluster Topography)", fontsize=13, fontweight="bold")
-    axes[1, 2].set_xlabel(xlabel_text)
-    axes[1, 2].set_ylabel("Mean Intensity (a.u.)")
+        sns.scatterplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], color="#c0392b", s=40, alpha=0.5)
+        sns.regplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], scatter=False, color="#922b21")
+        axes[1, 1].set_title("E) Size vs. Mean Intensity", fontsize=13, fontweight="bold")
+        axes[1, 1].set_xlabel(xlabel_text)
+        axes[1, 1].set_ylabel("Mean Intensity (a.u.)")
+
+        sns.kdeplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 2], fill=True, cmap="YlOrBr", thresh=0.05, alpha=0.8)
+        axes[1, 2].set_title("F) 2D Density (Cluster Topography)", fontsize=13, fontweight="bold")
+        axes[1, 2].set_xlabel(xlabel_text)
+        axes[1, 2].set_ylabel("Mean Intensity (a.u.)")
 
 
     plt.tight_layout()
@@ -1020,13 +1107,13 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
     print(f"Graphs were successfuly generated to: '{output_plot}'")
 
 
+#Interpret CSV booleans safely after pandas reloads them as text or bool.
 def _as_bool_series(series):
-    #Interpret CSV booleans safely after pandas reloads them as text or bool
     return series.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "on"})
 
 
+#Create a separate radial FA and QC report without changing standard ExQt plots.
 def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
-    #Create a separate Core-Shell FA + QC report without changing standard ExQt plots
     sns.set_theme(style="whitegrid", palette="colorblind")
     plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
 
@@ -1043,7 +1130,7 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
     }
     missing_columns = sorted(required_columns.difference(df.columns))
     if missing_columns:
-        print("Rezim A plots skipped: missing columns: " + ", ".join(missing_columns))
+        print("Radial FA Profiling plots skipped: missing columns: " + ", ".join(missing_columns))
         return None
 
     #Primary plots intentionally include only complete and QC-approved FA rows
@@ -1065,7 +1152,7 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
             None,
         )
         if size_column is None:
-            raise ValueError("Rezim A size filtering requested, but no biological size column is present.")
+            raise ValueError("Radial FA Profiling size filtering requested, but no biological size column is present.")
         size_values = pd.to_numeric(df[size_column], errors="coerce")
         if min_size is not None:
             size_eligible &= size_values.ge(float(min_size)).fillna(False).to_numpy()
@@ -1078,7 +1165,7 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 11))
     fig.suptitle(
-        "Rezim A: Shell-Middle-Core Fractional Anisotropy and QC Overview\n"
+        "Radial FA Profiling: Shell-Middle-Core Fractional Anisotropy and QC Overview\n"
         "Radial-layer panels contain only size-eligible, complete, QC-approved objects.",
         fontsize=15,
         fontweight="bold",
@@ -1160,7 +1247,7 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
         delta_ax.set_ylabel("Object count")
 
     qc_ax = axes[1, 1]
-    qc_ax.set_title("D) Rezim A QC Funnel", fontsize=12, fontweight="bold")
+    qc_ax.set_title("D) Radial FA Profiling QC Funnel", fontsize=12, fontweight="bold")
     qc_counts = pd.Series(
         [len(df), int(size_eligible.sum()), int((size_eligible & complete_fa).sum()), len(primary)],
         index=[
@@ -1192,8 +1279,8 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
         qc_ax.text(1.04, 0.96, reason_text, transform=qc_ax.transAxes, va="top", fontsize=9)
 
     fig.tight_layout(rect=(0, 0, 1, 0.93))
-    output_plot = csv_path.parent / f"{csv_path.stem}_Rezim_A_Plots.png"
+    output_plot = csv_path.parent / f"{csv_path.stem}_Radial_FA_Profiling_Plots.png"
     fig.savefig(output_plot, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"Rezim A plots were generated to: '{output_plot}'")
+    print(f"Radial FA Profiling plots were generated to: '{output_plot}'")
     return output_plot
