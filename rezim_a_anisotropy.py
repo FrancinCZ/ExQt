@@ -1,8 +1,9 @@
+
 import numpy as np
 
 
+# Calculate geometric fractional anisotropy for one 2D or 3D mask.
 def shape_anisotropy(mask, sampling=None, min_voxels=20):
-    #Calculate geometric fractional anisotropy for one 2D or 3D mask. 
     binary_mask = np.asarray(mask, dtype=bool)
     if binary_mask.ndim not in (2, 3):
         raise ValueError("Anisotropy mask must be 2D or 3D.")
@@ -23,7 +24,7 @@ def shape_anisotropy(mask, sampling=None, min_voxels=20):
     physical_coordinates = coordinates * scale
     centered = physical_coordinates - physical_coordinates.mean(axis=0)
 
-    #Eigenvalues of the coordinate covariance describe spread along the objects principal axes
+    #Eigenvalues of the coordinate covariance describe spread along the object's principal axes.
     covariance = centered.T @ centered / voxel_count
     eigenvalues = np.linalg.eigvalsh(covariance)
     eigenvalues = np.clip(eigenvalues, 0.0, None)
