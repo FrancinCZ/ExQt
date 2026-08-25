@@ -24,6 +24,8 @@ import numpy as np
 import tifffile
 import pandas as pd
 from pathlib import Path
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 from postprocessing import (
     QCPolicyMismatchError,
     generate_excel_stats,
@@ -32,6 +34,7 @@ from postprocessing import (
     merge_statistics_folder,
 )
 from calibration_policy import summarize_calibrations
+from size_preview import collect_size_preview
 
 DEFAULT_SETTINGS = {
     "adv_pixel_size": 58.0,
@@ -69,8 +72,8 @@ def _safe_float(value, default):
         return default
 
 
+#Parse QSettings boolean values from either native or text forms.
 def _safe_bool(value, default=False):
-    #Parse QSettings boolean values from either native or text forms.
     if value is None:
         return default
     if isinstance(value, str):
@@ -92,22 +95,21 @@ class AnalysisWorker(QThread):
         self.user_roi_data = None
         self.abort_requested = False
 
+    # Pause the worker until the GUI returns a painted ROI mask.
     def request_roi_callback(self, img_shape, is_3d):
-        #Pause the worker until the GUI returns a painted ROI mask.
         self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d})
         self.roi_event.wait()
         self.roi_event.clear()
         return self.user_roi_data
 
+    # Wake any pending ROI/review wait and mark the batch for shutdown.
     def request_abort(self):
-        #Wake any pending ROI/review wait and mark the batch for shutdown.
         self.abort_requested = True
         self.review_event.set()
         self.roi_event.set() 
 
+    # Validate the folder, delegate measurements to Batch, and write outputs.
     def run(self):
-        #Validate the folder, process image/mask pairs, and write outputs.
-        #The worker delegates numerical work to Batch.process_condensates 
         try:
             folder_path = Path(self.params["input_folder"])
             if not folder_path.exists() or not folder_path.is_dir():
@@ -275,7 +277,7 @@ class AnalysisWorker(QThread):
                     except Exception as e:
                         self.progress.emit(f"Error generating graphs: {str(e)}")
 
-                #Rezim A creates an additional audit report. Standard ExQt plots above remain unchanged and do not contain Core-Shell FA values.
+                # Radial FA Profiling creates an additional audit report. Standard ExQt plots above remain unchanged and do not contain radial FA values.
                 if (
                     self.params.get("generate_reports", False)
                     and self.params.get("report_mode_a_plots", True)
@@ -288,9 +290,9 @@ class AnalysisWorker(QThread):
                             min_size=self.params.get("plot_min_size"),
                             max_size=self.params.get("plot_max_size"),
                         )
-                        self.progress.emit("Rezim A QC plots were generated.")
+                        self.progress.emit("Radial FA Profiling plots were generated.")
                     except Exception as e:
-                        self.progress.emit(f"Error generating Rezim A plots: {str(e)}")
+                        self.progress.emit(f"Error generating Radial FA Profiling plots: {str(e)}")
             else:
                 self.progress.emit("No data available for processing.")
 
@@ -322,7 +324,7 @@ class ReportOptionsDialog(QDialog):
             ("report_primary_csv", "Primary QC-valid CSV", "Compact table used for primary analysis."),
             ("report_excluded_csv", "QC-excluded CSV", "Reason-focused table for troubleshooting exclusions."),
             ("report_standard_plots", "Standard descriptive plots", "Volume, intensity and density overview."),
-            ("report_mode_a_plots", "Rezim A shell-middle-core plots", "Generated only when Rezim A is active in 3D."),
+            ("report_mode_a_plots", "Radial FA Profiling plots", "Generated only when Radial FA Profiling is active in 3D."),
             ("report_raw_audit_csv", "Extra full raw audit CSV", "Usually unnecessary: duplicates the source table with reporting flags and diameters."),
         ]
         for key, label, tooltip in choices:
@@ -345,8 +347,224 @@ class ReportOptionsDialog(QDialog):
         super().accept()
 
 
+class SizePreviewDialog(QDialog):
+    #Explore the pre-ROI mask-size distribution and publish chosen report bounds.
+    range_set = Signal(float, float)
+
+    def __init__(self, size_table, minimum, maximum, calibration_summary="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Choose analyzed biological-size range")
+        self.resize(1050, 650)
+        self.values = size_table["biological_size"].to_numpy(dtype=float)
+        self.unit = str(size_table["unit"].iloc[0])
+        self.file_count = int(size_table["filename"].nunique())
+        self._dragged_boundary = None
+        self._histogram_axis = None
+        self._count_axis = None
+        #None shows the complete measured distribution. Pressing Set range stores a focused display interval without changing any source data.
+        self._view_bounds = None
+
+        layout = QVBoxLayout(self)
+        note = QLabel(
+            "Preview of all supplied masks after the raw pixel/voxel noise filter, but before manual ROI. "
+            "Drag the blue/red handles or enter exact values. Set range updates the main window and fits both graphs "
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        if calibration_summary:
+            calibration_label = QLabel(calibration_summary)
+            calibration_label.setWordWrap(True)
+            calibration_label.setStyleSheet("font-weight: bold; margin: 4px 0;")
+            layout.addWidget(calibration_label)
+
+        controls = QHBoxLayout()
+        self.minimum_spin = QDoubleSpinBox()
+        self.minimum_spin.setRange(0.0, 100000.0)
+        self.minimum_spin.setDecimals(5)
+        self.minimum_spin.setValue(float(minimum))
+        self.maximum_spin = QDoubleSpinBox()
+        self.maximum_spin.setRange(0.00001, 100000.0)
+        self.maximum_spin.setDecimals(5)
+        self.maximum_spin.setValue(float(maximum))
+        controls.addWidget(QLabel(f"Minimum ({self.unit}):"))
+        controls.addWidget(self.minimum_spin)
+        controls.addWidget(QLabel(f"Maximum ({self.unit}):"))
+        controls.addWidget(self.maximum_spin)
+        controls.addStretch()
+        self.selection_label = QLabel()
+        controls.addWidget(self.selection_label)
+        layout.addLayout(controls)
+        self.set_status_label = QLabel(
+            f"Main-window range: {float(minimum):g}-{float(maximum):g} {self.unit}"
+        )
+        self.set_status_label.setStyleSheet("color: #6c757d;")
+        layout.addWidget(self.set_status_label)
+
+        self.figure = Figure(figsize=(10, 5), constrained_layout=True)
+        self.canvas = FigureCanvas(self.figure)
+        layout.addWidget(self.canvas, stretch=1)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        self.set_button = self.buttons.addButton("Set range", QDialogButtonBox.ApplyRole)
+        self.set_button.setToolTip(
+            "Apply the displayed range and fit both graph axes to it while keeping this preview open."
+        )
+        self.set_button.clicked.connect(self._publish_range)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+        self.minimum_spin.valueChanged.connect(self._redraw)
+        self.maximum_spin.valueChanged.connect(self._redraw)
+        self.canvas.mpl_connect("button_press_event", self._graph_pressed)
+        self.canvas.mpl_connect("motion_notify_event", self._graph_dragged)
+        self.canvas.mpl_connect("button_release_event", self._graph_released)
+        self._redraw()
+
+    def selected_bounds(self):
+        return self.minimum_spin.value(), self.maximum_spin.value()
+
+    def _publish_range(self):
+        minimum, maximum = self.selected_bounds()
+        if minimum < maximum:
+            self._view_bounds = (minimum, maximum)
+            self.range_set.emit(minimum, maximum)
+            self.set_status_label.setText(
+                f"Range set and graph fitted to {minimum:g}-{maximum:g} {self.unit}."
+            )
+            self.set_status_label.setStyleSheet("color: #198754; font-weight: bold;")
+            self._redraw()
+
+    def _nearest_boundary(self, event, require_handle=False):
+        if event.inaxes is None or event.xdata is None:
+            return None
+        minimum, maximum = self.selected_bounds()
+        candidates = {"minimum": minimum}
+        if event.inaxes is self._histogram_axis:
+            candidates["maximum"] = maximum
+        elif event.inaxes is not self._count_axis:
+            return None
+
+        distances = {
+            name: abs(event.x - event.inaxes.transData.transform((value, 0))[0])
+            for name, value in candidates.items()
+        }
+        nearest = min(distances, key=distances.get)
+        if require_handle and distances[nearest] > 18:
+            return None
+        return nearest
+
+    def _set_boundary(self, boundary, x_value):
+        x_value = max(0.0, float(x_value))
+        step = 10 ** (-self.minimum_spin.decimals())
+        if boundary == "minimum":
+            self.minimum_spin.setValue(min(x_value, self.maximum_spin.value() - step))
+        elif boundary == "maximum":
+            self.maximum_spin.setValue(max(x_value, self.minimum_spin.value() + step))
+
+    def _graph_pressed(self, event):
+        if event.button != 1 or event.inaxes is None or event.xdata is None:
+            return
+        self._dragged_boundary = self._nearest_boundary(event, require_handle=True)
+        if self._dragged_boundary is None:
+            # Preserve the original quick-click behaviour away from a handle.
+            self._set_boundary(self._nearest_boundary(event), event.xdata)
+
+    def _graph_dragged(self, event):
+        if self._dragged_boundary is not None and event.inaxes is not None and event.xdata is not None:
+            self._set_boundary(self._dragged_boundary, event.xdata)
+
+    def _graph_released(self, _event):
+        self._dragged_boundary = None
+
+    def _redraw(self):
+        minimum, maximum = self.selected_bounds()
+        valid_range = minimum < maximum
+        selected = (self.values >= minimum) & (self.values <= maximum) if valid_range else np.zeros_like(self.values, dtype=bool)
+        self.set_button.setEnabled(valid_range)
+        if valid_range:
+            self.selection_label.setText(
+                f"Selected: {int(selected.sum())}/{len(self.values)} objects from {self.file_count} file(s)"
+            )
+            self.selection_label.setStyleSheet("")
+        else:
+            self.selection_label.setText("Minimum must be smaller than maximum.")
+            self.selection_label.setStyleSheet("color: #d9534f; font-weight: bold;")
+
+        self.figure.clear()
+        histogram_axis = self.figure.add_subplot(1, 2, 1)
+        count_axis = self.figure.add_subplot(1, 2, 2)
+        self._histogram_axis = histogram_axis
+        self._count_axis = count_axis
+
+        if self._view_bounds is not None:
+            view_minimum, view_maximum = self._view_bounds
+            view_span = max(view_maximum - view_minimum, 10 ** (-self.minimum_spin.decimals()))
+            view_padding = view_span * 0.06
+            view_left = max(0.0, view_minimum - view_padding)
+            view_right = view_maximum + view_padding
+            displayed = selected & (self.values >= view_minimum) & (self.values <= view_maximum)
+            displayed_values = self.values[displayed]
+            bin_count = int(np.clip(np.sqrt(max(len(displayed_values), 1)) * 2, 6, 30))
+            bin_edges = np.linspace(view_minimum, view_maximum, bin_count + 1)
+            histogram_axis.hist(
+                displayed_values,
+                bins=bin_edges,
+                color="#2a82da",
+                alpha=0.85,
+                label="Objects in selected range",
+            )
+        else:
+            view_left = None
+            view_right = None
+            bin_count = int(np.clip(np.sqrt(max(len(self.values), 1)) * 2, 8, 40))
+            bin_edges = np.histogram_bin_edges(self.values, bins=bin_count)
+            histogram_axis.hist(self.values, bins=bin_edges, color="#9aa9bc", alpha=0.65, label="All objects")
+            if selected.any():
+                histogram_axis.hist(
+                    self.values[selected], bins=bin_edges, color="#2a82da", alpha=0.85, label="Selected range"
+                )
+        histogram_axis.axvline(minimum, color="#1f77b4", linestyle="--", linewidth=2, label="Minimum")
+        histogram_axis.axvline(maximum, color="#d9534f", linestyle="--", linewidth=2, label="Maximum")
+        handle_y = histogram_axis.get_ylim()[1] * 0.96
+        histogram_axis.scatter(
+            [minimum, maximum], [handle_y, handle_y],
+            color=["#1f77b4", "#d9534f"], s=90, zorder=5, edgecolor="white", linewidth=1.2,
+        )
+        histogram_axis.set_title("A) Mask-size distribution")
+        histogram_axis.set_xlabel(f"Biological size ({self.unit})")
+        histogram_axis.set_ylabel("Object count")
+        histogram_axis.legend(fontsize=8)
+
+        if view_left is not None and view_right is not None:
+            histogram_axis.set_xlim(view_left, view_right)
+
+        if self._view_bounds is not None:
+            lower, upper = self._view_bounds
+        else:
+            lower = max(0.0, min(float(self.values.min()), minimum) * 0.9)
+            #The candidate-minimum curve only needs the measured data domain. A deliberately very large maximum must not flatten the useful part of the graph.
+            upper = max(float(self.values.max()), minimum)
+        if upper <= lower:
+            upper = lower + 1.0
+        thresholds = np.linspace(lower, upper, 250)
+        retained = np.array([np.count_nonzero((self.values >= x) & (self.values <= maximum)) for x in thresholds])
+        count_axis.plot(thresholds, retained, color="#6f42c1", linewidth=2)
+        count_axis.scatter(
+            [minimum], [int(selected.sum())], color="#2a82da", s=90,
+            zorder=5, edgecolor="white", linewidth=1.2,
+        )
+        count_axis.axvline(minimum, color="#1f77b4", linestyle="--", linewidth=1.5)
+        count_axis.set_title("B) Retained count vs. minimum size")
+        count_axis.set_xlabel(f"Candidate minimum ({self.unit}); maximum fixed at {maximum:g}")
+        count_axis.set_ylabel("Objects retained")
+        count_axis.set_ylim(bottom=0)
+        if view_left is not None and view_right is not None:
+            count_axis.set_xlim(view_left, view_right)
+        self.canvas.draw_idle()
+
+
 class AdvancedSettingsDialog(QDialog):
-    #Edit and persist calibration, channel, and Rezim A settings
+    #Edit and persist calibration, channel, and Radial FA Profiling settings.
     def __init__(self, parent=None, mode="3d"):
         super().__init__(parent)
         self.setWindowTitle("Advanced Settings")
@@ -380,11 +598,11 @@ class AdvancedSettingsDialog(QDialog):
         self.raw_min_voxels_spin.setRange(1, 10000)
         self.raw_min_voxels_spin.setToolTip(
             "Early connected-component noise floor before calibrated biological-size filtering. "
-            "This is separate from the analyzed µm²/µm³ range and from Rezim A layer validity."
+            "This is separate from the analyzed µm²/µm³ range and from Radial FA Profiling layer validity."
         )
         form.addRow("Raw noise filter (pixels/voxels):", self.raw_min_voxels_spin)
 
-        self.mode_a_enabled_check = QCheckBox("Enable Rezim A (3D core-shell FA)")
+        self.mode_a_enabled_check = QCheckBox("Enable Radial FA Profiling (3D)")
         self.mode_a_enabled_check.setToolTip(
             "Adds geometric core-shell Fractional Anisotropy metrics. "
             "It does not directly measure stiffness, liquidity, or viscosity."
@@ -396,7 +614,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin.setToolTip(
             "Minimum voxels required for a layer FA to be valid; the same value also sets the minimum core size."
         )
-        form.addRow("Rezim A min. voxels per FA layer:", self.mode_a_min_core_spin)
+        form.addRow("Radial FA Profiling min. voxels per layer:", self.mode_a_min_core_spin)
         self.mode_a_label = form.labelForField(self.mode_a_min_core_spin)
 
         self.mode_a_exclude_split_check = QCheckBox(
@@ -420,8 +638,8 @@ class AdvancedSettingsDialog(QDialog):
 
         self.setLayout(layout)
 
+    #Enable controls only when the selected processing mode supports them.
     def _apply_mode_state(self, mode):
-        #Enable controls only when the selected processing mode supports them.
         is_3d = mode == "3d"
         self.z_step_spin.setEnabled(is_3d)
         if self.z_step_label is not None:
@@ -434,10 +652,10 @@ class AdvancedSettingsDialog(QDialog):
         tooltip = "" if is_3d else "Z-step is only used in 3D mode and is ignored for the current Process mode."
         self.z_step_spin.setToolTip(tooltip)
         if not is_3d:
-            self.mode_a_enabled_check.setToolTip("Rezim A core-shell FA is available only in 3D mode.")
+            self.mode_a_enabled_check.setToolTip("Radial FA Profiling is available only in 3D mode.")
 
+    #Populate controls from QSettings, applying safe defaults.
     def load_adv_settings(self):
-        #Populate controls from QSettings, applying safe defaults.
         self.pixel_size_spin.setValue(_safe_float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"]), DEFAULT_SETTINGS["adv_pixel_size"]))
         self.z_step_spin.setValue(_safe_float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]), DEFAULT_SETTINGS["adv_z_step"]))
         self.signal_spin.setValue(int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])))
@@ -447,8 +665,8 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin.setValue(int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])))
         self.mode_a_exclude_split_check.setChecked(_safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])))
 
+    #Persist dialog values before closing successfully.
     def accept(self):
-        #Persist dialog values before closing successfully.
         self.settings.setValue("adv_pixel_size", self.pixel_size_spin.value())
         self.settings.setValue("adv_z_step", self.z_step_spin.value())
         self.settings.setValue("adv_signal_ch", self.signal_spin.value())
@@ -539,8 +757,8 @@ class ExQt(QMainWindow):
         form_layout.addRow("Reports:", report_row)
 
         self.plot_min_size_spin = QDoubleSpinBox()
-        self.plot_min_size_spin.setRange(0.0, 1000.0)
-        self.plot_min_size_spin.setDecimals(4)
+        self.plot_min_size_spin.setRange(0.0, 100000.0)
+        self.plot_min_size_spin.setDecimals(5)
         self.plot_min_size_spin.setToolTip(
             "Lower calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
             "The original raw audit CSV remains unfiltered."
@@ -549,12 +767,20 @@ class ExQt(QMainWindow):
 
         self.plot_max_size_spin = QDoubleSpinBox()
         self.plot_max_size_spin.setRange(0.0001, 100000.0)
-        self.plot_max_size_spin.setDecimals(2)
+        self.plot_max_size_spin.setDecimals(5)
         self.plot_max_size_spin.setToolTip(
             "Upper calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
             "The original raw audit CSV remains unfiltered."
         )
         form_layout.addRow("Analyzed Size Max (µm²/µm³):", self.plot_max_size_spin)
+
+        self.size_preview_button = QPushButton("Preview size distribution...")
+        self.size_preview_button.setToolTip(
+            "Scan the supplied masks before analysis and choose the biological-size range interactively. "
+            "The preview is calculated before manual ROI."
+        )
+        self.size_preview_button.clicked.connect(self.open_size_preview)
+        form_layout.addRow("Size range:", self.size_preview_button)
 
         self.left_panel_layout.addLayout(form_layout)
         self.left_panel_layout.addStretch()
@@ -606,19 +832,19 @@ class ExQt(QMainWindow):
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         self.on_mode_changed(self.mode_combo.currentText()) 
 
+    #Update controls when the processing mode changes; Radial FA Profiling is 3D-only.
     def on_mode_changed(self, mode):
-        #Rezim A itself is still restricted to 3D; the raw component noise floor lives in Advanced Settings and does not need a main-form label.
         pass
 
+    #Select the input folder and opportunistically load TIFF calibration.
     def choose_folder(self):
-        #Select the input folder and opportunistically load TIFF calibration
         folder = QFileDialog.getExistingDirectory(self, "Choose folder with data")
         if folder:
             self.folder_input.setText(folder)
             self._try_auto_fill_metadata(folder)
 
+    #Inspect every source TIFF, but never silently overwrite the user's calibration.
     def _try_auto_fill_metadata(self, folder_path):
-        #Inspect every source TIFF, but never silently overwrite the user's calibration.
         folder = Path(folder_path)
         self.metadata_scanned_folder = str(folder.resolve())
         files = sorted(
@@ -698,16 +924,16 @@ class ExQt(QMainWindow):
         settings_menu.addAction(self.advanced)
         self.advanced.triggered.connect(self.open_advanced_settings)
 
+    #Apply the selected qdarktheme stylesheet to the Qt application.
     def switch_theme(self, active):
-        #Apply the selected qdarktheme stylesheet to the Qt application.
         app = QApplication.instance() 
         if active:
             app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
         else:
             app.setStyleSheet(qdarktheme.load_stylesheet("light"))
 
+    #Open calibration and Radial FA Profiling settings for the current process mode.
     def open_advanced_settings(self):
-        #Open calibration and Rezim A settings for the current process mode.
         dialog = AdvancedSettingsDialog(self, mode=self.mode_combo.currentText())
         dialog.exec()
 
@@ -766,14 +992,134 @@ class ExQt(QMainWindow):
             ),
         )
 
+    #Select the destination used for generated CSV and derived outputs.
     def choose_output_folder(self):
-        #Select the destination used for generated CSV and derived outputs.
         folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
         if folder:
             self.output_path_edit.setText(folder)
 
+    def open_size_preview(self):
+        """Measure saved masks and let the user choose the analyzed size range."""
+        folder_path = self.folder_input.text().strip()
+        if not folder_path or not os.path.isdir(folder_path):
+            QMessageBox.warning(self, "Size preview", "Please select a valid input folder first.")
+            return
+
+        folder = Path(folder_path)
+        source_files = sorted(
+            path for path in folder.glob("*.tif")
+            if "Mask" not in path.name and "Final" not in path.name
+        )
+        if not source_files:
+            QMessageBox.warning(self, "Size preview", "No source TIF files were found in the selected folder.")
+            return
+        missing_masks = [
+            path.name for path in source_files
+            if not (folder / f"{path.stem}_Mask.tif").exists()
+        ]
+        if missing_masks:
+            QMessageBox.warning(
+                self,
+                "Size preview",
+                "Missing matching masks for:\n" + "\n".join(missing_masks),
+            )
+            return
+
+        if self.metadata_scanned_folder != str(folder.resolve()):
+            self._try_auto_fill_metadata(folder_path)
+        if self.calibration_warning:
+            QMessageBox.warning(self, "Calibration mismatch", self.calibration_warning)
+            return
+
+        pixel_size_nm = _safe_float(
+            self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"]),
+            DEFAULT_SETTINGS["adv_pixel_size"],
+        )
+        z_step_nm = _safe_float(
+            self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]),
+            DEFAULT_SETTINGS["adv_z_step"],
+        )
+        expansion_factor = self.exp_factor_spin.value()
+        mode = self.mode_combo.currentText()
+        min_voxels = int(
+            self.settings.value("raw_min_voxels", DEFAULT_SETTINGS["raw_min_voxels"])
+        )
+        signal_channel = int(
+            self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])
+        )
+
+        self.size_preview_button.setEnabled(False)
+        self.status_label.setText("Measuring mask-size distribution...")
+        QApplication.processEvents()
+        try:
+            size_table = collect_size_preview(
+                input_folder=folder_path,
+                mode=mode,
+                expansion_factor=expansion_factor,
+                pixel_size_nm=pixel_size_nm,
+                z_step_nm=z_step_nm,
+                min_voxels=min_voxels,
+                signal_channel=signal_channel,
+            )
+        except Exception as error:
+            self.status_label.setText("Size preview failed.")
+            QMessageBox.warning(self, "Size preview failed", str(error))
+            return
+        finally:
+            self.size_preview_button.setEnabled(True)
+
+        if size_table.empty:
+            self.status_label.setText("No objects remain after the raw noise filter.")
+            QMessageBox.information(
+                self,
+                "Size preview",
+                "No connected components remain after the raw pixel/voxel noise filter.",
+            )
+            return
+
+        unit = str(size_table["unit"].iloc[0])
+        if mode == "3d":
+            calibration_summary = (
+                f"Preview calibration: XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm, "
+                f"ExF={expansion_factor:g}x; raw floor={min_voxels} voxels; output={unit}."
+            )
+        else:
+            calibration_summary = (
+                f"Preview calibration: XY={pixel_size_nm:g} nm, ExF={expansion_factor:g}x; "
+                f"raw floor={min_voxels} pixels; output={unit}."
+            )
+        dialog = SizePreviewDialog(
+            size_table,
+            self.plot_min_size_spin.value(),
+            self.plot_max_size_spin.value(),
+            calibration_summary=calibration_summary,
+            parent=self,
+        )
+        range_was_set = {"value": False}
+
+        def set_preview_range(minimum, maximum):
+            """Persist a preview range without forcing the graph window to close."""
+            self.plot_min_size_spin.setValue(minimum)
+            self.plot_max_size_spin.setValue(maximum)
+            self.settings.setValue("plot_min_size", minimum)
+            self.settings.setValue("plot_max_size", maximum)
+            selected_count = int(
+                ((size_table["biological_size"] >= minimum)
+                & (size_table["biological_size"] <= maximum)).sum()
+            )
+            range_was_set["value"] = True
+            self.status_label.setText(
+                f"Size range set: {minimum:g}-{maximum:g} {unit} "
+                f"({selected_count}/{len(size_table)} pre-ROI objects)."
+            )
+
+        dialog.range_set.connect(set_preview_range)
+        dialog.exec()
+        if not range_was_set["value"]:
+            self.status_label.setText("Size preview closed without changing the range.")
+
+    #Synchronize output selection with the input folder when requested.
     def switch_same_folder(self, checked):
-        #Synchronize output selection with the input folder when requested.
         self.output_path_edit.setDisabled(checked)
         self.btn_output_browse.setDisabled(checked)
         
@@ -782,8 +1128,8 @@ class ExQt(QMainWindow):
         else:
             self.output_path_edit.clear()
 
+    #Restore folder and plotting preferences saved by the last session.
     def load_settings(self):
-        #Restore folder and plotting preferences saved by the last session.
         self.folder_input.setText(self.settings.value("input_folder", ""))
         self.output_path_edit.setText(self.settings.value("output_folder", ""))
         
@@ -795,8 +1141,8 @@ class ExQt(QMainWindow):
         if str(same_folder_saved).lower() == "true":
             self.same_folder_checkbox.setChecked(True)
 
+    #Persist user-facing paths and plot limits before the window closes.
     def closeEvent(self, event):
-        #Persist user-facing paths and plot limits before the window closes
         self.settings.setValue("input_folder", self.folder_input.text())
         self.settings.setValue("output_folder", self.output_path_edit.text())
         self.settings.setValue("same_folder", self.same_folder_checkbox.isChecked())
@@ -805,8 +1151,8 @@ class ExQt(QMainWindow):
         self.settings.setValue("generate_reports", self.generate_reports_check.isChecked())
         event.accept()
 
+    #Validate selections, collect settings, and start the worker thread.
     def start_analysis(self):
-        #Validate selections, collect settings, and start the worker thread.
         folder_path = self.folder_input.text()
         if not folder_path or not os.path.isdir(folder_path):
             QMessageBox.warning(self, "Error", "Please select a valid input folder first.")
@@ -822,6 +1168,14 @@ class ExQt(QMainWindow):
         if missing_masks:
             QMessageBox.warning(self, "Missing Masks", f"For these files there are no corresponding mask files:\n{', '.join(missing_masks)}")
             return 
+
+        if self.plot_min_size_spin.value() >= self.plot_max_size_spin.value():
+            QMessageBox.warning(
+                self,
+                "Invalid Size Range",
+                "Analyzed Size Min must be smaller than Analyzed Size Max.",
+            )
+            return
 
         if self.metadata_scanned_folder != str(folder.resolve()):
             self._try_auto_fill_metadata(folder_path)
@@ -855,7 +1209,7 @@ class ExQt(QMainWindow):
             )
         if _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])):
             calibration_text += (
-                "\n\nRezim A min. voxels per FA layer: "
+                "\n\nRadial FA Profiling min. voxels per layer: "
                 f"{int(self.settings.value('mode_a_min_core_voxels', DEFAULT_SETTINGS['mode_a_min_core_voxels']))}"
             )
         reply = QMessageBox.question(
@@ -869,7 +1223,7 @@ class ExQt(QMainWindow):
             self.status_label.setText("Analysis cancelled: calibration was not confirmed.")
             return
 
-        #Snapshot all GUI values before starting the thread so worker execution is independent of subsequent widget changes.
+        #Snapshot all GUI values before starting the thread so worker execution is independent of subsequent widget changes
         params = {
             "input_folder": folder_path,
             "output_folder": self.output_path_edit.text(),
@@ -916,8 +1270,8 @@ class ExQt(QMainWindow):
         self.worker.request_review_signal.connect(self.prepare_review)
         self.worker.start()
         
+    #Map worker progress signals onto status text and button state.
     def update_button_text(self, text):
-        #Map worker progress signals onto status text and button state
         print(f"GUI LOG: {text}") 
         
         if text == "Done":
@@ -935,8 +1289,8 @@ class ExQt(QMainWindow):
             self.status_label.setText(text)
             self.btn_run.setText("Processing...")
 
+    #Translate Batch preview messages into Napari layers.
     def receive_layer(self, layer_info):
-        #Translate Batch preview messages into Napari layers.
         layer_type = layer_info.get("type", "image")
 
         if layer_type == "clear_layers":
@@ -954,8 +1308,8 @@ class ExQt(QMainWindow):
         elif layer_type == "points":
             self.viewer.add_points(data, name=name, **kwargs)
 
+    #Present a paintable ROI layer while the worker waits for input.
     def prepare_manual_roi(self, info):
-        #Present a paintable ROI layer while the worker waits for input.
         shape = info["shape"]
         empty_mask = np.zeros(shape, dtype=int)
         self.viewer.add_labels(empty_mask, name="Paint ROI", opacity=0.5)
@@ -964,8 +1318,8 @@ class ExQt(QMainWindow):
         self.btn_confirm_roi.show()
         self.btn_stop_review.show() 
 
+    #Return the painted ROI to the worker and resume processing.
     def confirm_roi(self):
-        #Return the painted ROI to the worker and resume processing.
         if "Paint ROI" in self.viewer.layers:
             mask_data = self.viewer.layers["Paint ROI"].data
             self.worker.user_roi_data = mask_data
@@ -982,8 +1336,8 @@ class ExQt(QMainWindow):
         self.btn_run.show()
         self.worker.roi_event.set()
 
+    #Pause between images so the user can approve the current preview.
     def prepare_review(self):
-        #Pause between images so the user can approve the current preview.
         self.btn_run.hide()
         self.btn_confirm_roi.hide()
         self.btn_next_image.show()
@@ -991,8 +1345,8 @@ class ExQt(QMainWindow):
         if hasattr(self, "status_label"):
             self.status_label.setText("Waiting for user review...")
 
+    #Approve the current image and release the worker for the next one.
     def next_image_confirmed(self):
-        #Approve the current image and release the worker for the next one.
         self.btn_next_image.hide()
         self.btn_stop_review.hide()
         self.btn_run.show()
@@ -1000,8 +1354,8 @@ class ExQt(QMainWindow):
             self.status_label.setText("Processing next...")
         self.worker.review_event.set()
 
+    #Stop the batch and discard the image currently under review.
     def stop_and_discard(self):
-        #Stop the batch and discard the image currently under review.
         self.btn_next_image.hide()
         self.btn_stop_review.hide()
         self.btn_confirm_roi.hide() 
