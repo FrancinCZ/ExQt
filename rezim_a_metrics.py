@@ -1,4 +1,3 @@
-
 import numpy as np
 
 from rezim_a_anisotropy import shape_anisotropy
@@ -17,7 +16,7 @@ def compute_core_shell_metrics(
     primary_exclusion_reason="",
 ):
 
-    #Rezim A always receives physical sampling in Z/Y/X order from Batch.
+    #Radial FA Profiling always receives physical sampling in Z/Y/X order from Batch.
     if len(sampling) != 3 or any(float(value) <= 0 for value in sampling):
         raise ValueError("sampling must contain three positive values ordered (Z, Y, X)")
 
