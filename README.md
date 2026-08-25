@@ -13,12 +13,12 @@ ExQt does **not** perform segmentation itself. Masks can be prepared in software
 - Optional manual ROI selection and napari preview.
 - Reproducible batch processing with a machine-readable CSV and metadata JSON.
 - Configurable human-readable Excel, CSV, and plot reports.
-- Optional **Rezim A** analysis of radial Shell–Middle–Core geometric fractional anisotropy (FA).
-- Rezim A quality control for image/ROI edges, incomplete radial layers, and persistent splitting across Z.
+- Optional **Radial FA Profiling** of Shell–Middle–Core geometric fractional anisotropy (FA).
+- Radial FA Profiling quality control for image/ROI edges, incomplete radial layers, and persistent splitting across Z.
 - Optional merging of compatible completed runs into one Excel workbook and overview plot.
 
 > [!IMPORTANT]
-> Rezim A measures a geometric pattern: how shape anisotropy changes from the outer shell toward the core. It does not directly measure liquidity, viscosity, stiffness, molecular exchange, or phase separation. A positive Shell-to-Core trend may be biologically interesting, but it is not by itself proof of LLPS.
+> Radial FA Profiling measures a geometric pattern: how shape anisotropy changes from the outer shell toward the core. It does not directly measure liquidity, viscosity, stiffness, molecular exchange, or phase separation. A positive Shell-to-Core trend may be biologically interesting, but it is not by itself proof of LLPS.
 
 ## Installation
 
@@ -74,8 +74,8 @@ Non-integer values, negative labels, NaN/Inf values, and reused instance IDs in 
 2. Select the folder containing the raw TIFF files and matching `_Mask.tif` files.
 3. Select an output folder, or enable **Save to the same folder as input**.
 4. Choose the process mode: `3d`, `2d`, or `single_slice`.
-5. Set the expansion factor and the analyzed biological-size range.
-6. Open **Settings → Advanced...** and verify calibration, channels, the raw noise filter, and optional Rezim A settings.
+5. Set the expansion factor and the analyzed biological-size range. You can use **Preview size distribution...** to inspect the calibrated mask-size distribution before choosing the bounds.
+6. Open **Settings → Advanced...** and verify calibration, channels, the raw noise filter, and optional Radial FA Profiling settings.
 7. Choose whether to use the whole image (**Auto-ROI**) or draw a manual ROI.
 8. Optionally enable napari preview or pause-and-review.
 9. Enable **Generate selected reports** and use **Configure...** to select the desired outputs.
@@ -95,7 +95,7 @@ ExQt attempts to read usable TIFF metadata and can recommend detected calibratio
 
 ## Process modes
 
-- **`3d`:** analyzes connected components throughout the complete volume. Z-step and voxel volume are used. Rezim A is available only in this mode.
+- **`3d`:** analyzes connected components throughout the complete volume. Z-step and voxel volume are used. Radial FA Profiling is available only in this mode.
 - **`2d`:** analyzes a maximum-intensity projection and the projected mask.
 - **`single_slice`:** extracts one selected/focus-ranked Z plane and analyzes it as a 2D image.
 
@@ -105,13 +105,25 @@ These settings are intentionally separate and should not be interpreted as inter
 
 1. **Raw noise filter (pixels/voxels)** — an early connected-component noise floor. It removes tiny fragments before the main analysis.
 2. **Analyzed biological-size range (µm² or µm³)** — the calibrated lower and upper bounds used by primary statistics, clean report tables, and plots.
-3. **Rezim A minimum voxels per FA layer** — the minimum amount of data required for valid Shell, Middle, and Core FA calculations. The same value also sets the minimum valid core size.
+3. **Radial FA Profiling minimum voxels per layer** — the minimum amount of data required for valid Shell, Middle, and Core FA calculations. The same value also sets the minimum valid core size.
 
 The raw machine/audit CSV may therefore contain more components than the final size-eligible or primary QC-valid sets. This is expected and allows exclusions to remain auditable.
 
-## Rezim A: Shell–Middle–Core FA
+### Interactive size-range preview
 
-Rezim A divides each eligible 3D object into three normalized radial regions using a distance-transform-based scheme:
+After selecting an input folder, use **Preview size distribution...** below the analyzed-size fields. The preview uses the current process mode, calibration, expansion factor, and raw noise filter. It shows:
+
+- the calibrated size distribution with the selected range highlighted;
+- the number of retained components as the candidate minimum size changes;
+- the selected and total pre-ROI object counts.
+
+The minimum and maximum can be entered numerically, moved with a quick click, or adjusted by dragging the colored graph handles. The histogram exposes both the blue minimum and red maximum handle; the retained-count panel exposes the blue minimum handle while keeping the maximum fixed. **Set range** copies the displayed values back to the main window, recalculates the histogram bins for that interval, and fits both X and Y scales without closing the preview. The selected distribution is therefore not compressed by outlying sizes or by counts outside the visible range. It does not edit the masks or run the analysis.
+
+For a manual ROI, the preview is intentionally calculated before the ROI is drawn, so its count is an estimate of the later analyzed population. The final reports still use only objects inside the accepted ROI. With Auto-ROI, the preview is usually closer to the final pre-QC count.
+
+## Radial FA Profiling: Shell–Middle–Core FA
+
+Radial FA Profiling divides each eligible 3D object into three normalized radial regions using a distance-transform-based scheme:
 
 - **Shell:** outer radial layer
 - **Middle:** intermediate radial layer
@@ -125,9 +137,9 @@ Geometric fractional anisotropy is calculated independently for each layer using
 
 A positive Delta A means that the object's core is geometrically more anisotropic than its shell. The per-object paired plots show whether this pattern is consistent across condensates rather than being driven only by a pooled average.
 
-### Rezim A quality control
+### Radial FA Profiling quality control
 
-Primary Rezim A plots use only objects that are:
+Primary Radial FA Profiling plots use only objects that are:
 
 - inside the selected biological-size range;
 - complete, with valid Shell, Middle, and Core measurements;
@@ -149,7 +161,7 @@ The source batch CSV and its metadata JSON are always the reproducibility backbo
 ### Always generated
 
 - `*_Output_Batch_<mode>.csv` — complete machine/audit table with measurements and QC fields.
-- `*_Output_Batch_<mode>_metadata.json` — applied calibration, channels, report settings, Rezim A settings, QC policy, and provenance.
+- `*_Output_Batch_<mode>_metadata.json` — applied calibration, channels, report settings, Radial FA Profiling settings, QC policy, and provenance.
 
 ### Optional report outputs
 
@@ -160,7 +172,7 @@ The **Configure...** dialog can enable or disable:
 - a QC-excluded CSV with exclusion reasons;
 - an additional full raw audit CSV;
 - standard size/intensity plots;
-- Rezim A Shell–Middle–Core and QC plots.
+- Radial FA Profiling Shell–Middle–Core and QC plots.
 
 The Excel report separates summary, primary objects, excluded objects, raw measurements, QC policy, and explanatory content into dedicated sheets instead of presenting one unstructured table.
 
@@ -201,12 +213,14 @@ Interpretation should consider the number of independent runs, run-to-run consis
 - Use the same segmentation and QC policy for runs intended for comparison.
 - Do not choose size or QC thresholds after inspecting the desired biological result.
 - Preserve QC-excluded objects and reasons instead of deleting them.
-- Treat Rezim A as a geometric pattern analysis unless validated against an independent reference or biological control.
+- Treat Radial FA Profiling as a geometric pattern analysis unless validated against an independent reference or biological control.
+
+For backward compatibility with existing ExQt result files, machine-readable CSV columns,
+metadata fields, settings, and Python APIs retain their historical `mode_a_*` names. This
+legacy internal name does not change the analysis and should not be used as its public name.
 
 ## License and acknowledgments
 
 ExQt is released under the [MIT License](LICENSE). See [About.md](About.md) for project and author information.
 
 The application relies on open-source projects including PySide6, napari, NumPy, pandas, SciPy, scikit-image, tifffile, openpyxl, matplotlib, and seaborn.
-
-
