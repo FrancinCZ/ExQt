@@ -8,7 +8,7 @@ Microscope & Acquisition Parameters
 * Slices (Z): 138
 
 Expansion Microscopy (ExM) Settings
-* Expansion Factor: 4.0
+* Expansion Factor: +-8.0
 
 Channel Configuration
 * Signal Channel (Condensates / SON): Channel 1
