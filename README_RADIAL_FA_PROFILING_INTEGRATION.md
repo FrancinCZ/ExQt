@@ -21,13 +21,6 @@ rezim_a_metrics.py
 
 Before replacing files, make a backup of the original `app.py` and `Batch.py`. The provided `postprocessing.py` does not need a change for this first integration.
 
-`test_batch_mode_a.py` is optional. It is a developer smoke test and is not required for routine analysis.
-
-For a reproducible numerical/plot test environment with Python 3.12, install `requirements-test.txt` and run:
-
-```text
-python test_batch_mode_a.py
-```
 
 ## GUI workflow
 
