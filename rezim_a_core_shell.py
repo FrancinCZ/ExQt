@@ -1,4 +1,3 @@
-
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
@@ -32,8 +31,7 @@ def split_core_middle_shell(
 
     normalized_distance = distance_from_edge / max_distance
 
-    # Fixed thirds make the layer scheme reproducible across objects. Batch
-    # records the exact versioned EDT/max definition with every output row.
+    #Fixed thirds make the layer scheme reproducible across objects. Batch records the exact versioned EDT/max definition with every output row.
     shell = mask & (normalized_distance <= shell_end)
     middle = mask & (normalized_distance > shell_end) & (normalized_distance <= core_start)
     core = mask & (normalized_distance > core_start)
