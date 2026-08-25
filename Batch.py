@@ -15,8 +15,8 @@ MODE_A_Z_SPLIT_PASS_FRACTION = 0.10
 MODE_A_Z_SPLIT_REVIEW_FRACTION = 0.30
 
 
+#Return a positive float or fail before calibrated measurements.
 def _positive_finite(value, name):
-    #Return a finite positive float or fail before calibrated measurements
     try:
         result = float(value)
     except (TypeError, ValueError) as error:
@@ -26,8 +26,8 @@ def _positive_finite(value, name):
     return result
 
 
+#Convert common OME/ImageJ physical-length units to nanometres.
 def _physical_value_to_nm(value, unit):
-    #Convert common OME/ImageJ physical-length units to nanometres
     if value is None or unit is None:
         return None
     normalized = str(unit).strip().lower().replace("μ", "u").replace("µ", "u")
@@ -55,8 +55,8 @@ def _physical_value_to_nm(value, unit):
     return converted if np.isfinite(converted) and converted > 0 else None
 
 
+#Validate a binary/instance mask and never silently merge 0/255 objects.
 def _prepare_labeled_mask(mask):
-    #Validate a binary/instance mask and never silently merge 0/255 objects.
     array = np.asarray(mask)
     if not np.issubdtype(array.dtype, np.number):
         raise ValueError(f"Mask must be numeric; received dtype {array.dtype}.")
@@ -88,15 +88,14 @@ def _prepare_labeled_mask(mask):
     return integer_mask
 
 
+#Return True when a region bbox reaches any image or stack boundary.
 def _touches_image_edge(region, image_shape):
-    #Return True when a region bbox reaches any image or stack boundary.
     bbox_min = region.bbox[:region.image.ndim]
     bbox_max = region.bbox[region.image.ndim:]
     return any(start == 0 or end == size for start, end, size in zip(bbox_min, bbox_max, image_shape))
 
 
 def _touches_roi_edge(region, roi_mask):
-    """Return True when an object is directly adjacent to excluded ROI space."""
     roi = np.asarray(roi_mask, dtype=bool)
     if roi.ndim != region.image.ndim:
         raise ValueError("ROI and labeled object must have the same dimensionality.")
@@ -120,9 +119,8 @@ def _touches_roi_edge(region, roi_mask):
     return bool(np.any(adjacent & ~roi[crop_slices]))
 
 
+#Detect split silhouettes without deciding biological object identity.
 def _max_components_per_z_slice(object_mask):
-    #Detect split silhouettes without deciding biological object identity.
-
     if object_mask.ndim != 3:
         return 1
     return max(int(label(object_mask[z]).max()) for z in range(object_mask.shape[0]))
@@ -199,8 +197,8 @@ def _select_focus_slice(volume):
     scores = [laplace(volume[z].astype(np.float32)).var() for z in range(volume.shape[0])]
     return int(np.argmax(scores))
 
+# Validate or infer the channel axis used to extract signal images.
 def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
-    #Validate or infer the channel axis used to extract signal images.
     if img_raw.ndim != 4:
         return expected_axis
 
@@ -218,8 +216,8 @@ def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
 
     raise ValueError(f"Could not confidently identify the channel axis for TIF shape {sizes}.")
 
+#Read calibrated XY/Z spacing without guessing an unspecified TIFF unit.
 def get_metadata_from_tif(tif_path):
-    #Read calibrated XY/Z spacing without guessing an unspecified TIFF unit
     with tifffile.TiffFile(tif_path) as tif:
         try:
             meta = {}
@@ -304,8 +302,7 @@ def process_condensates(
     if send_layer_func:
         send_layer_func({"type": "clear_layers"})
 
-    #Load both inputs together so all later measurements refer to the same
-    #field of view and can be displayed through the GUI callback.
+    #Load both inputs together so all later measurements refer to the same field of view and can be displayed through the GUI callback.
     img_raw = tifffile.imread(tif_path)
     img_mask = tifffile.imread(mask_path)
     img_mask = np.squeeze(img_mask)
@@ -412,7 +409,7 @@ def process_condensates(
 
     img_mask_process = img_mask_process * roi_mask
 
-    #Binary 0/1 and 0/255 masks are labeled consistently.
+    #Binary masks are labeled consistently.
     labeled_mask = _prepare_labeled_mask(img_mask_process)
 
     print("[4/5] Extracting true signal metrics...")
@@ -420,11 +417,11 @@ def process_condensates(
     eff_z_step_nm = z_step_nm / expansion_factor
 
     if mode_a_enabled and not is_3d:
-        print("      [Rezim A] Skipped: core-shell FA is available only in 3D mode.")
+        print("      [Radial FA Profiling] Skipped: radial FA is available only in 3D mode.")
         mode_a_enabled = False
     elif mode_a_enabled:
         print(
-            "      [Rezim A] Enabled: core-shell FA with effective sampling "
+            "      [Radial FA Profiling] Enabled with effective sampling "
             f"(Z,Y,X)=({eff_z_step_nm:.3f}, {eff_pixel_size_nm:.3f}, {eff_pixel_size_nm:.3f}) nm"
         )
 
@@ -477,7 +474,7 @@ def process_condensates(
             row["area_bio_um2"] = round(region.area * pixel_area_bio_um2, 5)
             row["shape_metric_bio"] = row["area_bio_um2"]
 
-        #Optional Rezim A metrics operate on each local region mask and are
+        #Optional Radial FA Profiling metrics operate on each local region mask and are
         if mode_a_enabled:
             object_mask = region.image.astype(bool)
             touches_edge = _touches_image_edge(region, labeled_mask.shape)
