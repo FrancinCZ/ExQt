@@ -46,7 +46,6 @@ When partitioning analysis is enabled, ExQt automatically generates:
    - **Left:** *Size vs. $K_{\text{part}}$* stability plot (proving concentration independence across droplet volumes).
    - **Right:** *2D Biophysical Phase Diagram* with color-coded quadrants.
 2. `*_3d_Radial_FA_Profiling_Plots.png` — 4-panel *Core-Middle-Shell* radial profiling and QC Funnel.
-3. Full validation reports (`exm_partitioning_report_EN.docx` / `.html` / `.md`).
 
 ---
 
