@@ -11,12 +11,13 @@ from Batch import (
     process_condensates,
 )
 from rezim_a_metrics import MODE_A_LAYER_SCHEME
+from stack_aligner import AlignmentConfig, align_tiff_folder
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
                                 QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
                                 QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
-                                QMessageBox)
+                                QMessageBox, QProgressBar)
 from PySide6.QtGui import QAction
 import qdarktheme
 from PySide6.QtCore import QSettings, QThread, Signal
@@ -58,7 +59,9 @@ REPORT_DEFAULTS = {
     "report_raw_audit_csv": False,
     "report_standard_plots": True,
     "report_mode_a_plots": True,
+    "report_partitioning_plots": True,
 }
+
 
 def _safe_float(value, default):
     if value is None:
@@ -80,6 +83,28 @@ def _safe_bool(value, default=False):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
 
+
+def _source_tiff_files(folder):
+    """Return conventional ExQt source TIFFs while excluding masks and derived files."""
+    return sorted(
+        path for path in Path(folder).iterdir()
+        if path.is_file()
+        and path.suffix.lower() in {".tif", ".tiff"}
+        and not path.stem.lower().endswith("_mask")
+        and "final" not in path.stem.lower()
+        and "_alignment_" not in path.stem.lower()
+    )
+
+
+def _matching_mask_path(source_path):
+    """Return an existing conventional mask path in either supported TIFF suffix."""
+    for suffix in (".tif", ".tiff"):
+        candidate = source_path.with_name(f"{source_path.stem}_Mask{suffix}")
+        if candidate.is_file():
+            return candidate
+    return source_path.with_name(f"{source_path.stem}_Mask.tif")
+
+
 class AnalysisWorker(QThread):
     #Run batch analysis off the GUI thread and relay UI-safe signals.
     layer_ready = Signal(dict)
@@ -95,20 +120,20 @@ class AnalysisWorker(QThread):
         self.user_roi_data = None
         self.abort_requested = False
 
-    # Pause the worker until the GUI returns a painted ROI mask.
+    #Pause the worker until the GUI returns a painted ROI mask.
     def request_roi_callback(self, img_shape, is_3d):
         self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d})
         self.roi_event.wait()
         self.roi_event.clear()
         return self.user_roi_data
 
-    # Wake any pending ROI/review wait and mark the batch for shutdown.
+    #Wake any pending ROI/review wait and mark the batch for shutdown.
     def request_abort(self):
         self.abort_requested = True
         self.review_event.set()
         self.roi_event.set() 
 
-    # Validate the folder, delegate measurements to Batch, and write outputs.
+    #Validate the folder, delegate measurements to Batch, and write outputs.
     def run(self):
         try:
             folder_path = Path(self.params["input_folder"])
@@ -117,8 +142,8 @@ class AnalysisWorker(QThread):
                 self.progress.emit("Done")
                 return
 
-            #Pair each source TIFF with its convention-based *_Mask.tif file;
-            raw_files = [f for f in sorted(folder_path.glob("*.tif")) if "Mask" not in f.name and "Final" not in f.name]
+            # Pair each source TIFF with its conventional *_Mask.tif or *_Mask.tiff file.
+            raw_files = _source_tiff_files(folder_path)
             all_dataframes = []
 
             for raw_tif in raw_files:
@@ -126,7 +151,7 @@ class AnalysisWorker(QThread):
                     self.progress.emit("Analysis stopped by user.")
                     break
 
-                mask_file = raw_tif.with_name(f"{raw_tif.stem}_Mask.tif")
+                mask_file = _matching_mask_path(raw_tif)
                 if not mask_file.exists():
                     self.progress.emit(f"Skipping {raw_tif.name}: Mask not found.")
                     continue
@@ -293,13 +318,301 @@ class AnalysisWorker(QThread):
                         self.progress.emit("Radial FA Profiling plots were generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating Radial FA Profiling plots: {str(e)}")
+
+                # Partitioning & Classification Analysis (K_part and Phase Diagram)
+                if (
+                    self.params.get("generate_reports", False)
+                    and self.params.get("report_partitioning_plots", True)
+                ):
+                    try:
+                        from partitioning_plots import export_partitioning_analysis
+                        export_partitioning_analysis(str(output_csv), output_folder, file_stem=output_csv.stem)
+                        self.progress.emit("Partitioning & Classification plots (K_part) were generated.")
+                    except Exception as e:
+                        self.progress.emit(f"Error generating Partitioning plots: {str(e)}")
             else:
                 self.progress.emit("No data available for processing.")
+
 
             self.progress.emit("Done")
         except Exception as e:
             self.progress.emit(f"Error when loading: {str(e)}")
             self.progress.emit("Done")
+
+class AlignmentWorker(QThread):
+    """Run the small TIFF aligner without freezing the GUI."""
+    progress = Signal(int, str)
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, input_folder, output_folder, reference_channel, align_masks, config=None):
+        super().__init__()
+        self.input_folder = input_folder
+        self.output_folder = output_folder
+        self.reference_channel = reference_channel
+        self.align_masks = align_masks
+        self.config = config
+
+    def run(self):
+        try:
+            result = align_tiff_folder(
+                self.input_folder,
+                self.output_folder,
+                reference_channel=self.reference_channel,
+                align_masks=self.align_masks,
+                config=self.config,
+                progress_callback=self.progress.emit,
+            )
+            self.completed.emit(result)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
+class ChannelDetectionWorker(QThread):
+    """Sample inter-plane Pearson correlation for each channel of the first TIFF.
+
+    Uses the same high-pass preprocessing as the aligner so the metric is directly
+    comparable to what phase cross-correlation will see.  Only n_sample adjacent pairs
+    from the middle 80 % of the Z range are processed, so the worker finishes in a
+    few seconds even for large stacks.
+    """
+    result = Signal(list)   # [(channel_index, mean_corr_pct), ...]
+    error  = Signal(str)
+
+    def __init__(self, input_folder: str, n_sample: int = 20):
+        super().__init__()
+        self.input_folder = input_folder
+        self.n_sample      = n_sample
+
+    def run(self):
+        try:
+            import tifffile as _tifffile
+            import numpy as _np
+            from scipy.ndimage import gaussian_filter as _gf
+            from pathlib import Path as _Path
+
+            folder  = _Path(self.input_folder)
+            sources = sorted(
+                p for p in folder.iterdir()
+                if p.is_file() and p.suffix.lower() in {".tif", ".tiff"}
+                and not p.stem.lower().endswith("_mask")
+            )
+            if not sources:
+                self.error.emit("No TIFF files found in the input folder.")
+                return
+
+            with _tifffile.TiffFile(sources[0]) as tif:
+                series = tif.series[0]
+                data   = series.asarray()
+                axes   = series.axes
+
+            if "C" not in axes or "Z" not in axes:
+                self.error.emit(
+                    f"Cannot auto-detect: axes '{axes}' must contain both C and Z."
+                )
+                return
+
+            c_ax = axes.index("C")
+            z_ax = axes.index("Z")
+            n_c  = data.shape[c_ax]
+            n_z  = data.shape[z_ax]
+
+            #Sample planes from the middle 80 % to skip empty leading/trailing edges.
+            start = int(n_z * 0.10)
+            end   = int(n_z * 0.90)
+            step  = max(1, (end - start) // self.n_sample)
+            z_idx = list(range(start, end, step))[: self.n_sample]
+            if len(z_idx) < 2:
+                self.error.emit("Stack too short for channel detection.")
+                return
+
+            def _prep(plane, hp_sigma=8.0):
+                img = plane.astype(_np.float64)
+                p1, p99 = _np.percentile(img, [1, 99])
+                if p99 <= p1:
+                    return None
+                img = _np.clip(img, p1, p99)
+                img = img - _gf(img, hp_sigma)
+                std = img.std()
+                if std < 1e-6:
+                    return None
+                return (img - img.mean()) / std
+
+            def _pearson(a, b):
+                a = a - a.mean(); b = b - b.mean()
+                d = _np.sqrt((a * a).sum() * (b * b).sum())
+                return float((a * b).sum() / d) if d > 0 else _np.nan
+
+            results = []
+            for ch in range(n_c):
+                corrs = []
+                for zi in z_idx:
+                    #Compare truly adjacent planes (zi and zi+1), same as the aligner does.
+                    if zi + 1 >= n_z:
+                        continue
+                    idx_a = [slice(None)] * data.ndim
+                    idx_b = [slice(None)] * data.ndim
+                    idx_a[c_ax] = ch; idx_a[z_ax] = zi
+                    idx_b[c_ax] = ch; idx_b[z_ax] = zi + 1
+                    prep_a = _prep(data[tuple(idx_a)])
+                    prep_b = _prep(data[tuple(idx_b)])
+                    if prep_a is not None and prep_b is not None:
+                        v = _pearson(prep_a, prep_b)
+                        if _np.isfinite(v):
+                            corrs.append(v)
+                mean_pct = float(_np.mean(corrs)) * 100.0 if corrs else 0.0
+                results.append((ch, mean_pct))
+
+
+            self.result.emit(results)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class AlignmentOptionsDialog(QDialog):
+    """Keep alignment settings deliberately small: output, reference and masks."""
+    def __init__(self, input_folder, parent=None):
+        super().__init__(parent)
+        self.input_folder = input_folder
+        self.setWindowTitle("Align Z-stacks")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        explanation = QLabel(
+            "The aligner estimates XY translation from one reference channel and applies the same "
+            "correction to all channels. Choose the channel with the highest inter-plane correlation "
+            "— in ExM datasets this is often the signal channel, not DAPI, because expansion makes "
+            "DAPI sparse and unreliable for phase correlation. "
+            "Use Auto-detect to measure correlations automatically. "
+            "Original TIFF files remain unchanged."
+        )
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+
+        form = QFormLayout()
+        self.reference_channel_spin = QSpinBox()
+        self.reference_channel_spin.setRange(0, 99)
+        self.reference_channel_spin.setValue(0)
+        self.reference_channel_spin.setToolTip(
+            "Use the channel with the most continuous, uniform signal throughout the Z stack. "
+            "For ExM data, DAPI is often a poor choice (sparse after expansion). "
+            "Click 'Auto-detect' to measure inter-plane correlation for each channel automatically."
+        )
+
+        #Spinbox + Auto-detect button on the same row
+        ref_row = QHBoxLayout()
+        ref_row.addWidget(self.reference_channel_spin)
+        self.auto_detect_btn = QPushButton("Auto-detect…")
+        self.auto_detect_btn.setToolTip(
+            "Measure average inter-plane correlation for each channel using the same "
+            "preprocessing as the aligner, then automatically select the best channel."
+        )
+        self.auto_detect_btn.clicked.connect(self.run_auto_detect)
+        ref_row.addWidget(self.auto_detect_btn)
+        form.addRow("Reference channel (0-based):", ref_row)
+
+        #Shows per-channel correlation results after detection
+        self.channel_info_label = QLabel("")
+        self.channel_info_label.setWordWrap(True)
+        self.channel_info_label.setStyleSheet("color: gray; font-size: 10px;")
+        form.addRow("", self.channel_info_label)
+
+        self.max_step_spin = QDoubleSpinBox()
+        self.max_step_spin.setRange(1.0, 50.0)
+        self.max_step_spin.setSingleStep(0.5)
+        self.max_step_spin.setDecimals(1)
+        self.max_step_spin.setValue(8.0)
+        self.max_step_spin.setToolTip(
+            "Maximum allowed XY shift between adjacent Z planes (pixels). "
+            "Steps larger than this are rejected (shift held at zero for that slice). "
+            "Increase if the aligner reports many 'step_above_limit' failures, "
+            "but inspect the drift CSV first to confirm the large steps are real drift."
+        )
+        form.addRow("Max step per Z plane (px):", self.max_step_spin)
+
+        self.max_fail_spin = QSpinBox()
+        self.max_fail_spin.setRange(5, 100)
+        self.max_fail_spin.setSingleStep(5)
+        self.max_fail_spin.setValue(20)
+        self.max_fail_spin.setSuffix(" %")
+        self.max_fail_spin.setToolTip(
+            "Maximum fraction of mid-stack steps that may fail before the file is blocked from export. "
+            "Empty slices at the top/bottom of the stack (before/after the sample) are excluded from this count. "
+            "Raise only if you know many mid-stack steps are unreliable but drift is still worth correcting."
+        )
+        form.addRow("Max mid-stack fail tolerance:", self.max_fail_spin)
+        layout.addLayout(form)
+
+        self.align_masks_check = QCheckBox("Also align matching *_Mask.tif / *_Mask.tiff files")
+        self.align_masks_check.setChecked(True)
+        layout.addWidget(self.align_masks_check)
+
+        self.expand_canvas_check = QCheckBox("Expand canvas (zero voxel loss at boundaries)")
+        self.expand_canvas_check.setChecked(True)
+        self.expand_canvas_check.setToolTip(
+            "Enlarges the output field of view by the exact maximum cumulative drift so no boundary voxels are clipped."
+        )
+        layout.addWidget(self.expand_canvas_check)
+
+        output_layout = QHBoxLayout()
+        self.output_edit = QLineEdit(str(Path(input_folder) / "Aligned"))
+        output_layout.addWidget(self.output_edit)
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self.choose_output)
+        output_layout.addWidget(browse)
+        layout.addWidget(QLabel("Output folder:"))
+        layout.addLayout(output_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def choose_output(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose alignment output folder", self.output_edit.text())
+        if folder:
+            self.output_edit.setText(folder)
+
+    def run_auto_detect(self):
+        """Start ChannelDetectionWorker; disable the button while the thread runs."""
+        self.auto_detect_btn.setEnabled(False)
+        self.auto_detect_btn.setText("Detecting…")
+        self.channel_info_label.setText("Scanning channels — this may take a few seconds…")
+        self._detection_worker = ChannelDetectionWorker(self.input_folder)
+        self._detection_worker.result.connect(self.show_channel_results)
+        self._detection_worker.error.connect(self.show_detection_error)
+        self._detection_worker.start()
+
+    def show_channel_results(self, results):
+        """Fill the spinbox with the best channel and display a per-channel summary."""
+        self.auto_detect_btn.setEnabled(True)
+        self.auto_detect_btn.setText("Auto-detect…")
+        if not results:
+            self.channel_info_label.setText("No channels found.")
+            return
+        best_ch, _ = max(results, key=lambda x: x[1])
+        self.reference_channel_spin.setValue(best_ch)
+        parts = [
+            f"Ch {ch}: {pct:.0f} %{'  ← recommended' if ch == best_ch else ''}"
+            for ch, pct in results
+        ]
+        self.channel_info_label.setText("  |  ".join(parts))
+
+    def show_detection_error(self, text):
+        self.auto_detect_btn.setEnabled(True)
+        self.auto_detect_btn.setText("Auto-detect…")
+        self.channel_info_label.setText(f"Detection failed: {text}")
+
+    def values(self):
+        return (
+            self.output_edit.text().strip(),
+            self.reference_channel_spin.value(),
+            self.align_masks_check.isChecked(),
+            self.max_step_spin.value(),
+            self.max_fail_spin.value(),
+            self.expand_canvas_check.isChecked(),
+        )
+
+
 
 class ReportOptionsDialog(QDialog):
     #Choose derived outputs without changing the source audit CSV
@@ -325,6 +638,7 @@ class ReportOptionsDialog(QDialog):
             ("report_excluded_csv", "QC-excluded CSV", "Reason-focused table for troubleshooting exclusions."),
             ("report_standard_plots", "Standard descriptive plots", "Volume, intensity and density overview."),
             ("report_mode_a_plots", "Radial FA Profiling plots", "Generated only when Radial FA Profiling is active in 3D."),
+            ("report_partitioning_plots", "Partitioning & Classification plots (K_part)", "Size vs K_part and 2D FA vs K_part biophysical phase diagram."),
             ("report_raw_audit_csv", "Extra full raw audit CSV", "Usually unnecessary: duplicates the source table with reporting flags and diameters."),
         ]
         for key, label, tooltip in choices:
@@ -466,7 +780,7 @@ class SizePreviewDialog(QDialog):
             return
         self._dragged_boundary = self._nearest_boundary(event, require_handle=True)
         if self._dragged_boundary is None:
-            # Preserve the original quick-click behaviour away from a handle.
+            #Preserve the original quick-click behaviour away from a handle.
             self._set_boundary(self._nearest_boundary(event), event.xdata)
 
     def _graph_dragged(self, event):
@@ -807,6 +1121,14 @@ class ExQt(QMainWindow):
         self.btn_stop_review.clicked.connect(self.stop_and_discard)
         self.left_panel_layout.addWidget(self.btn_stop_review)
 
+        self.align_progress_bar = QProgressBar()
+        self.align_progress_bar.setRange(0, 100)
+        self.align_progress_bar.setValue(0)
+        self.align_progress_bar.setTextVisible(True)
+        self.align_progress_bar.setStyleSheet("QProgressBar { text-align: center; font-weight: bold; }")
+        self.align_progress_bar.hide()
+        self.left_panel_layout.addWidget(self.align_progress_bar)
+
         self.status_label = QLabel("Prepared")
         self.status_label.setStyleSheet("color: gray; font-weight: bold; margin-top: 10px;")
         self.left_panel_layout.addWidget(self.status_label)
@@ -822,7 +1144,7 @@ class ExQt(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self.settings = QSettings("MyLab", "ExQt")
-        # TIFF metadata is advisory only; the user controls the calibration in Advanced Settings.
+        #TIFF metadata is advisory only; the user controls the calibration in Advanced Settings.
         self.detected_metadata_by_file = {}
         self.calibration_warning = ""
         self.metadata_scanned_folder = None
@@ -831,6 +1153,121 @@ class ExQt(QMainWindow):
         self.btn_run.clicked.connect(self.start_analysis)
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         self.on_mode_changed(self.mode_combo.currentText()) 
+
+    #Start the independent, non-destructive TIFF alignment workflow.
+    def start_alignment(self):
+        folder_path = self.folder_input.text().strip()
+        if not folder_path or not Path(folder_path).is_dir():
+            QMessageBox.warning(self, "Alignment", "Please select a valid input folder first.")
+            return
+
+        source_files = _source_tiff_files(folder_path)
+        if not source_files:
+            QMessageBox.warning(self, "Alignment", "No source TIFF stacks were found in the selected folder.")
+            return
+
+        dialog = AlignmentOptionsDialog(folder_path, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        output_text, reference_channel, align_masks, max_step_px, max_fail_pct, expand_canvas = dialog.values()
+        if not output_text:
+            QMessageBox.warning(self, "Alignment settings", "Please choose an output folder.")
+            return
+        output_folder = Path(output_text).expanduser().resolve()
+        if output_folder == Path(folder_path).resolve():
+            QMessageBox.warning(
+                self,
+                "Alignment settings",
+                "The alignment output folder must be different from the input folder. Source files are protected from overwrite.",
+            )
+            return
+
+        alignment_config = AlignmentConfig(
+            max_step_px=float(max_step_px),
+            max_fail_fraction=max_fail_pct / 100.0,
+            expand_canvas=expand_canvas,
+        )
+        self.align_stacks_action.setEnabled(False)
+        self.btn_run.setEnabled(False)
+        self.align_progress_bar.setValue(0)
+        self.align_progress_bar.show()
+        self.status_label.setText("Preparing stack alignment...")
+        self.alignment_worker = AlignmentWorker(
+            folder_path,
+            str(output_folder),
+            reference_channel,
+            align_masks,
+            config=alignment_config,
+        )
+        self.alignment_worker.progress.connect(self.update_alignment_status)
+        self.alignment_worker.completed.connect(self.alignment_completed)
+        self.alignment_worker.failed.connect(self.alignment_failed)
+        self.alignment_worker.start()
+
+    # Display alignment-worker progress without changing the analysis controls.
+    def update_alignment_status(self, pct, text):
+        print(f"ALIGNMENT LOG [{pct}%]: {text}")
+        self.align_progress_bar.setValue(pct)
+        self.status_label.setText(text)
+
+    # Restore controls and present the audited batch outcome after alignment.
+    def alignment_completed(self, batch_result):
+        self.align_stacks_action.setEnabled(True)
+        self.btn_run.setEnabled(True)
+        self.align_progress_bar.setValue(100)
+        self.align_progress_bar.hide()
+        records = batch_result.records
+        status_counts = records["status"].value_counts().to_dict()
+        pass_count = int(status_counts.get("PASS", 0))
+        review_count = int(status_counts.get("REVIEW", 0))
+        fail_count = int(status_counts.get("FAIL", 0))
+        error_count = int(status_counts.get("ERROR", 0))
+        # Both PASS and REVIEW stacks are written to disk; REVIEW means some steps
+        # had rejected registrations (shift held at zero) — the drift CSV must be
+        # inspected before using these stacks for quantitative analysis.
+        exported_count = pass_count + review_count
+        self.status_label.setText(
+            f"Alignment finished: {pass_count} passed, {review_count} review, "
+            f"{fail_count} failed, {error_count} errors."
+        )
+        message = (
+            f"Stacks processed: {len(records)}\n"
+            f"Passed (fully reliable): {pass_count}\n"
+            f"Review (exported — inspect drift CSV): {review_count}\n"
+            f"Failed (not exported): {fail_count}\n"
+            f"Errors: {error_count}\n\n"
+            f"Batch summary: {batch_result.summary_csv}\n"
+            f"The output folder contains aligned TIFFs and drift CSV/PNG files."
+        )
+        if review_count or fail_count or error_count:
+            QMessageBox.warning(self, "Alignment finished with warnings", message)
+        else:
+            QMessageBox.information(self, "Alignment complete", message)
+
+        if exported_count:
+            aligned_folder = str(batch_result.summary_csv.parent)
+            switch = QMessageBox.question(
+                self,
+                "Use aligned data for ExQt?",
+                f"Alignment produced {exported_count} usable stack(s).\n\n"
+                f"Switch the ExQt input folder to:\n{aligned_folder}\n\n"
+                "This prevents accidentally running statistics on the original, unaligned TIFFs.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if switch == QMessageBox.Yes:
+                self.folder_input.setText(aligned_folder)
+                self.metadata_scanned_folder = ""
+                self._try_auto_fill_metadata(aligned_folder)
+                self.status_label.setText(f"Using aligned data: {aligned_folder}")
+
+    # Restore controls after a setup or file-level error that aborted the batch.
+    def alignment_failed(self, text):
+        self.align_stacks_action.setEnabled(True)
+        self.btn_run.setEnabled(True)
+        self.align_progress_bar.hide()
+        self.status_label.setText(f"Alignment failed: {text}")
+        QMessageBox.warning(self, "Alignment failed", text)
 
     #Update controls when the processing mode changes; Radial FA Profiling is 3D-only.
     def on_mode_changed(self, mode):
@@ -847,10 +1284,7 @@ class ExQt(QMainWindow):
     def _try_auto_fill_metadata(self, folder_path):
         folder = Path(folder_path)
         self.metadata_scanned_folder = str(folder.resolve())
-        files = sorted(
-            f for f in folder.glob("*.tif")
-            if "Mask" not in f.name and "Final" not in f.name
-        )
+        files = _source_tiff_files(folder)
         self.detected_metadata_by_file = {}
         self.calibration_warning = ""
 
@@ -905,6 +1339,13 @@ class ExQt(QMainWindow):
         menu_bar = self.menuBar()
 
         tools_menu = menu_bar.addMenu("Tools")
+        self.align_stacks_action = QAction("Align Z-stacks...", self)
+        self.align_stacks_action.setToolTip(
+            "Create aligned copies of source TIFF stacks, optional shifted masks, and drift QC files in a new folder."
+        )
+        tools_menu.addAction(self.align_stacks_action)
+        self.align_stacks_action.triggered.connect(self.start_alignment)
+
         self.merge_runs_action = QAction("Merge existing runs...", self)
         self.merge_runs_action.setToolTip(
             "Recursively merge compatible ExQt batch CSVs from one folder tree."
@@ -1006,16 +1447,13 @@ class ExQt(QMainWindow):
             return
 
         folder = Path(folder_path)
-        source_files = sorted(
-            path for path in folder.glob("*.tif")
-            if "Mask" not in path.name and "Final" not in path.name
-        )
+        source_files = _source_tiff_files(folder)
         if not source_files:
             QMessageBox.warning(self, "Size preview", "No source TIF files were found in the selected folder.")
             return
         missing_masks = [
             path.name for path in source_files
-            if not (folder / f"{path.stem}_Mask.tif").exists()
+            if not _matching_mask_path(path).exists()
         ]
         if missing_masks:
             QMessageBox.warning(
@@ -1159,11 +1597,11 @@ class ExQt(QMainWindow):
             return
 
         folder = Path(folder_path)
-        files = [f for f in folder.glob("*.tif") if "Mask" not in f.name and "Final" not in f.name]
+        files = _source_tiff_files(folder)
         if not files:
             QMessageBox.warning(self, "Error", "In the selected folder, no source TIF files were found.")
             return
-        missing_masks = [f.name for f in files if not (folder / f"{f.stem}_Mask.tif").exists()]
+        missing_masks = [f.name for f in files if not _matching_mask_path(f).exists()]
 
         if missing_masks:
             QMessageBox.warning(self, "Missing Masks", f"For these files there are no corresponding mask files:\n{', '.join(missing_masks)}")
@@ -1240,6 +1678,7 @@ class ExQt(QMainWindow):
             "report_raw_audit_csv": _safe_bool(self.settings.value("report_raw_audit_csv", REPORT_DEFAULTS["report_raw_audit_csv"]), REPORT_DEFAULTS["report_raw_audit_csv"]),
             "report_standard_plots": _safe_bool(self.settings.value("report_standard_plots", REPORT_DEFAULTS["report_standard_plots"]), REPORT_DEFAULTS["report_standard_plots"]),
             "report_mode_a_plots": _safe_bool(self.settings.value("report_mode_a_plots", REPORT_DEFAULTS["report_mode_a_plots"]), REPORT_DEFAULTS["report_mode_a_plots"]),
+            "report_partitioning_plots": _safe_bool(self.settings.value("report_partitioning_plots", REPORT_DEFAULTS["report_partitioning_plots"]), REPORT_DEFAULTS["report_partitioning_plots"]),
             "plot_min_size": self.plot_min_size_spin.value(),
             "plot_max_size": self.plot_max_size_spin.value(),
             "pixel_size_nm": pixel_size_nm,
@@ -1261,6 +1700,7 @@ class ExQt(QMainWindow):
 
         self.btn_run.setEnabled(False)
         self.btn_run.setText("Processing...")
+        self.align_stacks_action.setEnabled(False)
         self.viewer.layers.clear()
 
         self.worker = AnalysisWorker(params)
@@ -1278,6 +1718,7 @@ class ExQt(QMainWindow):
             self.btn_stop_review.hide()
             self.btn_run.setEnabled(True)
             self.btn_run.setText("Start analysis")
+            self.align_stacks_action.setEnabled(True)
             
             if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("No data"):
                 self.status_label.setText("Analysis completed successfully.")
@@ -1312,11 +1753,17 @@ class ExQt(QMainWindow):
     def prepare_manual_roi(self, info):
         shape = info["shape"]
         empty_mask = np.zeros(shape, dtype=int)
-        self.viewer.add_labels(empty_mask, name="Paint ROI", opacity=0.5)
+        first_layer = next(iter(self.viewer.layers), None)
+        layer_scale = getattr(first_layer, "scale", None) if first_layer is not None else None
+        kwargs = {"name": "Paint ROI", "opacity": 0.5}
+        if layer_scale is not None:
+            kwargs["scale"] = layer_scale
+        self.viewer.add_labels(empty_mask, **kwargs)
         self.viewer.layers["Paint ROI"].mode = 'paint'
         self.btn_run.hide()
         self.btn_confirm_roi.show()
-        self.btn_stop_review.show() 
+        self.btn_stop_review.show()
+
 
     #Return the painted ROI to the worker and resume processing.
     def confirm_roi(self):
