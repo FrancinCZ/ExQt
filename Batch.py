@@ -216,8 +216,74 @@ def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
 
     raise ValueError(f"Could not confidently identify the channel axis for TIF shape {sizes}.")
 
+# Remove only singleton dimensions while keeping the corresponding axis string in sync.
+def _squeeze_with_axes(array, axes):
+    data = np.asarray(array)
+    normalized_axes = str(axes).upper()
+    if len(normalized_axes) != data.ndim:
+        return np.squeeze(data), ""
+    keep = [index for index, size in enumerate(data.shape) if size != 1]
+    if len(keep) == data.ndim:
+        return data, normalized_axes
+    if not keep:
+        return np.squeeze(data), ""
+    return np.squeeze(data), "".join(normalized_axes[index] for index in keep)
+
+
+# Load TIFF pixels and series axes together; the axes are required for unambiguous channel selection.
+def _read_tiff_with_axes(tif_path):
+    with tifffile.TiffFile(tif_path) as tif:
+        if len(tif.series) != 1:
+            raise ValueError(f"TIFF must contain exactly one series: {Path(tif_path).name}")
+        series = tif.series[0]
+        return _squeeze_with_axes(series.asarray(), series.axes)
+
+
+def _alignment_drift_csv(tif_path):
+    path = Path(tif_path)
+    stem = path.name
+    for suffix in (".ome.tiff", ".ome.tif", ".tiff", ".tif"):
+        if stem.lower().endswith(suffix):
+            stem = stem[:-len(suffix)]
+            break
+    return path.with_name(f"{stem}_drift.csv")
+
+
+def validate_alignment_qc(tif_path):
+    """Reject an aligned input if its companion drift CSV reports a hard FAIL."""
+    drift_csv = _alignment_drift_csv(tif_path)
+    if not drift_csv.is_file():
+        return None
+    try:
+        table = pd.read_csv(drift_csv)
+    except Exception as error:
+        raise ValueError(f"Cannot read alignment QC for {Path(tif_path).name}: {error}") from error
+    required = {"status", "step_shift_y_px", "step_shift_x_px", "step_magnitude_px"}
+    if table.empty or not required.issubset(table.columns):
+        raise ValueError(f"Alignment QC is incomplete for {Path(tif_path).name}: {drift_csv.name}")
+
+    statuses = set(table["status"].astype(str))
+    if statuses == {"FAIL"}:
+        raise ValueError(
+            f"Alignment QC is FAIL for {Path(tif_path).name}; "
+            "the stack is excluded from statistics."
+        )
+
+    numeric = table[["step_shift_y_px", "step_shift_x_px", "step_magnitude_px"]].to_numpy(dtype=float)
+    if not np.isfinite(numeric).all():
+        raise ValueError(f"Alignment QC contains non-finite shifts for {Path(tif_path).name}")
+
+    if "REVIEW" in statuses or "FAIL" in statuses:
+        states = ", ".join(sorted(statuses))
+        print(f"      [Alignment QC] Notice: {Path(tif_path).name} contains steps with ({states}) — inspect drift plot.")
+
+    return drift_csv
+
+
+
 #Read calibrated XY/Z spacing without guessing an unspecified TIFF unit.
 def get_metadata_from_tif(tif_path):
+
     with tifffile.TiffFile(tif_path) as tif:
         try:
             meta = {}
@@ -297,16 +363,28 @@ def process_condensates(
 
     tif_path = Path(tif_path)
     mask_path = Path(mask_path)
+    validate_alignment_qc(tif_path)
     print(f"\n[1/5] Loading Pair: {tif_path.name} & {mask_path.name}")
 
     if send_layer_func:
         send_layer_func({"type": "clear_layers"})
 
     #Load both inputs together so all later measurements refer to the same field of view and can be displayed through the GUI callback.
-    img_raw = tifffile.imread(tif_path)
-    img_mask = tifffile.imread(mask_path)
-    img_mask = np.squeeze(img_mask)
-    img_raw = np.squeeze(img_raw)
+    img_raw, raw_axes = _read_tiff_with_axes(tif_path)
+    img_mask, _ = _read_tiff_with_axes(mask_path)
+
+    meta = get_metadata_from_tif(tif_path)
+    if meta:
+        if pixel_size_nm is None:
+            pixel_size_nm = meta.get('pixel_size')
+        if z_step_nm is None:
+            z_step_nm = meta.get('z_step')
+        print(f"      [Info] TIF metadata available: XY={meta.get('pixel_size')}nm, Z={meta.get('z_step')}nm")
+    else:
+        print(f"      [Info] Metadata not found, using default values from GUI.")
+
+    if pixel_size_nm is None or z_step_nm is None:
+        raise ValueError("Pixel size XY and Z-step must be provided by ExQt Settings or TIF metadata.")
 
     meta = get_metadata_from_tif(tif_path)
     if meta:
@@ -328,7 +406,8 @@ def process_condensates(
     #Channel selection is isolated here - downstream processing works with a
     #single intensity volume regardless of the original TIFF layout.
     if img_raw.ndim == 4:
-        ch_axis = _resolve_channel_axis(img_raw, expected_axis=channel_axis)
+        ch_axis = raw_axes.index("C") if raw_axes.count("C") == 1 else _resolve_channel_axis(img_raw, expected_axis=channel_axis)
+
         channel_count = img_raw.shape[ch_axis]
         if not 0 <= int(signal_channel) < channel_count:
             raise ValueError(
@@ -347,7 +426,7 @@ def process_condensates(
         img_intensity = img_raw
 
     if img_mask.shape != img_intensity.shape:
-        if img_mask.shape == img_intensity.shape[::-1]: 
+        if img_mask.shape == img_intensity.shape[::-1]:
             img_mask = np.transpose(img_mask)
             print("Mask was automatically transposed.")
         else:
@@ -357,7 +436,7 @@ def process_condensates(
     is_stack = img_intensity.ndim == 3
     print(f"      Mode: {mode}")
 
-    #Convert the requested mode into one processing image/mask pair. 
+    #Convert the requested mode into one processing image/mask pair.
     if mode == "single_slice":
         if not is_stack:
             raise ValueError("single_slice mode needs a 3D (Z,Y,X) stack.")
@@ -389,19 +468,26 @@ def process_condensates(
         extruded_mask = np.ones_like(img_mask_process, dtype=int)
     else:
         if send_layer_func:
+            # In ExM, Z-step is typically larger than XY pixel size — pass scale so the ROI preview is physically accurate.
+            _roi_scale = (z_step_nm / pixel_size_nm, 1, 1) if is_3d else None
+            _sig_kw: dict = {"colormap": "gray", "blending": "additive"}
+            _msk_kw: dict = {"opacity": 0.6, "blending": "additive"}
+            if _roi_scale is not None:
+                _sig_kw["scale"] = _roi_scale
+                _msk_kw["scale"] = _roi_scale
             send_layer_func({
                 "type": "image", "name": f"Signal ({tif_path.name})",
-                "data": img_intensity, "kwargs": {"colormap": "gray", "blending": "additive"}
+                "data": img_intensity, "kwargs": _sig_kw
             })
             send_layer_func({
                 "type": "labels", "name": "Mask Condensates",
                 "data": img_mask_process.astype(int),
-                "kwargs": {"opacity": 0.6, "blending": "additive"}
+                "kwargs": _msk_kw
             })
         print("Waiting for user to draw ROI in Napari...")
         extruded_mask = request_roi_func(img_intensity.shape, is_3d)
         if is_3d and extruded_mask.max() > 0:
-            mask_2d = extruded_mask.max(axis=0) 
+            mask_2d = extruded_mask.max(axis=0)
             extruded_mask = np.repeat(mask_2d[np.newaxis, :, :], extruded_mask.shape[0], axis=0)
         roi_mask = extruded_mask > 0
 
@@ -425,6 +511,36 @@ def process_condensates(
             f"(Z,Y,X)=({eff_z_step_nm:.3f}, {eff_pixel_size_nm:.3f}, {eff_pixel_size_nm:.3f}) nm"
         )
 
+    # Estimate dark camera offset from the lowest 0.5% percentile
+    camera_offset = float(np.percentile(img_intensity, 0.5)) if img_intensity.size > 0 else 0.0
+
+    # Determine occupied Z-slices where the cell and condensates actually exist (ignoring empty top/bottom slices)
+    if is_3d and labeled_mask.max() > 0:
+        z_occupied = np.where(np.any(labeled_mask > 0, axis=(1, 2)))[0]
+        z_min = int(z_occupied.min())
+        z_max = int(z_occupied.max())
+    else:
+        z_min = 0
+        z_max = labeled_mask.shape[0] - 1 if is_3d else 0
+
+    # Precompute nucleoplasm (background within cell ROI across active Z-slices) mean intensity per cell_id
+    cell_ids = np.unique(extruded_mask[extruded_mask > 0])
+    nucleoplasm_means = {}
+    for cid in cell_ids:
+        bg_mask = (extruded_mask == cid) & (labeled_mask == 0)
+        if is_3d and z_max >= z_min:
+            # Mask out empty Z-slices above and below the active cellular volume
+            bg_mask[:z_min, :, :] = False
+            bg_mask[z_max + 1:, :, :] = False
+
+        if np.any(bg_mask):
+            nucleoplasm_means[cid] = float(np.mean(img_intensity[bg_mask]))
+        else:
+            global_bg = (extruded_mask == cid) & (labeled_mask == 0)
+            nucleoplasm_means[cid] = float(np.mean(img_intensity[global_bg])) if np.any(global_bg) else np.nan
+
+
+
     #Regionprops supplies geometry and intensity statistics used to build the stable CSV row schema consumed by postprocessing.py.
     props = regionprops(labeled_mask, intensity_image=img_intensity)
     objects_data = []
@@ -433,7 +549,7 @@ def process_condensates(
         mean_int = region.intensity_mean
         if region.area < min_voxels:
             continue
-            
+
         centroid_coords = tuple(int(round(c)) for c in region.centroid)
         if len(region.centroid) >= 3:
             z_px, y_px, x_px = [round(float(v), 3) for v in region.centroid[:3]]
@@ -441,14 +557,20 @@ def process_condensates(
             z_px, y_px, x_px = 0.0, round(float(region.centroid[0]), 3), round(float(region.centroid[1]), 3)
         else:
             z_px = y_px = x_px = np.nan
-        
+
         try:
-            cell_id = extruded_mask[centroid_coords] 
+            cell_id = extruded_mask[centroid_coords]
         except IndexError:
             continue
-            
+
         if cell_id == 0:
             continue
+
+        bg_int = nucleoplasm_means.get(cell_id, np.nan)
+        net_mean_int = max(mean_int - camera_offset, 0.0)
+        net_bg_int = max(bg_int - camera_offset, 1e-6) if np.isfinite(bg_int) else np.nan
+        part_coeff = round(net_mean_int / net_bg_int, 2) if np.isfinite(net_bg_int) and net_bg_int > 0 else np.nan
+
 
         row = {
             "filename": tif_path.name,
@@ -460,6 +582,8 @@ def process_condensates(
             "mean_intensity": round(mean_int, 2),
             "max_intensity": round(region.intensity_max, 2),
             "integrated_density": round(region.area * mean_int, 2),
+            "nucleoplasm_mean_intensity": round(bg_int, 2) if np.isfinite(bg_int) else np.nan,
+            "partition_coefficient": part_coeff,
         }
 
         #Convert pixel counts into calibrated biological units while keeping raw counts for auditability and downstream QC.
@@ -473,6 +597,7 @@ def process_condensates(
             row["area_px"] = region.area
             row["area_bio_um2"] = round(region.area * pixel_area_bio_um2, 5)
             row["shape_metric_bio"] = row["area_bio_um2"]
+
 
         #Optional Radial FA Profiling metrics operate on each local region mask and are
         if mode_a_enabled:
@@ -499,6 +624,7 @@ def process_condensates(
             metrics = compute_core_shell_metrics(
                 object_mask,
                 sampling=(eff_z_step_nm, eff_pixel_size_nm, eff_pixel_size_nm),
+                intensity_image=region.image_intensity if hasattr(region, "image_intensity") else getattr(region, "intensity_image", None),
                 min_core_voxels=mode_a_min_core_voxels,
                 primary_include=not qc_reasons,
                 primary_exclusion_reason=";".join(qc_reasons),
@@ -534,12 +660,22 @@ def process_condensates(
                 "Delta_A_middle_shell": metrics["delta_A_middle_shell"],
                 "Delta_A_core_middle": metrics["delta_A_core_middle"],
                 "Delta_A_core_shell": metrics["delta_A_core_shell"],
+                "mean_intensity_object": metrics["mean_intensity_object"],
+                "mean_intensity_shell": metrics["mean_intensity_shell"],
+                "mean_intensity_middle": metrics["mean_intensity_middle"],
+                "mean_intensity_core": metrics["mean_intensity_core"],
+                "Delta_intensity_middle_shell": metrics["delta_intensity_middle_shell"],
+                "Delta_intensity_core_middle": metrics["delta_intensity_core_middle"],
+                "Delta_intensity_core_shell": metrics["delta_intensity_core_shell"],
+                "condensate_class": metrics.get("condensate_class", "Unclassified"),
                 "A_object_valid": metrics["A_object_valid"],
                 "A_shell_valid": metrics["A_shell_valid"],
                 "A_middle_valid": metrics["A_middle_valid"],
                 "A_core_valid": metrics["A_core_valid"],
                 "mode_a_core_voxels": metrics["core_voxels"],
                 "mode_a_core_valid": metrics["core_valid"],
+
+
                 "mode_a_empty_layers": metrics["mode_a_empty_layers"],
                 "mode_a_layer_complete_coverage": metrics["layer_qc"]["complete_coverage"],
                 "mode_a_object_touches_edge": touches_edge,
@@ -571,9 +707,22 @@ def process_condensates(
     #Preview callbacks are optional, allowing the same numerical function 
     print("[5/5] Generating Preview")
     if send_layer_func:
-        send_layer_func({"type": "image", "name": f"Raw Signal ({tif_path.name})", "data": img_intensity, "kwargs": {"colormap": "gray", "blending": "additive"}})
-        send_layer_func({"type": "labels", "name": "ROI Boundaries", "data": roi_mask.astype(int), "kwargs": {"opacity": 0.2}})
-        send_layer_func({"type": "labels", "name": "Segmentation Mask", "data": labeled_mask, "kwargs": {"opacity": 0.6, "blending": "additive"}})
+        z_scale = z_step_nm / pixel_size_nm if is_3d else 1.0
+        layer_scale = (z_scale, 1, 1) if is_3d else None
+
+        img_kwargs: dict = {"colormap": "gray", "blending": "additive"}
+        if layer_scale is not None:
+            img_kwargs["scale"] = layer_scale
+
+        lbl_kwargs_roi: dict = {"opacity": 0.2}
+        lbl_kwargs_seg: dict = {"opacity": 0.6, "blending": "additive"}
+        if layer_scale is not None:
+            lbl_kwargs_roi["scale"] = layer_scale
+            lbl_kwargs_seg["scale"] = layer_scale
+
+        send_layer_func({"type": "image",  "name": f"Raw Signal ({tif_path.name})", "data": img_intensity,  "kwargs": img_kwargs})
+        send_layer_func({"type": "labels", "name": "ROI Boundaries",                "data": roi_mask.astype(int), "kwargs": lbl_kwargs_roi})
+        send_layer_func({"type": "labels", "name": "Segmentation Mask",             "data": labeled_mask,  "kwargs": lbl_kwargs_seg})
 
         coords = [region.centroid for region in props]
         if objects_data and len(coords) > 0:
