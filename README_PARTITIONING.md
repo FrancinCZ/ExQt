@@ -38,26 +38,6 @@ By combining **3D Fractional Anisotropy ($FA$)** with **$K_{\text{part}}$**, ExQ
               0.0 (Perfect Sphere)        0.65               1.0 (Elongated / Sheet)
 ```
 
-### Four Biophysical Regimes:
-1. **Spherical LLPS Droplets ($FA < 0.65, K_{\text{part}} \ge 1.5$):** Unconstrained liquid droplets dominated by isotropic surface tension (e.g., **SON Nuclear Speckles**, $FA \approx 0.533, K_{\text{part}} \approx 18.57\times$).
-2. **Chromatin-Wetted Condensates ($FA \ge 0.65, K_{\text{part}} \ge 1.5$):** Condensed assemblies nucleating on linear DNA polymers, exhibiting capillary elongation along the chromatin scaffold (e.g., **POL II Hubs**, $FA \approx 0.810, K_{\text{part}} \approx 18.93\times$).
-3. **Weak / Diffuse Assemblies ($K_{\text{part}} < 1.5$):** Structures failing to maintain dense phase concentration above background.
-4. **Hollow / Membrane-Bound Organelles:** Hollow 2D membranes enclosing empty non-fluorescent lumens (e.g., **Golgi apparatus**, $K_{\text{part}} = 0.89\times, 31.1\%$ hollow layers $\Delta I < 0$).
-
----
-
-## 3. Experimental Benchmarks
-
-| Metric (3D Analysis) | 🔵 POL II (Transcriptional Hubs) | 🔴 GOLGI / GM130 (Negative Control) | 🟢 SON (Nuclear Speckles) |
-| :--- | :---: | :---: | :---: |
-| **Biological State** | Chromatin-tethered condensate | Hollow membrane labyrinth | Unconstrained spherical droplet |
-| **Median Intensity ($I_{\text{obj}}$)** | **$4\,724.72\text{ ADU}$** | **$679.46\text{ ADU}$** | **$5\,120.30\text{ ADU}$** |
-| **Background ($I_{\text{nuc}}$)** | **$249.58\text{ ADU}$** | **$761.23\text{ ADU}$** | **$275.40\text{ ADU}$** |
-| **Partitioning ($K_{\text{part}}$)** | **$\mathbf{18.93\times}$** | **$\mathbf{0.89\times}$** | **$\mathbf{18.57\times}$** |
-| **Fractional Anisotropy ($FA$)** | **$0.810$** *(prolate ellipsoid)* | **$0.698\text{ to }0.99$** *(planar sheets)* | **$0.533$** *(globular spheroid)* |
-| **Hollow Structures ($\Delta I < 0$)** | **$0\,\%$** | **$31.1\,\%$ in large cisternae** | **$0\,\%$** |
-
----
 
 ## 4. Output Plots & Deliverables
 
