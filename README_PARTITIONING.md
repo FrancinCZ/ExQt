@@ -39,7 +39,7 @@ By combining **3D Fractional Anisotropy ($FA$)** with **$K_{\text{part}}$**, ExQ
 ```
 
 
-## 4. Output Plots & Deliverables
+## 3. Output Plots & Deliverables
 
 When partitioning analysis is enabled, ExQt automatically generates:
 1. `*_3d_partitioning_analysis.png` — Two-panel figure containing:
