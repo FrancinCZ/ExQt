@@ -1,20 +1,22 @@
 # ExQt: Expansion Microscopy Quantification of Nuclear Condensates
 
-**ExQt** is an open-source desktop application for quantitative 3D analysis of biomolecular condensates and sub-cellular assemblies in **Expansion Microscopy (ExM)** and standard confocal microscopy. It combines raw 3D TIFF intensity stacks with user-provided segmentation masks, applies physical calibration and the expansion factor ($\text{ExF}$), and extracts single-cell thermodynamic partitioning coefficients ($K_{\text{part}}$), 2D biophysical phase diagrams, geometric fractional anisotropy ($FA$), and radial layer profiles.
+**ExQt** is an open-source desktop application for automated, reproducible 2D and 3D quantitative analysis of fluorescence microscopy images, designed with an emphasis on **Expansion Microscopy (ExM)** and cellular assemblies. It combines raw multi-dimensional TIFF intensity data with user-provided segmentation masks, applies physical spatial calibration and expansion scaling, and generates auditable object-level statistics, size distributions, intensity measurements, quality-control metrics, and publication-ready reports.
 
-ExQt does **not** perform segmentation itself. Masks can be prepared in software such as [Labkit](https://imagej.net/plugins/labkit/), [ilastik](https://www.ilastik.org/), Fiji, or any tool capable of exporting binary or instance TIFF masks.
+ExQt does **not** perform segmentation itself. Masks can be prepared in any preferred segmentation tool (e.g., [Labkit](https://imagej.net/plugins/labkit/), [ilastik](https://www.ilastik.org/), Fiji/ImageJ, Cellpose, or custom pipelines) capable of exporting standard TIFF masks.
 
 ---
 
 ## Main Features
 
-- **3D Thermodynamic Partitioning ($K_{\text{part}}$):** Automated extraction of in situ dense-to-dilute partitioning coefficients ($C_{\text{dense}} / C_{\text{dilute}}$) with camera dark noise subtraction and active Z-slice background isolation.
-- **2D Biophysical Phase Diagrams:** Automated classification of assemblies into distinct physical regimes (*Spherical LLPS Droplets*, *Chromatin-Wetted Condensates*, and *Hollow Membrane Structures*) based on $FA$ vs. $K_{\text{part}}$.
-- **Radial FA Profiling (Shell–Middle–Core):** Sub-nanoscale geometric layer erosion using Euclidean distance transforms to identify flat lamellar sheets vs. isotropic spheres.
-- **Topological QC Funnel:** Automated filtering for image/ROI edges, incomplete radial layers, and persistent Z-branching (`z_topology_fail`) to detect complex interconnected organelle networks (e.g. Golgi cisternae).
-- **Physical ExM Calibration:** True biological volume scaling ($V_{\text{bio}} = V_{\text{pixel}} / \text{ExF}^3$) supporting $4\times$, $10\times$ (TREx), and custom expansion protocols.
-- **Reproducible Batch Processing & Auditing:** Generates machine-readable CSVs, metadata JSON provenance, and publication-ready multi-sheet Excel reports.
-- **Interactive Napari & ROI Previews:** Full 2D/3D Napari integration for manual ROI drawing and calibrated size distribution previews.
+- **Multi-Dimensional Processing:** Full 3D stack volume analysis, 2D Maximum Intensity Projections (MIP), or focus-ranked single-slice extraction.
+- **Defensive Mask Support:** Accepts binary masks (`0/1`, `0/255` with automatic connected-component labeling) and instance label masks (positive integer IDs).
+- **Physical ExM Calibration:** Full physical scaling using lateral XY pixel size, axial Z-step, and sample expansion factor ($\text{ExF}$) to convert pixel voxels to true biological volume ($V_{\text{bio}} = V_{\text{pixel}} / \text{ExF}^3$).
+- **Morphometry & Intensity Metrics:** Calibrated volume/area, 3D equivalent spherical diameter, sphericity, total integrated intensity, mean/median intensity, and local background levels.
+- **Interactive Size Distribution Preview:** Real-time visual histogram preview with draggable range sliders to inspect population distributions before running full batch analysis.
+- **Flexible ROI Workflows:** Whole-image processing (**Auto-ROI**) or interactive 2D/3D polygon drawing via integrated [napari](https://napari.org/) viewers.
+- **Reproducible Batch Pipeline:** Generates structured machine-readable CSVs, audit logs, and provenance metadata JSON files alongside multi-sheet formatted Excel reports.
+- **Advanced Radial FA Profiling:** Optional 3D Shell–Middle–Core layer erosion using Euclidean distance transforms to quantify geometric fractional anisotropy ($FA$) gradients and topological branching (`z_topology_fail`).
+- **Advanced 3D Thermodynamic Partitioning ($K_{\text{part}}$):** Optional single-cell dense-phase concentration ratio extraction ($C_{\text{dense}} / C_{\text{dilute}}$) and 2D biophysical phase diagrams.
 
 ---
 
@@ -34,78 +36,87 @@ conda env create -f environment.yml
 conda activate exqt-env
 ```
 
-Alternatively, install dependencies via pip:
+Alternatively, install dependencies into an existing environment via pip:
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### 3. Start ExQt
+### 3. Launch ExQt
 ```bash
 python App.py
 ```
 
 ---
 
-## Input Data Structure
+## Input Data Requirements
 
-For every raw TIFF stack, ExQt expects a segmentation mask in the same folder with the suffix `_Mask.tif`:
+For each raw TIFF file, ExQt expects a corresponding segmentation mask in the same input folder with the suffix `_Mask.tif`:
 
 ```text
 sample_01.tif
 sample_01_Mask.tif
 ```
 
-- **Binary masks (`0/1` or `0/255`):** Connected components are labeled automatically.
-- **Instance masks:** Unique positive integer per 3D object.
+- **Binary masks:** Foreground is non-zero; distinct 3D connected components are segmented and numbered automatically.
+- **Instance masks:** Each object has a unique positive integer label.
 
 ---
 
-## Core Quantitative Modules
+## Quick Start Guide
 
-### 1. 3D Thermodynamic Partitioning ($K_{\text{part}}$)
-Quantifies the thermodynamic propensity of molecules to concentrate into the condensed phase:
+1. **Launch ExQt:** Run `python App.py`.
+2. **Select Folders:** Choose the input directory with raw TIFFs and `_Mask.tif` files, and set an output directory.
+3. **Choose Process Mode:** Select `3d`, `2d`, or `single_slice`.
+4. **Set Calibration & Expansion:** Enter acquisition XY pixel size (nm), Z-step (nm), and the physical expansion factor (e.g. `1.0` for unexpanded, `4.0` for standard ExM, `10.0` for TREx).
+5. **Adjust Size Range:** Use **Preview size distribution...** to inspect your data and set the lower/upper biological volume bounds.
+6. **Configure ROI:** Choose **Auto-ROI** (entire field) or draw a custom manual cell boundary in the Napari viewer.
+7. **Select Reports:** Check **Generate selected reports** and click **Configure...** to select desired Excel/CSV sheets and summary plots.
+8. **Run Analysis:** Click **Start Processing** and confirm the parameter summary dialog.
+
+---
+
+## Size Settings & Noise Filtering
+
+ExQt cleanly separates three different sizing parameters:
+1. **Raw Noise Filter (voxels):** Early noise cutoff to discard single-pixel artifacts before feature extraction.
+2. **Analyzed Biological Size Range ($\mu\text{m}^3$ or $\mu\text{m}^2$):** Calibrated biological boundaries used for primary statistics, summary tables, and main plots.
+3. **Radial Layer Minimum Voxels:** Minimum layer volume required for valid *Shell–Middle–Core* geometric calculations.
+
+---
+
+## Advanced Analysis Modules
+
+### Radial FA Profiling (Shell–Middle–Core)
+Radial FA Profiling subdivides each 3D object into three concentric zones: **Shell** (outer), **Middle** (intermediate), and **Core** (inner). It calculates 3D fractional anisotropy ($FA$) per layer to evaluate geometric elongation and internal structural organization.
+
+### 3D Thermodynamic Partitioning ($K_{\text{part}}$) & Phase Diagrams
+ExQt can extract in situ single-cell partitioning coefficients:
 $$K_{\text{part}} = \frac{\max(I_{\text{obj}} - I_{\text{offset}}, 0)}{\max(I_{\text{nuc}} - I_{\text{offset}}, 10^{-6})}$$
-*See [README_PARTITIONING.md](README_PARTITIONING.md) for full biophysical details, equations, and benchmarks.*
-
-### 2. 2D Biophysical Phase Diagrams ($FA$ vs. $K_{\text{part}}$)
-Separates unconstrained spherical droplets (**SON**, $FA = 0.533$) from chromatin-wetted condensates (**POL II**, $FA = 0.810$) and hollow membrane structures (**Golgi**, $K = 0.89\times$).
-
-### 3. Radial FA Profiling (Shell–Middle–Core)
-Measures how geometric fractional anisotropy changes from the outer surface to the innermost core:
-$$\Delta A = \text{Core } FA - \text{Shell } FA$$
-Positive $\Delta A$ with $\Delta I < 0$ uniquely identifies hollow 2D membrane sheets (e.g. Golgi cisternae).
+Combining $K_{\text{part}}$ with $FA$ generates 2D biophysical phase diagrams to assess molecular enrichment relative to surrounding nucleoplasm.  
+ *For full mathematical derivations, physical background, and usage details, see [README_PARTITIONING.md](README_PARTITIONING.md).*
 
 ---
 
-## Experimental Benchmark Table
+## Generated Outputs
 
-| Metric (3D Analysis) | 🔵 **POL II (Transcriptional Hubs)** | 🔴 **GOLGI / GM130 (Negative Control)** | 🟢 **SON (Nuclear Speckles)** |
-| :--- | :---: | :---: | :---: |
-| **Biological State** | Chromatin-tethered condensate | Hollow membrane labyrinth | Unconstrained spherical droplet |
-| **Segmented Objects** | **$11\,900$** | **$207$** | **$96$** |
-| **Median Intensity ($I_{\text{obj}}$)** | **$4\,724.72\text{ ADU}$** | **$679.46\text{ ADU}$** | **$5\,120.30\text{ ADU}$** |
-| **Background ($I_{\text{nuc}}$)** | **$249.58\text{ ADU}$** | **$761.23\text{ ADU}$** | **$275.40\text{ ADU}$** |
-| **Partitioning ($K_{\text{part}}$)** | **$\mathbf{18.93\times}$** | **$\mathbf{0.89\times}$** | **$\mathbf{18.57\times}$** |
-| **Fractional Anisotropy ($FA$)** | **$0.810$** *(prolate ellipsoid)* | **$0.698\text{ to }0.99$** *(planar sheets)* | **$0.533$** *(globular spheroid)* |
-| **Hollow Structures ($\Delta I < 0$)** | **$0\,\%$** | **$31.1\,\%$ in large cisternae** | **$0\,\%$** |
+A completed batch run produces:
+- `*_Output_Batch_<mode>.csv` — Comprehensive machine-readable table with all morphological, intensity, and QC metrics.
+- `*_Output_Batch_<mode>_metadata.json` — Exact provenance record of applied calibration, thresholds, and software settings.
+- `*_Stats.xlsx` — Formatted multi-sheet workbook containing summaries, primary objects, excluded objects, and QC statistics.
+- `*_3d_size_intensity_distribution.png` — Standard population overview plots (volume histograms, intensity correlations).
+- `*_3d_partitioning_analysis.png` *(optional)* — *Size vs. $K_{\text{part}}$* and 2D Biophysical Phase Diagrams.
+- `*_3d_Radial_FA_Profiling_Plots.png` *(optional)* — 4-panel radial layer progression and QC filtering funnel.
 
 ---
 
-## Generated Output Files
+## Merging Completed Runs
 
-Every run automatically outputs:
-- `*_Output_Batch_3d.csv` — Full machine-readable table with all 3D morphological and partitioning parameters.
-- `*_Output_Batch_3d_metadata.json` — Complete audit trail of applied calibration, thresholds, and software versions.
-- `*_3d_partitioning_analysis.png` — *Size vs. $K_{\text{part}}$* and *2D Biophysical Phase Diagram*.
-- `*_3d_Radial_FA_Profiling_Plots.png` — 4-panel *Shell–Middle–Core* progression and QC Funnel.
-- `exm_partitioning_report_EN.docx` / `exm_partitioning_report_CZ.docx` — Ready-to-publish validation reports.
+Use **Tools → Merge existing runs...** to scan multiple completed run folders and combine compatible datasets into a unified summary spreadsheet (`Merged_Stats.xlsx`) and comparative multi-run overview figures (`Merged_Stats.png`).
 
 ---
 
-## License & Citation
+## License & Acknowledgments
 
-ExQt is released under the [MIT License](LICENSE). See [About.md](About.md) for author information.
+ExQt is open-source software released under the [MIT License](LICENSE). See [About.md](About.md) for author and institution details.
 
-If you use ExQt in your research, please cite:
-- **Cho, Spille, Cisse et al. (*Science* 2018):** *Mediator and RNA polymerase II clusters associate in transcription-dependent condensates.*
-- **Feric, Pappu, Brangwynne et al. (*Cell* 2016):** *Coexisting Liquid Phases Underlie Nucleolar Subcompartments.*
+Built with Python using PySide6, napari, NumPy, pandas, SciPy, scikit-image, tifffile, openpyxl, matplotlib, and seaborn.
