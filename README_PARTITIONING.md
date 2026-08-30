@@ -50,8 +50,4 @@ When partitioning analysis is enabled, ExQt automatically generates:
 
 ---
 
-## 5. References
 
-1. **Cho, Spille, Cisse et al. (*Science* 2018):** Quantification of 200–400 molecules in $>300\text{ nm}$ transcription-dependent condensates ([PMC6543815](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6543815/)).
-2. **Feric, Pappu, Brangwynne et al. (*Cell* 2016):** Thermodynamic hierarchy and surface tension driving core-shell multiphase condensate architecture ([DOI: 10.1016/j.cell.2016.04.047](https://doi.org/10.1016/j.cell.2016.04.047)).
-3. **Wang, Zhang et al. (*Biophysics Reports* 2018):** Standardized protocol for quantitative protein phase partitioning and wetting assays ([DOI: 10.1007/s41048-018-0078-7](https://doi.org/10.1007/s41048-018-0078-7)).
