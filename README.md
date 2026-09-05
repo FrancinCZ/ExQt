@@ -104,7 +104,7 @@ A completed batch run produces:
 - `*_Output_Batch_<mode>_metadata.json` — Exact provenance record of applied calibration, thresholds, and software settings.
 - `*_Stats.xlsx` — Formatted multi-sheet workbook containing summaries, primary objects, excluded objects, and QC statistics.
 - `*_3d_size_intensity_distribution.png` — Standard population overview plots (volume histograms, intensity correlations).
-- `*_3d_partitioning_analysis.png` *(optional)* — *Size vs. $K_{\text{part}}$* and 2D Biophysical Phase Diagrams.
+- `*_3d_partitioning_analysis.png` *(optional)* — *Size vs. Kpart* and 2D Biophysical Phase Diagrams.
 - `*_3d_Radial_FA_Profiling_Plots.png` *(optional)* — 4-panel radial layer progression and QC filtering funnel.
 
 ---
