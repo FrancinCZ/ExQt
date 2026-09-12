@@ -1,0 +1,75 @@
+site_name: ExQt Documentation
+site_description: Automated 3D platform for quantitative biomolecular condensate biophysics in confocal and expansion microscopy
+site_author: Martin Franc
+site_url: https://francincz.github.io/ExQt/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: slate
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: slate
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.view
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - attr_list
+  - def_list
+  - md_in_html
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+nav:
+  - Overview: index.md
+  - User Guide:
+      - GUI Overview: user-guide/gui-overview.md
+      - Nuclear ROI & Napari: user-guide/roi-and-napari.md
+      - Batch Engine: user-guide/batch-processing.md
+      - Stack Aligner: user-guide/stack-aligner.md
+  - Methodology & Math:
+      - Dual-Scale Resolution (ExF³): methodology/dual-scale.md
+      - Partition Coefficient (Kpart): methodology/partitioning.md
+      - Radial Profiling (Mode A): methodology/radial-profiling.md
+      - 3D Fractional Anisotropy (FA): methodology/anisotropy.md
+      - Geometric Null Model: methodology/null-model.md
+  - Quality Control:
+      - Condensate Hierarchy: quality-control/qc-pipeline.md
+      - Exclusion Rules: quality-control/exclusion-rules.md
+  - Data Dictionary (CSV): data-dictionary.md
+  - Reports & Visualization: reporting.md
