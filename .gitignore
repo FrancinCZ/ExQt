@@ -1,0 +1,22 @@
+﻿# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# MkDocs build directory (gh-deploy generates this in gh-pages branch)
+site/
+
+# Testing & temporary
+.pytest_cache/
+tmp/
+scratch/
+
+# Large local outputs and data
+output/
+outputs/
+Result/
+Results/
+
+# System
+Thumbs.db
+.DS_Store
