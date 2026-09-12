@@ -94,3 +94,15 @@ def _correlation(reference: np.ndarray, moving: np.ndarray, shift_yx: np.ndarray
 ### Explanatory Breakdown:
 - **`np.outer(np.hanning(...), np.hanning(...))`**: Multiplies the image by an elliptical window that smoothly ramps intensities to zero at the perimeter, eliminating circular convolution artifacts.
 - **`cval=np.nan` in `ndi.shift`**: Shifted non-overlapping border pixels are filled with `NaN` rather than zero, ensuring that the correlation coefficient is computed strictly over real intersecting biological structures.
+
+---
+
+## Methodological Background & Inspiration
+
+The subpixel registration strategy in `stack_aligner.py` draws algorithmic inspiration from classic microscopy drift-correction routines originally implemented in MATLAB (specifically the efficient discrete Fourier transform phase correlation algorithm `dftregistration.m` by Guizar-Sicairos, Thurman, and Fienup, 2008, *Optics Letters*).
+
+In ExQt, this workflow is implemented natively in Python via `skimage.registration.phase_cross_correlation` and extended with:
+1. Automated reference-channel quality scoring (`ChannelDetectionWorker`).
+2. Edge-preserving Hanning window preconditioning.
+3. Canvas expansion preventing clipped boundary data.
+4. Independent validation of matching `*_Mask.tif` label stacks.

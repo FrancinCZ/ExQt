@@ -80,5 +80,27 @@ For full mathematical definitions, algorithm walkthroughs, and data interpretati
 
 ---
 
+## Key Libraries & Dependencies
+
+ExQt is built in Python, integrating core scientific and bio-imaging libraries:
+
+- **[Napari](https://napari.org/):** Multi-dimensional 3D viewer embedded directly in the main window for interactive stack navigation and manual nuclear ROI delineation.
+- **[PySide6 (Qt for Python)](https://doc.qt.io/qtforpython/):** Native desktop graphical user interface framework powering all dialogs, interactive controls, and background batch worker threads.
+- **[scikit-image](https://scikit-image.org/):** 3D connected-component labeling, volumetric feature extraction (`measure.regionprops`), and Fourier phase cross-correlation.
+- **[SciPy](https://scipy.org/):** Exact 3D Euclidean Distance Transform (`scipy.ndimage.distance_transform_edt`) for Core–Middle–Shell radial peeling, and subpixel n-dimensional image shifts.
+- **[NumPy](https://numpy.org/) & [pandas](https://pandas.pydata.org/):** Spatial covariance tensor decomposition (Fractional Anisotropy), geometric null model simulations, and high-throughput tabular data management.
+- **[tifffile](https://github.com/cgohlke/tifffile):** Robust reading and writing of multi-channel 3D OME-TIFF files while preserving microscope physical calibration tags.
+- **[matplotlib](https://matplotlib.org/) & [seaborn](https://seaborn.pydata.org/):** Automated publication-grade 4-panel figure generation (300 DPI) and interactive size preview histograms.
+- **[openpyxl](https://openpyxl.readthedocs.io/):** Formatted multi-sheet Excel workbook generation (`_Stats.xlsx`).
+
+---
+
+## Acknowledgments & Inspiration
+
+- **Subpixel Drift Correction:** The multi-channel stack aligner (`stack_aligner.py`) is inspired by classical MATLAB cross-correlation registration routines (specifically the subpixel discrete Fourier transform approach by Guizar-Sicairos et al., 2008, *Optics Letters*), translated and adapted into open-source Python with Hanning window preconditioning and zero-padding-free canvas expansion.
+- **Expansion Microscopy Community:** Designed to support quantitative biophysical analysis of biomolecular condensates and nuclear assemblies across classical confocal and high-expansion microscopy (ExM).
+
+---
+
 ## License
 ExQt is open-source software released under the [MIT License](LICENSE).
