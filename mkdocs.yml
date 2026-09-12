@@ -1,7 +1,7 @@
 site_name: ExQt Documentation
 site_description: Automated 3D platform for quantitative biomolecular condensate biophysics in confocal and expansion microscopy
 site_author: Martin Franc
-site_url: https://francincz.github.io/ExQt/
+site_url: https://github.com/FrancinCZ/ExQt/
 
 theme:
   name: material
