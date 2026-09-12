@@ -99,10 +99,10 @@ def _correlation(reference: np.ndarray, moving: np.ndarray, shift_yx: np.ndarray
 
 ## Methodological Background & Inspiration
 
-The subpixel registration strategy in `stack_aligner.py` draws algorithmic inspiration from classic microscopy drift-correction routines originally implemented in MATLAB (specifically the efficient discrete Fourier transform phase correlation algorithm `dftregistration.m` by Guizar-Sicairos, Thurman, and Fienup, 2008, *Optics Letters*).
+The multi-channel 3D stack alignment strategy in `stack_aligner.py` is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the **Suzuki Lab at the McArdle Laboratory for Cancer Research** ([suzukilabmcardle/3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)).
 
-In ExQt, this workflow is implemented natively in Python via `skimage.registration.phase_cross_correlation` and extended with:
-1. Automated reference-channel quality scoring (`ChannelDetectionWorker`).
-2. Edge-preserving Hanning window preconditioning.
-3. Canvas expansion preventing clipped boundary data.
-4. Independent validation of matching `*_Mask.tif` label stacks.
+In ExQt, the core concepts were re-engineered and implemented natively in Python using `skimage.registration.phase_cross_correlation` and `scipy.ndimage`, augmented with:
+1. **Automated Reference Quality Scoring**: Dynamic selection of the optimal structural reference channel (`ChannelDetectionWorker`).
+2. **Spectral Leakage Suppression**: Edge-preserving 2D Hanning window preconditioning to eliminate Fourier border discontinuities.
+3. **Canvas Expansion (`expand_canvas=True`)**: Expanding image bounding boxes to ensure shifted stacks retain all peripheral signals without zero-padding corruption.
+4. **Synchronized Mask Alignment**: Rigid transformation validation and synchronized translation applied automatically to corresponding binary/labeled `*_Mask.tif` stacks.

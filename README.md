@@ -97,7 +97,7 @@ ExQt is built in Python, integrating core scientific and bio-imaging libraries:
 
 ## Acknowledgments & Inspiration
 
-- **Subpixel Drift Correction:** The multi-channel stack aligner (`stack_aligner.py`) is inspired by classical MATLAB cross-correlation registration routines (specifically the subpixel discrete Fourier transform approach by Guizar-Sicairos et al., 2008, *Optics Letters*), translated and adapted into open-source Python with Hanning window preconditioning and zero-padding-free canvas expansion.
+- **Multi-Channel Stack Aligner:** The stack alignment module (`stack_aligner.py`) is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the Suzuki Lab at the McArdle Laboratory for Cancer Research. It has been re-implemented in open-source Python with subpixel Fourier phase cross-correlation, Hanning window preconditioning, zero-loss canvas expansion, and automated quality control verification.
 - **Expansion Microscopy Community:** Designed to support quantitative biophysical analysis of biomolecular condensates and nuclear assemblies across classical confocal and high-expansion microscopy (ExM).
 
 ---
