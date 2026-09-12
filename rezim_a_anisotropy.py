@@ -1,8 +1,7 @@
-
 import numpy as np
 
 
-# Calculate geometric fractional anisotropy for one 2D or 3D mask.
+#Calculate geometric fractional anisotropy for one 2D or 3D mask.
 def shape_anisotropy(mask, sampling=None, min_voxels=20):
     binary_mask = np.asarray(mask, dtype=bool)
     if binary_mask.ndim not in (2, 3):
