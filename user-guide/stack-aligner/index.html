@@ -651,6 +651,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#methodological-background-inspiration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodological Background &amp; Inspiration
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1121,6 +1132,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#methodological-background-inspiration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodological Background &amp; Inspiration
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1223,6 +1245,14 @@
 <li><strong><code>np.outer(np.hanning(...), np.hanning(...))</code></strong>: Multiplies the image by an elliptical window that smoothly ramps intensities to zero at the perimeter, eliminating circular convolution artifacts.</li>
 <li><strong><code>cval=np.nan</code> in <code>ndi.shift</code></strong>: Shifted non-overlapping border pixels are filled with <code>NaN</code> rather than zero, ensuring that the correlation coefficient is computed strictly over real intersecting biological structures.</li>
 </ul>
+<hr />
+<h2 id="methodological-background-inspiration">Methodological Background &amp; Inspiration</h2>
+<p>The subpixel registration strategy in <code>stack_aligner.py</code> draws algorithmic inspiration from classic microscopy drift-correction routines originally implemented in MATLAB (specifically the efficient discrete Fourier transform phase correlation algorithm <code>dftregistration.m</code> by Guizar-Sicairos, Thurman, and Fienup, 2008, <em>Optics Letters</em>).</p>
+<p>In ExQt, this workflow is implemented natively in Python via <code>skimage.registration.phase_cross_correlation</code> and extended with:
+1. Automated reference-channel quality scoring (<code>ChannelDetectionWorker</code>).
+2. Edge-preserving Hanning window preconditioning.
+3. Canvas expansion preventing clipped boundary data.
+4. Independent validation of matching <code>*_Mask.tif</code> label stacks.</p>
 
 
 
