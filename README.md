@@ -2,7 +2,7 @@
 
 **ExQt** is an automated 3D image-analysis platform for the segmentation, biophysical quantification, and morphological profiling of biomolecular condensates in confocal and Expansion Microscopy (ExM).
 
-👉 **[📖 Read the Full Online Documentation](https://francincz.github.io/ExQt/)**
+ **[📖 Read the Documentation](https://francincz.github.io/ExQt/)**
 
 ---
 
@@ -11,14 +11,14 @@
 ExQt requires **Python 3.10–3.14** on Windows, Linux, or macOS.
 
 ```bash
-# 1. Clone the repository
+#1. Clone the repository
 git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
 
-# 2. Install dependencies
+#2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Launch the application
+#3. Launch the application
 python App.py
 ```
 
