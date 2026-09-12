@@ -216,7 +216,7 @@ def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
 
     raise ValueError(f"Could not confidently identify the channel axis for TIF shape {sizes}.")
 
-# Remove only singleton dimensions while keeping the corresponding axis string in sync.
+#Remove only singleton dimensions while keeping the corresponding axis string in sync.
 def _squeeze_with_axes(array, axes):
     data = np.asarray(array)
     normalized_axes = str(axes).upper()
@@ -230,7 +230,7 @@ def _squeeze_with_axes(array, axes):
     return np.squeeze(data), "".join(normalized_axes[index] for index in keep)
 
 
-# Load TIFF pixels and series axes together; the axes are required for unambiguous channel selection.
+#Load TIFF pixels and series axes together; the axes are required for unambiguous channel selection.
 def _read_tiff_with_axes(tif_path):
     with tifffile.TiffFile(tif_path) as tif:
         if len(tif.series) != 1:
@@ -263,7 +263,7 @@ def validate_alignment_qc(tif_path):
         raise ValueError(f"Alignment QC is incomplete for {Path(tif_path).name}: {drift_csv.name}")
 
     statuses = set(table["status"].astype(str))
-    if statuses == {"FAIL"}:
+    if "FAIL" in statuses:
         raise ValueError(
             f"Alignment QC is FAIL for {Path(tif_path).name}; "
             "the stack is excluded from statistics."
@@ -371,20 +371,7 @@ def process_condensates(
 
     #Load both inputs together so all later measurements refer to the same field of view and can be displayed through the GUI callback.
     img_raw, raw_axes = _read_tiff_with_axes(tif_path)
-    img_mask, _ = _read_tiff_with_axes(mask_path)
-
-    meta = get_metadata_from_tif(tif_path)
-    if meta:
-        if pixel_size_nm is None:
-            pixel_size_nm = meta.get('pixel_size')
-        if z_step_nm is None:
-            z_step_nm = meta.get('z_step')
-        print(f"      [Info] TIF metadata available: XY={meta.get('pixel_size')}nm, Z={meta.get('z_step')}nm")
-    else:
-        print(f"      [Info] Metadata not found, using default values from GUI.")
-
-    if pixel_size_nm is None or z_step_nm is None:
-        raise ValueError("Pixel size XY and Z-step must be provided by ExQt Settings or TIF metadata.")
+    img_mask, mask_axes = _read_tiff_with_axes(mask_path)
 
     meta = get_metadata_from_tif(tif_path)
     if meta:
@@ -421,9 +408,27 @@ def process_condensates(
             )
         img_dapi = np.take(img_raw, dapi_channel, axis=ch_axis)
         img_intensity = np.take(img_raw, signal_channel, axis=ch_axis)
+        raw_spatial = "".join(a for a in raw_axes if a != "C")
     else:
         img_dapi = img_raw
         img_intensity = img_raw
+        raw_spatial = raw_axes
+
+    #Canonicalize raw spatial axes to ZYX if they are permuted (e.g. ZXY)
+    if raw_spatial and set(raw_spatial) == {"Z", "Y", "X"} and raw_spatial != "ZYX":
+        raw_perm = [raw_spatial.index(a) for a in "ZYX"]
+        img_intensity = np.transpose(img_intensity, raw_perm)
+        img_dapi = np.transpose(img_dapi, raw_perm)
+
+    #Canonicalize mask spatial axes to ZYX or YX based on declared mask metadata
+    if mask_axes and set(mask_axes) == {"Z", "Y", "X"} and mask_axes != "ZYX":
+        mask_perm = [mask_axes.index(a) for a in "ZYX"]
+        img_mask = np.transpose(img_mask, mask_perm)
+        mask_axes = "ZYX"
+    elif mask_axes and set(mask_axes) == {"Y", "X"} and mask_axes != "YX":
+        mask_perm = [mask_axes.index(a) for a in "YX"]
+        img_mask = np.transpose(img_mask, mask_perm)
+        mask_axes = "YX"
 
     if img_mask.shape != img_intensity.shape:
         if img_mask.shape == img_intensity.shape[::-1]:
@@ -491,6 +496,14 @@ def process_condensates(
             extruded_mask = np.repeat(mask_2d[np.newaxis, :, :], extruded_mask.shape[0], axis=0)
         roi_mask = extruded_mask > 0
 
+    #Persist the ROI mask so auditors can verify which region was selected.
+    roi_save_path = mask_path.with_name(f"{tif_path.stem}_ROI.tif")
+    try:
+        tifffile.imwrite(str(roi_save_path), extruded_mask.astype(np.uint8), compression="zlib")
+        print(f"      [ROI] Saved ROI mask -> {roi_save_path.name}")
+    except Exception as e:
+        print(f"      [ROI] Warning: could not save ROI mask: {e}")
+
     print("\n[3/5] Applying provided Mask...")
 
     img_mask_process = img_mask_process * roi_mask
@@ -511,27 +524,25 @@ def process_condensates(
             f"(Z,Y,X)=({eff_z_step_nm:.3f}, {eff_pixel_size_nm:.3f}, {eff_pixel_size_nm:.3f}) nm"
         )
 
-    # Estimate dark camera offset from the lowest 0.5% percentile
-    camera_offset = float(np.percentile(img_intensity, 0.5)) if img_intensity.size > 0 else 0.0
+    #Estimate dark camera offset from the lowest 0.5% percentile of pixels INSIDE ROI only.
+    roi_pixels = img_intensity[roi_mask] if np.any(roi_mask) else img_intensity.ravel()
+    camera_offset = float(np.percentile(roi_pixels, 0.5)) if roi_pixels.size > 0 else 0.0
 
-    # Determine occupied Z-slices where the cell and condensates actually exist (ignoring empty top/bottom slices)
-    if is_3d and labeled_mask.max() > 0:
-        z_occupied = np.where(np.any(labeled_mask > 0, axis=(1, 2)))[0]
-        z_min = int(z_occupied.min())
-        z_max = int(z_occupied.max())
-    else:
-        z_min = 0
-        z_max = labeled_mask.shape[0] - 1 if is_3d else 0
-
-    # Precompute nucleoplasm (background within cell ROI across active Z-slices) mean intensity per cell_id
+    #Precompute nucleoplasm (background within cell ROI across active Z-slices) mean intensity per cell_id.
     cell_ids = np.unique(extruded_mask[extruded_mask > 0])
     nucleoplasm_means = {}
     for cid in cell_ids:
         bg_mask = (extruded_mask == cid) & (labeled_mask == 0)
-        if is_3d and z_max >= z_min:
-            # Mask out empty Z-slices above and below the active cellular volume
-            bg_mask[:z_min, :, :] = False
-            bg_mask[z_max + 1:, :, :] = False
+
+        if is_3d:
+            #Per-cell Z-bounds: only Z-slices where THIS cell has labeled objects
+            cell_objects_mask = (extruded_mask == cid) & (labeled_mask > 0)
+            if cell_objects_mask.any():
+                z_occupied_cell = np.where(np.any(cell_objects_mask, axis=(1, 2)))[0]
+                z_min_cell = int(z_occupied_cell.min())
+                z_max_cell = int(z_occupied_cell.max())
+                bg_mask[:z_min_cell, :, :] = False
+                bg_mask[z_max_cell + 1:, :, :] = False
 
         if np.any(bg_mask):
             nucleoplasm_means[cid] = float(np.mean(img_intensity[bg_mask]))
@@ -568,7 +579,19 @@ def process_condensates(
 
         bg_int = nucleoplasm_means.get(cell_id, np.nan)
         net_mean_int = max(mean_int - camera_offset, 0.0)
-        net_bg_int = max(bg_int - camera_offset, 1e-6) if np.isfinite(bg_int) else np.nan
+        if not np.isfinite(bg_int):
+            net_bg_int = np.nan
+            k_valid = False
+            k_invalid_reason = "no_nucleoplasm"
+        else:
+            net_bg_int = bg_int - camera_offset
+            if net_bg_int <= 0:
+                net_bg_int = np.nan
+                k_valid = False
+                k_invalid_reason = "negative_denominator"
+            else:
+                k_valid = True
+                k_invalid_reason = ""
         part_coeff = round(net_mean_int / net_bg_int, 2) if np.isfinite(net_bg_int) and net_bg_int > 0 else np.nan
 
 
@@ -584,19 +607,29 @@ def process_condensates(
             "integrated_density": round(region.area * mean_int, 2),
             "nucleoplasm_mean_intensity": round(bg_int, 2) if np.isfinite(bg_int) else np.nan,
             "partition_coefficient": part_coeff,
+            "camera_offset": round(camera_offset, 2),
+            "K_valid": k_valid,
+            "K_invalid_reason": k_invalid_reason if not k_valid else "",
         }
 
         #Convert pixel counts into calibrated biological units while keeping raw counts for auditability and downstream QC.
+        row["applied_pixel_size_nm"] = float(pixel_size_nm)
+        row["applied_z_step_nm"] = float(z_step_nm) if is_3d else float("nan")
         if is_3d:
             voxel_volume_bio_um3 = ((eff_pixel_size_nm**2) * eff_z_step_nm) / 1e9
+            voxel_volume_gel_um3 = ((float(pixel_size_nm)**2) * float(z_step_nm)) / 1e9
             row["volume_px"] = region.area
-            row["volume_bio_um3"] = round(region.area * voxel_volume_bio_um3, 5)
+            row["volume_bio_um3"] = float(region.area * voxel_volume_bio_um3)
+            row["volume_gel_um3"] = float(region.area * voxel_volume_gel_um3)
             row["shape_metric_bio"] = row["volume_bio_um3"]
         else:
             pixel_area_bio_um2 = (eff_pixel_size_nm**2) / 1e6
+            pixel_area_gel_um2 = (float(pixel_size_nm)**2) / 1e6
             row["area_px"] = region.area
-            row["area_bio_um2"] = round(region.area * pixel_area_bio_um2, 5)
+            row["area_bio_um2"] = float(region.area * pixel_area_bio_um2)
+            row["area_gel_um2"] = float(region.area * pixel_area_gel_um2)
             row["shape_metric_bio"] = row["area_bio_um2"]
+
 
 
         #Optional Radial FA Profiling metrics operate on each local region mask and are
@@ -698,6 +731,16 @@ def process_condensates(
                 "mode_a_sampling_order": metrics["mode_a_sampling_order"],
                 "mode_a_min_core_voxels": metrics["mode_a_min_core_voxels"],
                 "mode_a_layer_scheme": MODE_A_LAYER_SCHEME,
+                "principal_std_z_nm": metrics.get("principal_std_z_nm", np.nan),
+                "principal_std_y_nm": metrics.get("principal_std_y_nm", np.nan),
+                "principal_std_x_nm": metrics.get("principal_std_x_nm", np.nan),
+                "null_FA_object": metrics.get("null_FA_object", np.nan),
+                "null_FA_shell": metrics.get("null_FA_shell", np.nan),
+                "null_FA_middle": metrics.get("null_FA_middle", np.nan),
+                "null_FA_core": metrics.get("null_FA_core", np.nan),
+                "null_delta_FA_core_shell": metrics.get("null_delta_FA_core_shell", np.nan),
+                "null_valid": metrics.get("null_valid", False),
+                "delta_FA_excess": metrics.get("delta_FA_excess", np.nan),
             })
 
         objects_data.append(row)
