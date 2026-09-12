@@ -1,122 +1,84 @@
-# ExQt: Expansion Microscopy Quantification of Nuclear Condensates
+# ExQt: Expansion & Confocal Quantitative Toolkit
 
-**ExQt** is an open-source desktop application for automated, reproducible 2D and 3D quantitative analysis of fluorescence microscopy images, designed with an emphasis on **Expansion Microscopy (ExM)** and cellular assemblies. It combines raw multi-dimensional TIFF intensity data with user-provided segmentation masks, applies physical spatial calibration and expansion scaling, and generates auditable object-level statistics, size distributions, intensity measurements, quality-control metrics, and publication-ready reports.
+**ExQt** is an automated 3D image-analysis platform for the segmentation, biophysical quantification, and morphological profiling of biomolecular condensates in confocal and Expansion Microscopy (ExM).
 
-ExQt does **not** perform segmentation itself. Masks can be prepared in any preferred segmentation tool (e.g., [Labkit](https://imagej.net/plugins/labkit/), [ilastik](https://www.ilastik.org/), Fiji/ImageJ, Cellpose, or custom pipelines) capable of exporting standard TIFF masks.
-
----
-
-## Main Features
-
-- **Multi-Dimensional Processing:** Full 3D stack volume analysis, 2D Maximum Intensity Projections (MIP), or focus-ranked single-slice extraction.
-- **Defensive Mask Support:** Accepts binary masks (`0/1`, `0/255` with automatic connected-component labeling) and instance label masks (positive integer IDs).
-- **Physical ExM Calibration:** Full physical scaling using lateral XY pixel size, axial Z-step, and sample expansion factor ($\text{ExF}$) to convert pixel voxels to true biological volume ($V_{\text{bio}} = V_{\text{pixel}} / \text{ExF}^3$).
-- **Morphometry & Intensity Metrics:** Calibrated volume/area, 3D equivalent spherical diameter, sphericity, total integrated intensity, mean/median intensity, and local background levels.
-- **Interactive Size Distribution Preview:** Real-time visual histogram preview with draggable range sliders to inspect population distributions before running full batch analysis.
-- **Flexible ROI Workflows:** Whole-image processing (**Auto-ROI**) or interactive 2D/3D polygon drawing via integrated [napari](https://napari.org/) viewers.
-- **Reproducible Batch Pipeline:** Generates structured machine-readable CSVs, audit logs, and provenance metadata JSON files alongside multi-sheet formatted Excel reports.
-- **Advanced Radial FA Profiling:** Optional 3D Shell–Middle–Core layer erosion using Euclidean distance transforms to quantify geometric fractional anisotropy ($FA$) gradients and topological branching (`z_topology_fail`).
-- **Advanced 3D Thermodynamic Partitioning ($K_{\text{part}}$):** Optional single-cell dense-phase concentration ratio extraction ($C_{\text{dense}} / C_{\text{dilute}}$) and 2D biophysical phase diagrams.
+👉 **[📖 Read the Full Online Documentation](https://francincz.github.io/ExQt/)**
 
 ---
 
-## Installation
+## Quick Installation
 
-An isolated Conda environment is recommended.
+ExQt requires **Python 3.10–3.14** on Windows, Linux, or macOS.
 
-### 1. Clone the repository
 ```bash
+# 1. Clone the repository
 git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
-```
 
-### 2. Create and activate the environment
-```bash
-conda env create -f environment.yml
-conda activate exqt-env
-```
+# 2. Install dependencies
+pip install -r requirements.txt
 
-Alternatively, install dependencies into an existing environment via pip:
-```bash
-python -m pip install -r requirements.txt
-```
-
-### 3. Launch ExQt
-```bash
+# 3. Launch the application
 python App.py
 ```
 
 ---
 
-## Input Data Requirements
+## User Guide: 4 Steps to Run an Analysis
 
-For each raw TIFF file, ExQt expects a corresponding segmentation mask in the same input folder with the suffix `_Mask.tif`:
+### Step 1: Prepare Your Input Files
+Place your raw 3D fluorescence stacks and their corresponding segmentation masks in the same folder. ExQt pairs them automatically by filename:
 
 ```text
-sample_01.tif
-sample_01_Mask.tif
+My_Experiment/
+├── cell_01.tif          <-- Raw 3D fluorescence image
+└── cell_01_Mask.tif     <-- Binary or labeled mask (from ilastik, Labkit, etc.)
 ```
 
-- **Binary masks:** Foreground is non-zero; distinct 3D connected components are segmented and numbered automatically.
-- **Instance masks:** Each object has a unique positive integer label.
+### Step 2: Set Calibration in the GUI
+1. Select your **Input Folder** and **Output Folder**.
+2. Enter your microscope calibration:
+   - **Pixel Size XY (nm):** e.g., `65.0`
+   - **Z-Step (nm):** e.g., `200.0`
+   - **Expansion Factor:** `1.0` for classical confocal, or your physical gel expansion factor for ExM.
+3. Set your **Size Filter** range (minimum and maximum biological volume in $\mu\text{m}^3$) to exclude single-pixel noise and giant clumps.
+
+### Step 3: Define Nuclear ROI (Interactive Napari)
+Condensates must be analyzed inside the nucleus to obtain accurate background and partitioning measurements:
+- When prompted, draw the nuclear boundary in the integrated **Napari 3D viewer**.
+- ExQt automatically extrudes your 2D outline into a 3D cylindrical volume across all optical sections.
+
+### Step 4: Run & Inspect Results
+Click **Start Processing**. ExQt will analyze all matched pairs sequentially and generate outputs in your results folder:
+
+- **`Result_Primary_Condensates.csv`** — The clean, publication-ready dataset (passed all QC criteria).
+- **`Result_Excluded_Condensates.csv`** — Filtered-out objects with explicit rejection reasons.
+- **`_Output_Batch_3d.csv`** — Complete raw dataset with all 30+ physical and morphological parameters.
+- **`_Stats.xlsx`** — Formatted Excel workbook.
+- **`*_3d_partitioning_analysis.png`** — Automated 4-panel publication dashboard.
 
 ---
 
-## Quick Start Guide
+## Detailed Documentation
 
-1. **Launch ExQt:** Run `python App.py`.
-2. **Select Folders:** Choose the input directory with raw TIFFs and `_Mask.tif` files, and set an output directory.
-3. **Choose Process Mode:** Select `3d`, `2d`, or `single_slice`.
-4. **Set Calibration & Expansion:** Enter acquisition XY pixel size (nm), Z-step (nm), and the physical expansion factor (e.g. `1.0` for unexpanded, `4.0` for standard ExM, `10.0` for TREx).
-5. **Adjust Size Range:** Use **Preview size distribution...** to inspect your data and set the lower/upper biological volume bounds.
-6. **Configure ROI:** Choose **Auto-ROI** (entire field) or draw a custom manual cell boundary in the Napari viewer.
-7. **Select Reports:** Check **Generate selected reports** and click **Configure...** to select desired Excel/CSV sheets and summary plots.
-8. **Run Analysis:** Click **Start Processing** and confirm the parameter summary dialog.
+For full mathematical definitions, algorithm walkthroughs, and data interpretation, visit our documentation:
 
----
-
-## Size Settings & Noise Filtering
-
-ExQt cleanly separates three different sizing parameters:
-1. **Raw Noise Filter (voxels):** Early noise cutoff to discard single-pixel artifacts before feature extraction.
-2. **Analyzed Biological Size Range ($\mu\text{m}^3$ or $\mu\text{m}^2$):** Calibrated biological boundaries used for primary statistics, summary tables, and main plots.
-3. **Radial Layer Minimum Voxels:** Minimum layer volume required for valid *Shell–Middle–Core* geometric calculations.
-
----
-
-## Advanced Analysis Modules
-
-### Radial FA Profiling (Shell–Middle–Core)
-Radial FA Profiling subdivides each 3D object into three concentric zones: **Shell** (outer), **Middle** (intermediate), and **Core** (inner). It calculates 3D fractional anisotropy ($FA$) per layer to evaluate geometric elongation and internal structural organization.
-
-### 3D Thermodynamic Partitioning ($K_{\text{part}}$) & Phase Diagrams
-ExQt can extract in situ single-cell partitioning coefficients:
-$$K_{\text{part}} = \frac{\max(I_{\text{obj}} - I_{\text{offset}}, 0)}{\max(I_{\text{nuc}} - I_{\text{offset}}, 10^{-6})}$$
-Combining $K_{\text{part}}$ with $FA$ generates 2D biophysical phase diagrams to assess molecular enrichment relative to surrounding nucleoplasm.  
- *For full mathematical derivations, physical background, and usage details, see [README_PARTITIONING.md](README_PARTITIONING.md).*
+| Topic | Link |
+| :--- | :--- |
+| **GUI & Calibration** | [User Guide → GUI Overview](https://francincz.github.io/ExQt/user-guide/gui-overview/) |
+| **Nuclear ROI & Napari** | [User Guide → ROI & Napari](https://francincz.github.io/ExQt/user-guide/roi-and-napari/) |
+| **Stack Aligner** | [User Guide → Stack Aligner](https://francincz.github.io/ExQt/user-guide/stack-aligner/) |
+| **Dual-Scale Volume ($V_{\text{bio}}$ vs $V_{\text{gel}}$)** | [Methodology → Dual-Scale](https://francincz.github.io/ExQt/methodology/dual-scale/) |
+| **Partition Coefficient ($K_{\text{part}}$)** | [Methodology → Partitioning](https://francincz.github.io/ExQt/methodology/partitioning/) |
+| **Core–Shell Radial Profiling** | [Methodology → Radial Profiling](https://francincz.github.io/ExQt/methodology/radial-profiling/) |
+| **3D Fractional Anisotropy (FA)** | [Methodology → 3D Anisotropy](https://francincz.github.io/ExQt/methodology/anisotropy/) |
+| **Geometric Null Model** | [Methodology → Null Model](https://francincz.github.io/ExQt/methodology/null-model/) |
+| **Quality Control Tiers** | [Quality Control → QC Pipeline](https://francincz.github.io/ExQt/quality-control/qc-pipeline/) |
+| **Exclusion Rules** | [Quality Control → Exclusion Rules](https://francincz.github.io/ExQt/quality-control/exclusion-rules/) |
+| **CSV Data Dictionary** | [Data Dictionary (All Columns)](https://francincz.github.io/ExQt/data-dictionary/) |
+| **Plot Interpretation** | [Reports & Visualizations](https://francincz.github.io/ExQt/reporting/) |
 
 ---
 
-## Generated Outputs
-
-A completed batch run produces:
-- `*_Output_Batch_<mode>.csv` — Comprehensive machine-readable table with all morphological, intensity, and QC metrics.
-- `*_Output_Batch_<mode>_metadata.json` — Exact provenance record of applied calibration, thresholds, and software settings.
-- `*_Stats.xlsx` — Formatted multi-sheet workbook containing summaries, primary objects, excluded objects, and QC statistics.
-- `*_3d_size_intensity_distribution.png` — Standard population overview plots (volume histograms, intensity correlations).
-- `*_3d_partitioning_analysis.png` *(optional)* — *Size vs. Kpart* and 2D Biophysical Phase Diagrams.
-- `*_3d_Radial_FA_Profiling_Plots.png` *(optional)* — 4-panel radial layer progression and QC filtering funnel.
-
----
-
-## Merging Completed Runs
-
-Use **Tools → Merge existing runs...** to scan multiple completed run folders and combine compatible datasets into a unified summary spreadsheet (`Merged_Stats.xlsx`) and comparative multi-run overview figures (`Merged_Stats.png`).
-
----
-
-## License & Acknowledgments
-
-ExQt is open-source software released under the [MIT License](LICENSE). See [About.md](About.md) for author and institution details.
-
-Built with Python using PySide6, napari, NumPy, pandas, SciPy, scikit-image, tifffile, openpyxl, matplotlib, and seaborn.
+## License
+ExQt is open-source software released under the [MIT License](LICENSE).
