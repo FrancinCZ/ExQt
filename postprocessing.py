@@ -9,12 +9,16 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw, ImageFont
+from scale_reporting import load_scale_metadata, scale_correction_label
 
 
 REPORT_PRIMARY_COLUMNS = [
     "filename", "cell_id", "object_id", "Z_px", "Y_px", "X_px",
-    "volume_px", "volume_bio_um3", "equivalent_diameter_um",
+    "volume_px", "volume_bio_um3", "volume_gel_um3", "equivalent_diameter_um",
     "mean_intensity", "max_intensity", "integrated_density",
+    "nucleoplasm_mean_intensity", "partition_coefficient", "camera_offset", "K_valid", "K_invalid_reason",
+    "condensate_class", "mean_intensity_core", "mean_intensity_middle", "mean_intensity_shell",
+    "Delta_intensity_core_shell",
     "A_object", "A_shell", "A_middle", "A_core",
     "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
     "mode_a_core_voxels", "mode_a_z_topology_status",
@@ -25,8 +29,9 @@ REPORT_PRIMARY_COLUMNS = [
 
 REPORT_EXCLUDED_COLUMNS = [
     "filename", "cell_id", "object_id", "Z_px", "Y_px", "X_px",
-    "volume_px", "volume_bio_um3", "equivalent_diameter_um",
-    "mean_intensity", "A_shell", "A_middle", "A_core",
+    "volume_px", "volume_bio_um3", "volume_gel_um3", "equivalent_diameter_um",
+    "mean_intensity", "nucleoplasm_mean_intensity", "partition_coefficient", "condensate_class",
+    "A_shell", "A_middle", "A_core",
     "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
     "mode_a_core_voxels", "mode_a_empty_layers",
     "mode_a_layer_complete_coverage", "mode_a_object_touches_edge",
@@ -528,6 +533,11 @@ def generate_excel_stats(
                 writer, raw, primary, excluded, report_df, size_col,
                 fingerprint, float(min_size), float(max_size),
             )
+            summary_ws = writer.sheets["Summary"]
+            summary_ws.merge_cells("A2:J2")
+            summary_ws["A2"] = scale_correction_label(metadata, df.columns)
+            summary_ws["A2"].alignment = Alignment(wrap_text=True, vertical="center")
+            summary_ws.row_dimensions[2].height = 30
             _style_table_sheet(writer.sheets["Primary_Objects"], "mode_a_z_topology_status")
             _style_table_sheet(writer.sheets["QC_Excluded"], "mode_a_z_topology_status")
             _style_table_sheet(writer.sheets["All_Objects_Raw"], "mode_a_z_topology_status")
@@ -904,6 +914,8 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
             "fraction_delta_a_positive": pd.to_numeric(
                 primary.get("Delta_A_core_shell"), errors="coerce"
             ).gt(0).mean() if len(primary) and "Delta_A_core_shell" in primary.columns else np.nan,
+            "median_partition_coefficient": float(primary["partition_coefficient"].dropna().median())
+            if len(primary) and "partition_coefficient" in primary.columns and not primary["partition_coefficient"].dropna().empty else np.nan,
             "pixel_size_nm": _metadata_value(run["metadata"], "parameters.pixel_size_nm"),
             "z_step_nm": _metadata_value(run["metadata"], "parameters.z_step_nm"),
             "expansion_factor": _metadata_value(run["metadata"], "parameters.expansion_factor"),
@@ -1099,7 +1111,8 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
         axes[1, 2].set_ylabel("Mean Intensity (a.u.)")
 
 
-    plt.tight_layout()
+    fig.suptitle(scale_correction_label(load_scale_metadata(csv_path), df.columns), fontsize=11)
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
     output_plot = csv_path.parent / f"{folder_name}_Analysis_Plots.png"
     plt.savefig(output_plot, dpi=300)
     plt.close(fig)
@@ -1166,7 +1179,8 @@ def generate_rezim_a_plots(csv_filename, min_size=None, max_size=None):
     fig, axes = plt.subplots(2, 2, figsize=(15, 11))
     fig.suptitle(
         "Radial FA Profiling: Shell-Middle-Core Fractional Anisotropy and QC Overview\n"
-        "Radial-layer panels contain only size-eligible, complete, QC-approved objects.",
+        "Radial-layer panels contain only size-eligible, complete, QC-approved objects.\n"
+        + scale_correction_label(load_scale_metadata(csv_path), df.columns),
         fontsize=15,
         fontweight="bold",
     )
