@@ -1,6 +1,6 @@
-# ExQt: Expansion & Confocal Quantitative Toolkit
+# ExQt: Expansion Microscopy Quantification Tool
 
-**ExQt** is an automated 3D image-analysis platform for the segmentation, biophysical quantification, and morphological profiling of biomolecular condensates in confocal and Expansion Microscopy (ExM).
+**ExQt** (*Expansion Microscopy Quantification Tool*) is an automated 3D image-analysis platform for the segmentation, biophysical quantification, and morphological profiling of biomolecular condensates in confocal and Expansion Microscopy (ExM).
 
  **[📖 Read the Documentation](https://francincz.github.io/ExQt/)**
 

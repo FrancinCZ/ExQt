@@ -1,6 +1,6 @@
-# ExQt: Quantitative 3D Biophysics of Nuclear Condensates
+# ExQt: Expansion Microscopy Quantification Tool
 
-**ExQt** (*Expansion & Confocal Quantitative Toolkit*) is an open-source, automated image-analysis platform for the 3D segmentation, biophysical quantification, and morphological profiling of biomolecular condensates.
+**ExQt** (*Expansion Microscopy Quantification Tool*) is an open-source, automated image-analysis platform for the 3D segmentation, biophysical quantification, and morphological profiling of biomolecular condensates.
 
 It is designed to work across both **classical confocal immunofluorescence (IF)** and **Expansion Microscopy (ExM)**, providing a unified, auditable pipeline to investigate liquid–liquid phase separation, internal compartmentalization, and morphological organization in the mammalian cell nucleus.
 
