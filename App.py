@@ -156,7 +156,21 @@ class AnalysisWorker(QThread):
                     self.progress.emit(f"Skipping {raw_tif.name}: Mask not found.")
                     continue
 
-                self.progress.emit(f"Processing: {raw_tif.name}")
+                # Determine effective calibration for this file, falling back to batch parameters
+                file_pixel_size = self.params["pixel_size_nm"]
+                file_z_step = self.params["z_step_nm"]
+                detected_meta = self.params.get("detected_metadata_by_file", {}).get(raw_tif.name)
+                if not detected_meta:
+                    detected_meta = get_metadata_from_tif(raw_tif)
+                if detected_meta:
+                    p_size = detected_meta.get("pixel_size") or detected_meta.get("pixel_size_nm")
+                    z_s = detected_meta.get("z_step") or detected_meta.get("z_step_nm")
+                    if p_size is not None and float(p_size) > 0:
+                        file_pixel_size = float(p_size)
+                    if z_s is not None and float(z_s) > 0:
+                        file_z_step = float(z_s)
+
+                self.progress.emit(f"Processing: {raw_tif.name} (XY={file_pixel_size:g} nm, Z={file_z_step:g} nm)")
 
                 try:
                     #Batch owns image measurements; the worker only supplies
@@ -169,10 +183,11 @@ class AnalysisWorker(QThread):
                         auto_roi=self.params["auto_roi"],
                         send_layer_func=self.layer_ready.emit if self.params.get("show_napari", True) else None,
                         request_roi_func=self.request_roi_callback if not self.params.get("auto_roi", False) else None,
-                        pixel_size_nm=self.params["pixel_size_nm"],
-                        z_step_nm=self.params["z_step_nm"],
+                        pixel_size_nm=file_pixel_size,
+                        z_step_nm=file_z_step,
                         signal_channel=self.params["signal_channel"],
                         dapi_channel=self.params["dapi_channel"],
+
                         mode_a_enabled=self.params.get("mode_a_enabled", False),
                         mode_a_min_core_voxels=self.params.get("mode_a_min_core_voxels", 20),
                         mode_a_exclude_split_slices=self.params.get("mode_a_exclude_split_slices", True),
@@ -302,7 +317,7 @@ class AnalysisWorker(QThread):
                     except Exception as e:
                         self.progress.emit(f"Error generating graphs: {str(e)}")
 
-                # Radial FA Profiling creates an additional audit report. Standard ExQt plots above remain unchanged and do not contain radial FA values.
+                #Radial FA Profiling creates an additional audit report
                 if (
                     self.params.get("generate_reports", False)
                     and self.params.get("report_mode_a_plots", True)
@@ -319,14 +334,17 @@ class AnalysisWorker(QThread):
                     except Exception as e:
                         self.progress.emit(f"Error generating Radial FA Profiling plots: {str(e)}")
 
-                # Partitioning & Classification Analysis (K_part and Phase Diagram)
                 if (
                     self.params.get("generate_reports", False)
                     and self.params.get("report_partitioning_plots", True)
                 ):
                     try:
                         from partitioning_plots import export_partitioning_analysis
-                        export_partitioning_analysis(str(output_csv), output_folder, file_stem=output_csv.stem)
+                        export_partitioning_analysis(
+                            str(output_csv), output_folder, file_stem=output_csv.stem,
+                            min_size=self.params.get("plot_min_size"),
+                            max_size=self.params.get("plot_max_size"),
+                        )
                         self.progress.emit("Partitioning & Classification plots (K_part) were generated.")
                     except Exception as e:
                         self.progress.emit(f"Error generating Partitioning plots: {str(e)}")
@@ -369,14 +387,7 @@ class AlignmentWorker(QThread):
 
 
 class ChannelDetectionWorker(QThread):
-    """Sample inter-plane Pearson correlation for each channel of the first TIFF.
-
-    Uses the same high-pass preprocessing as the aligner so the metric is directly
-    comparable to what phase cross-correlation will see.  Only n_sample adjacent pairs
-    from the middle 80 % of the Z range are processed, so the worker finishes in a
-    few seconds even for large stacks.
-    """
-    result = Signal(list)   # [(channel_index, mean_corr_pct), ...]
+    result = Signal(list)   #[(channel_index, mean_corr_pct), ...]
     error  = Signal(str)
 
     def __init__(self, input_folder: str, n_sample: int = 20):
@@ -638,7 +649,7 @@ class ReportOptionsDialog(QDialog):
             ("report_excluded_csv", "QC-excluded CSV", "Reason-focused table for troubleshooting exclusions."),
             ("report_standard_plots", "Standard descriptive plots", "Volume, intensity and density overview."),
             ("report_mode_a_plots", "Radial FA Profiling plots", "Generated only when Radial FA Profiling is active in 3D."),
-            ("report_partitioning_plots", "Partitioning & Classification plots (K_part)", "Size vs K_part and 2D FA vs K_part biophysical phase diagram."),
+            ("report_partitioning_plots", "Partitioning & Classification plots (K_part)", "Size vs K_part and FA vs K_part morphology profiling."),
             ("report_raw_audit_csv", "Extra full raw audit CSV", "Usually unnecessary: duplicates the source table with reporting flags and diameters."),
         ]
         for key, label, tooltip in choices:
@@ -1204,13 +1215,13 @@ class ExQt(QMainWindow):
         self.alignment_worker.failed.connect(self.alignment_failed)
         self.alignment_worker.start()
 
-    # Display alignment-worker progress without changing the analysis controls.
+    #Display alignment-worker progress without changing the analysis controls.
     def update_alignment_status(self, pct, text):
         print(f"ALIGNMENT LOG [{pct}%]: {text}")
         self.align_progress_bar.setValue(pct)
         self.status_label.setText(text)
 
-    # Restore controls and present the audited batch outcome after alignment.
+    #Restore controls and present the audited batch outcome after alignment.
     def alignment_completed(self, batch_result):
         self.align_stacks_action.setEnabled(True)
         self.btn_run.setEnabled(True)
@@ -1222,9 +1233,6 @@ class ExQt(QMainWindow):
         review_count = int(status_counts.get("REVIEW", 0))
         fail_count = int(status_counts.get("FAIL", 0))
         error_count = int(status_counts.get("ERROR", 0))
-        # Both PASS and REVIEW stacks are written to disk; REVIEW means some steps
-        # had rejected registrations (shift held at zero) — the drift CSV must be
-        # inspected before using these stacks for quantitative analysis.
         exported_count = pass_count + review_count
         self.status_label.setText(
             f"Alignment finished: {pass_count} passed, {review_count} review, "
@@ -1261,7 +1269,7 @@ class ExQt(QMainWindow):
                 self._try_auto_fill_metadata(aligned_folder)
                 self.status_label.setText(f"Using aligned data: {aligned_folder}")
 
-    # Restore controls after a setup or file-level error that aborted the batch.
+    #Restore controls after a setup or file-level error that aborted the batch.
     def alignment_failed(self, text):
         self.align_stacks_action.setEnabled(True)
         self.btn_run.setEnabled(True)
@@ -1298,14 +1306,22 @@ class ExQt(QMainWindow):
                 }
 
         summary = summarize_calibrations(self.detected_metadata_by_file)
+        self.calibration_warning = ""
         if summary["has_mismatch"]:
-            self.calibration_warning = (
-                "Input files contain different physical calibrations. "
-                "Set one explicit calibration for this batch or split the batch."
+            self.status_label.setText(f"Per-file TIFF calibration active ({summary['calibration_count']} calibrations).")
+            calib_details = "\n".join(f"  • XY={xy:g} nm, Z={z:g} nm" for xy, z in summary["calibrations"])
+            QMessageBox.information(
+                self,
+                "Per-file TIFF calibration active",
+                (
+                    f"Input files contain {summary['calibration_count']} different physical calibrations:\n\n"
+                    f"{calib_details}\n\n"
+                    "ExQt will automatically apply each file's exact acquisition calibration during analysis. "
+                    "Values in Advanced Settings will serve as fallback if metadata is missing."
+                ),
             )
-            self.status_label.setText("Calibration mismatch detected — review Advanced Settings.")
-            QMessageBox.warning(self, "Calibration mismatch", self.calibration_warning)
         elif summary["calibration_count"] == 1:
+
             pixel_size_nm, z_step_nm = summary["calibrations"][0]
             reply = QMessageBox.question(
                 self,
@@ -1631,7 +1647,23 @@ class ExQt(QMainWindow):
             DEFAULT_SETTINGS["adv_z_step"],
         )
         expansion_factor = self.exp_factor_spin.value()
-        if self.mode_combo.currentText() == "3d":
+        summary = summarize_calibrations(self.detected_metadata_by_file)
+
+        if summary["has_mismatch"]:
+            calibration_text = (
+                f"Per-file TIFF calibration is ACTIVE ({summary['calibration_count']} distinct calibrations found):\n\n"
+            )
+            for xy, z in summary["calibrations"]:
+                calibration_text += (
+                    f"  • XY={xy:g} nm, Z={z:g} nm "
+                    f"(biological: Y/X={xy / expansion_factor:g} nm, Z={z / expansion_factor:g} nm)\n"
+                )
+            calibration_text += (
+                f"\nFallback calibration (Advanced Settings): XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm\n"
+                f"Expansion factor: {expansion_factor:g}×\n\n"
+                "ExQt will automatically calculate biological sizes using each file's exact acquisition calibration."
+            )
+        elif self.mode_combo.currentText() == "3d":
             calibration_text = (
                 f"Acquisition XY pixel size: {pixel_size_nm:g} nm\n"
                 f"Acquisition Z-step: {z_step_nm:g} nm\n"
@@ -1655,11 +1687,12 @@ class ExQt(QMainWindow):
             "Confirm calibration",
             calibration_text + "\n\nContinue with these values?",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:
             self.status_label.setText("Analysis cancelled: calibration was not confirmed.")
             return
+
 
         #Snapshot all GUI values before starting the thread so worker execution is independent of subsequent widget changes
         params = {
@@ -1683,9 +1716,11 @@ class ExQt(QMainWindow):
             "plot_max_size": self.plot_max_size_spin.value(),
             "pixel_size_nm": pixel_size_nm,
             "z_step_nm": z_step_nm,
-            #The normal GUI workflow uses one deliberate calibration per batch.
-            "calibration_policy": "one_explicit_calibration_per_batch",
+            # The normal GUI workflow uses one deliberate calibration per batch or per-file auto-calibration when mixed.
+
+            "calibration_policy": "per_file_with_fallback" if summary["has_mismatch"] else "one_explicit_calibration_per_batch",
             "calibration_confirmation": "confirmed_by_user_at_run_start",
+
             "detected_metadata_by_file": self.detected_metadata_by_file,
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
             "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])),
@@ -1749,38 +1784,71 @@ class ExQt(QMainWindow):
         elif layer_type == "points":
             self.viewer.add_points(data, name=name, **kwargs)
 
-    #Present a paintable ROI layer while the worker waits for input.
+    # Present a shape-drawing ROI layer so the user can simply click and drag circles/ellipses.
     def prepare_manual_roi(self, info):
+        self._current_roi_info = info
         shape = info["shape"]
-        empty_mask = np.zeros(shape, dtype=int)
+        ndim = len(shape)
         first_layer = next(iter(self.viewer.layers), None)
         layer_scale = getattr(first_layer, "scale", None) if first_layer is not None else None
-        kwargs = {"name": "Paint ROI", "opacity": 0.5}
+
+        for name in ("Draw ROI", "Paint ROI"):
+            if name in self.viewer.layers:
+                self.viewer.layers.remove(name)
+
+        kwargs = {
+            "name": "Draw ROI",
+            "ndim": ndim,
+            "opacity": 0.5,
+            "face_color": "cyan",
+            "edge_color": "blue",
+            "edge_width": 2,
+        }
         if layer_scale is not None:
             kwargs["scale"] = layer_scale
-        self.viewer.add_labels(empty_mask, **kwargs)
-        self.viewer.layers["Paint ROI"].mode = 'paint'
+
+        shapes_layer = self.viewer.add_shapes(**kwargs)
+        shapes_layer.mode = "add_ellipse"
+
         self.btn_run.hide()
         self.btn_confirm_roi.show()
         self.btn_stop_review.show()
+        if hasattr(self, "status_label"):
+            self.status_label.setText("Draw circle/ellipse ROI around cell/nucleus and click 'Confirm ROI'...")
 
-
-    #Return the painted ROI to the worker and resume processing.
+    # Return the drawn ROI to the worker and resume processing.
     def confirm_roi(self):
-        if "Paint ROI" in self.viewer.layers:
+        info = getattr(self, "_current_roi_info", {})
+        shape = info.get("shape", None)
+
+        mask_data = None
+        if "Draw ROI" in self.viewer.layers:
+            layer = self.viewer.layers["Draw ROI"]
+            if hasattr(layer, "to_labels") and shape is not None:
+                mask_data = layer.to_labels(labels_shape=shape)
+            elif hasattr(layer, "to_masks") and shape is not None:
+                masks = layer.to_masks(mask_shape=shape)
+                mask_data = np.sum(masks, axis=0, dtype=int) if masks.ndim > len(shape) else masks.astype(int)
+            self.viewer.layers.remove("Draw ROI")
+        elif "Paint ROI" in self.viewer.layers:
             mask_data = self.viewer.layers["Paint ROI"].data
-            self.worker.user_roi_data = mask_data
             self.viewer.layers.remove("Paint ROI")
-        else:
+
+        if mask_data is None or mask_data.max() == 0:
             first_layer = next(iter(self.viewer.layers), None)
             if first_layer is not None:
-                self.worker.user_roi_data = np.ones(first_layer.data.shape, dtype=int)
+                mask_data = np.ones(first_layer.data.shape, dtype=int)
+            elif shape is not None:
+                mask_data = np.ones(shape, dtype=int)
             else:
-                self.worker.user_roi_data = np.ones((1, 1), dtype=int)
+                mask_data = np.ones((1, 1), dtype=int)
 
+        self.worker.user_roi_data = mask_data
         self.btn_confirm_roi.hide()
         self.btn_stop_review.hide()
         self.btn_run.show()
+        if hasattr(self, "status_label"):
+            self.status_label.setText("ROI confirmed. Processing...")
         self.worker.roi_event.set()
 
     #Pause between images so the user can approve the current preview.
