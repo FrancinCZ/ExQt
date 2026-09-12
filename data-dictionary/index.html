@@ -1,0 +1,1546 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Automated 3D platform for quantitative biomolecular condensate biophysics in confocal and expansion microscopy">
+      
+      
+        <meta name="author" content="Martin Franc">
+      
+      
+        <link rel="canonical" href="https://francincz.github.io/ExQt/data-dictionary/">
+      
+      
+        <link rel="prev" href="../quality-control/exclusion-rules/">
+      
+      
+        <link rel="next" href="../reporting/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Data Dictionary (CSV) - ExQt Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="slate" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#data-dictionary-exported-csv-schema" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ExQt Documentation" class="md-header__button md-logo" aria-label="ExQt Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ExQt Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Data Dictionary (CSV)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="slate" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="slate" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../user-guide/gui-overview/" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../methodology/dual-scale/" class="md-tabs__link">
+          
+  
+  
+  Methodology & Math
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../quality-control/qc-pipeline/" class="md-tabs__link">
+          
+  
+  
+  Quality Control
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Data Dictionary (CSV)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../reporting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Reports & Visualization
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ExQt Documentation" class="md-nav__button md-logo" aria-label="ExQt Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ExQt Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/gui-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/roi-and-napari/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nuclear ROI & Napari
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/batch-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Batch Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/stack-aligner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stack Aligner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology & Math
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Methodology & Math
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/dual-scale/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dual-Scale Resolution (ExF³)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/partitioning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Partition Coefficient (Kpart)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/radial-profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Radial Profiling (Mode A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/anisotropy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3D Fractional Anisotropy (FA)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../methodology/null-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Geometric Null Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quality Control
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quality Control
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quality-control/qc-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Condensate Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quality-control/exclusion-rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exclusion Rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Dictionary (CSV)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Dictionary (CSV)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-object-identification-centroid-coordinates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Object Identification &amp; Centroid Coordinates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-volumetric-geometric-scaling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Volumetric &amp; Geometric Scaling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-photometric-intensity-partitioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Photometric Intensity &amp; Partitioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-mode-a-radial-profiling-concentration-gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Mode A: Radial Profiling &amp; Concentration Gradients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-3d-fractional-anisotropy-geometric-null-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 3D Fractional Anisotropy &amp; Geometric Null Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-quality-control-topological-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Quality Control &amp; Topological Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reports & Visualization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-object-identification-centroid-coordinates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Object Identification &amp; Centroid Coordinates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-volumetric-geometric-scaling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Volumetric &amp; Geometric Scaling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-photometric-intensity-partitioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Photometric Intensity &amp; Partitioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-mode-a-radial-profiling-concentration-gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Mode A: Radial Profiling &amp; Concentration Gradients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-3d-fractional-anisotropy-geometric-null-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 3D Fractional Anisotropy &amp; Geometric Null Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-quality-control-topological-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Quality Control &amp; Topological Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="data-dictionary-exported-csv-schema">Data Dictionary: Exported CSV Schema</h1>
+<p>This reference document defines all 30+ columns exported in ExQt's primary measurement tables (<code>_Output_Batch_3d.csv</code> and <code>Result_Primary_Condensates.csv</code>).</p>
+<hr />
+<h2 id="1-object-identification-centroid-coordinates">1. Object Identification &amp; Centroid Coordinates</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>filename</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Basename of the processed 3D TIFF acquisition file.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cell_id</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>integer</code></td>
+<td style="text-align: left;">Identifier of the specific nucleus / cell within the field of view.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>object_id</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>integer</code></td>
+<td style="text-align: left;">Unique connected-component label assigned to the condensate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Z_px</code></td>
+<td style="text-align: center;">pixels</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Axial centroid coordinate within the raw optical stack.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Y_px</code></td>
+<td style="text-align: center;">pixels</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Vertical lateral centroid coordinate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>X_px</code></td>
+<td style="text-align: center;">pixels</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Horizontal lateral centroid coordinate.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-volumetric-geometric-scaling">2. Volumetric &amp; Geometric Scaling</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>volume_px</code></td>
+<td style="text-align: center;">voxels</td>
+<td style="text-align: center;"><code>integer</code></td>
+<td style="text-align: left;">Total number of foreground voxels (<span class="arithmatex">\(N_{\text{vox}}\)</span>) comprising the 3D mask.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>volume_gel_um3</code></td>
+<td style="text-align: center;"><span class="arithmatex">\(\mu\text{m}^3\)</span></td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Physical volume in hydrogel: <span class="arithmatex">\(N_{\text{vox}} \times \frac{\Delta x \Delta y \Delta z}{10^9}\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>volume_bio_um3</code></td>
+<td style="text-align: center;"><span class="arithmatex">\(\mu\text{m}^3\)</span></td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Pre-expansion biological volume: <span class="arithmatex">\(\text{Vol}_{\text{gel}} / \text{ExF}^3\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>equivalent_diameter_um</code></td>
+<td style="text-align: center;"><span class="arithmatex">\(\mu\text{m}\)</span></td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Diameter of an equivalent sphere: <span class="arithmatex">\((6 \cdot \text{Vol}_{\text{bio}} / \pi)^{1/3}\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>applied_pixel_size_nm</code></td>
+<td style="text-align: center;">nm</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Unscaled lateral pixel size <span class="arithmatex">\(\Delta x\)</span> supplied during batch configuration.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>applied_z_step_nm</code></td>
+<td style="text-align: center;">nm</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Unscaled axial slice spacing <span class="arithmatex">\(\Delta z\)</span> supplied during batch configuration.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-photometric-intensity-partitioning">3. Photometric Intensity &amp; Partitioning</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>mean_intensity</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Mean fluorescence intensity inside the 3D condensate mask (<span class="arithmatex">\(I_{\text{cond}}\)</span>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_intensity</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Maximum peak pixel intensity recorded within the condensate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>integrated_density</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Sum of all voxel intensities: <span class="arithmatex">\(\sum_{v \in \text{cond}} I(v)\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nucleoplasm_mean_intensity</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Mean intensity of the diffuse nucleoplasm (<span class="arithmatex">\(I_{\text{nuc}}\)</span>) within the nuclear ROI.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>camera_offset</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Dark camera electronic offset derived from the 0.5th percentile of ROI pixels.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>partition_coefficient</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Concentration ratio: <span class="arithmatex">\((I_{\text{cond}} - \text{offset}) / (I_{\text{nuc}} - \text{offset})\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>K_valid</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if denominator <span class="arithmatex">\(\ge 1.0\)</span> and <span class="arithmatex">\(K_{\text{part}} \ge 1.0\)</span>; <code>False</code> otherwise.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>K_invalid_reason</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Diagnostic text describing denominator collapse or non-condensation.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-mode-a-radial-profiling-concentration-gradients">4. Mode A: Radial Profiling &amp; Concentration Gradients</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>mean_intensity_core</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Mean intensity within the innermost 33% distance layer (<span class="arithmatex">\(d_{\text{norm}} &gt; 2/3\)</span>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mean_intensity_middle</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Mean intensity within the intermediate layer (<span class="arithmatex">\(1/3 &lt; d_{\text{norm}} \le 2/3\)</span>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mean_intensity_shell</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Mean intensity within the outer boundary layer (<span class="arithmatex">\(0 &lt; d_{\text{norm}} \le 1/3\)</span>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Delta_intensity_core_shell</code></td>
+<td style="text-align: center;">ADU</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Radial concentration difference: <span class="arithmatex">\(I_{\text{core}} - I_{\text{shell}}\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>condensate_class</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Categorical classification: <code>Core-Enriched</code>, <code>Shell-Enriched</code>, or <code>Uniform</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5-3d-fractional-anisotropy-geometric-null-model">5. 3D Fractional Anisotropy &amp; Geometric Null Model</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>A_object</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">3D Fractional Anisotropy (elongation) of the entire condensate mask.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>A_core</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">3D Fractional Anisotropy of the central core shell.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>A_middle</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">3D Fractional Anisotropy of the intermediate shell.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>A_shell</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">3D Fractional Anisotropy of the outermost boundary shell.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Delta_A_core_shell</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Measured radial FA difference: <span class="arithmatex">\(\text{FA}_{\text{core}} - \text{FA}_{\text{shell}}\)</span>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>null_delta_FA_core_shell</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Expected geometric gradient from a synthetic homogeneous matching ellipsoid.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>delta_FA_excess</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Biological excess anisotropy: <span class="arithmatex">\(\Delta\text{FA}_{\text{measured}} - \Delta\text{FA}_{\text{null}}\)</span>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6-quality-control-topological-metrics">6. Quality Control &amp; Topological Metrics</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Column Name</th>
+<th style="text-align: center;">Physical Unit</th>
+<th style="text-align: center;">Data Type</th>
+<th style="text-align: left;">Mathematical Definition &amp; Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>mode_a_core_voxels</code></td>
+<td style="text-align: center;">voxels</td>
+<td style="text-align: center;"><code>integer</code></td>
+<td style="text-align: left;">Count of voxels residing in the core layer (must be <span class="arithmatex">\(\ge 20\)</span> for valid FA).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode_a_z_topology_status</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Topological section continuity: <code>'pass'</code>, <code>'review'</code>, or <code>'fail'</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode_a_z_split_slice_fraction</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Fraction of occupied <span class="arithmatex">\(Z\)</span>-slices containing <span class="arithmatex">\(\ge 2\)</span> disconnected components.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode_a_object_touches_edge</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if object bounding box intersects the 3D image border.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode_a_object_touches_roi_edge</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if object voxels intersect the nuclear envelope mask boundary.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>primary_qc_valid</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if object passes all criteria to join the primary benchmark cohort.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode_a_qc_reason</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Semicolon-delimited list of rejection reasons for excluded objects.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.action.view"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+    
+  </body>
+</html>
