@@ -1247,12 +1247,12 @@
 </ul>
 <hr />
 <h2 id="methodological-background-inspiration">Methodological Background &amp; Inspiration</h2>
-<p>The subpixel registration strategy in <code>stack_aligner.py</code> draws algorithmic inspiration from classic microscopy drift-correction routines originally implemented in MATLAB (specifically the efficient discrete Fourier transform phase correlation algorithm <code>dftregistration.m</code> by Guizar-Sicairos, Thurman, and Fienup, 2008, <em>Optics Letters</em>).</p>
-<p>In ExQt, this workflow is implemented natively in Python via <code>skimage.registration.phase_cross_correlation</code> and extended with:
-1. Automated reference-channel quality scoring (<code>ChannelDetectionWorker</code>).
-2. Edge-preserving Hanning window preconditioning.
-3. Canvas expansion preventing clipped boundary data.
-4. Independent validation of matching <code>*_Mask.tif</code> label stacks.</p>
+<p>The multi-channel 3D stack alignment strategy in <code>stack_aligner.py</code> is inspired by and adapted from the MATLAB <strong><a href="https://github.com/suzukilabmcardle/3D-Aligner">3D-Aligner</a></strong> developed by the <strong>Suzuki Lab at the McArdle Laboratory for Cancer Research</strong> (<a href="https://github.com/suzukilabmcardle/3D-Aligner">suzukilabmcardle/3D-Aligner</a>).</p>
+<p>In ExQt, the core concepts were re-engineered and implemented natively in Python using <code>skimage.registration.phase_cross_correlation</code> and <code>scipy.ndimage</code>, augmented with:
+1. <strong>Automated Reference Quality Scoring</strong>: Dynamic selection of the optimal structural reference channel (<code>ChannelDetectionWorker</code>).
+2. <strong>Spectral Leakage Suppression</strong>: Edge-preserving 2D Hanning window preconditioning to eliminate Fourier border discontinuities.
+3. <strong>Canvas Expansion (<code>expand_canvas=True</code>)</strong>: Expanding image bounding boxes to ensure shifted stacks retain all peripheral signals without zero-padding corruption.
+4. <strong>Synchronized Mask Alignment</strong>: Rigid transformation validation and synchronized translation applied automatically to corresponding binary/labeled <code>*_Mask.tif</code> stacks.</p>
 
 
 
