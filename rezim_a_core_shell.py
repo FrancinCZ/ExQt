@@ -22,12 +22,15 @@ def split_core_middle_shell(
         raise ValueError("Layer boundaries must satisfy 0 < shell_end < core_start < 1.")
 
     #Distance from the boundary gives a size-normalized radial coordinate that works with anisotropic voxel spacing when sampling is provided.
-    distance_from_edge = distance_transform_edt(mask, sampling=sampling)
+    #Padding ensures bounding-box tangent faces are treated as external background edges (distance 0).
+    padded_mask = np.pad(mask, 1, mode="constant", constant_values=False)
+    padded_distance = distance_transform_edt(padded_mask, sampling=sampling)
+    slices = tuple(slice(1, -1) for _ in range(mask.ndim))
+    distance_from_edge = padded_distance[slices]
     max_distance = float(distance_from_edge.max())
 
     if max_distance == 0:
         raise ValueError("Object is too small to form radial layers.")
-
 
     normalized_distance = distance_from_edge / max_distance
 

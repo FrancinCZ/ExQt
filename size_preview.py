@@ -142,7 +142,7 @@ def collect_size_preview(
     unit = "µm³" if mode == "3d" else "µm²"
 
     for source_path in source_files:
-        #Determine effective calibration for this file, falling back to batch parameters
+        # Determine effective calibration for this file, falling back to batch parameters
         file_meta = get_metadata_from_tif(source_path)
         file_xy_nm = pixel_size_nm
         file_z_nm = z_step_nm
