@@ -1,4 +1,4 @@
-# Partition Coefficient ($K_{\text{part}}$)
+# Partition Coefficient (K_part)
 
 **How concentrated is the protein inside the condensate?**
 

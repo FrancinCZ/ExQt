@@ -19,12 +19,12 @@ The generated dashboard contains four key plots:
 
 ## How to Read Each Plot
 
-### 1. Shape vs. Enrichment (FA vs. $K_{\text{part}}$)
-- **What is FA?** Fractional Anisotropy measures how elongated an object is (0 = sphere, higher = stretched out).
+### 1. Shape vs. Enrichment (FA vs. K_part)
+- **What is FA and $K_{\text{part}}$?** Fractional Anisotropy ($\text{FA}$) measures elongation (0 = sphere, higher = stretched out), while $K_{\text{part}}$ measures protein enrichment inside the droplet relative to the nucleoplasm.
 - **What to look for:** If droplets behave like simple liquids, surface tension keeps them relatively round ($\text{FA} < 0.4$). If they form more rigid, elongated scaffolds (like nuclear speckles), you may see higher anisotropy values.
 
-### 2. Size vs. Enrichment (Volume vs. $K_{\text{part}}$)
-- **The core idea:** Think of vinegar and oil. A large droplet of oil has the same concentration of oil molecules as a small droplet.
+### 2. Size vs. Enrichment (Volume vs. K_part)
+- **The core idea:** Think of vinegar and oil. A large droplet of oil has the same concentration ($K_{\text{part}}$) of oil molecules as a small droplet.
 - **What to look for:** In pure liquid-like condensates, data points form a flat, horizontal band across different volumes.
 
 ### 3. Volume vs. Raw Intensity

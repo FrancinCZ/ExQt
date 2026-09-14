@@ -41,7 +41,7 @@ The window is divided into two main sections:
 
 Microscope calibration parameters are accessed via the top menu bar:
 
-👉 **Top Menu: `Settings` → `Advanced...`**
+**Navigation:** `Settings` → `Advanced...` (from the top menu bar)
 
 Opening **Advanced Settings** reveals the core optical calibration dialog:
 
