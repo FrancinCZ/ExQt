@@ -128,7 +128,11 @@ class AlignmentGuiSmokeTests(unittest.TestCase):
                 z_step_nm=50.0,
                 signal_channel=1,
                 dapi_channel=0,
-                auto_roi=True,
+                # K1: Auto-ROI reports no K, so use a manual whole-FOV ROI and the
+                # explicit detector offset matching the synthetic dark level.
+                auto_roi=False,
+                request_roi_func=lambda shape, is_3d: np.ones(shape, dtype=int),
+                detector_offset_adu=100.0,
                 mode_a_enabled=True,
                 mode_a_min_core_voxels=5,
             )
@@ -156,8 +160,11 @@ class AlignmentGuiSmokeTests(unittest.TestCase):
 
             # Test partitioning plots export
             from partitioning_plots import export_partitioning_analysis
+            from postprocessing import _prepare_reporting_frames
             plots_dir = tmp / "partitioning_output"
-            summary = export_partitioning_analysis(df, plots_dir, "test_sample")
+            # K6: the report takes the QC-annotated frame (primary_qc_valid), like the worker.
+            _, _, _, qc_frame, _ = _prepare_reporting_frames(df, 0.0, 1e6)
+            summary = export_partitioning_analysis(qc_frame, plots_dir, "test_sample")
             self.assertTrue((plots_dir / "test_sample_partitioning_analysis.png").is_file())
             self.assertTrue((plots_dir / "test_sample_partitioning_summary.json").is_file())
             self.assertGreater(summary["total_objects"], 0)

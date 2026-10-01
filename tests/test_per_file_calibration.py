@@ -31,6 +31,7 @@ def test_collect_size_preview_per_file_calibration(tmp_path):
         z_step_nm=500.0,
         min_voxels=1,
         signal_channel=0,
+        calibration_source="tiff_per_file",
     )
 
     assert len(df) == 2

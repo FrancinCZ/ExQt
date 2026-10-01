@@ -4,18 +4,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import tifffile
-from scipy.ndimage import binary_dilation, laplace
+from scipy.ndimage import binary_dilation, laplace, distance_transform_edt
 from skimage.measure import regionprops, label
-from rezim_a_metrics import MODE_A_LAYER_SCHEME, compute_core_shell_metrics
+from rezim_a_metrics import MODE_A_LAYER_SCHEME, UNCLASSIFIED_QC, compute_core_shell_metrics
+from defaults import DEFAULT_SETTINGS
 
 
-MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS = 20
-MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION = 0.10
-MODE_A_Z_SPLIT_PASS_FRACTION = 0.10
-MODE_A_Z_SPLIT_REVIEW_FRACTION = 0.30
+MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS = DEFAULT_SETTINGS["mode_a_z_split_min_component_voxels"]
+MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_min_component_fraction"]
+MODE_A_Z_SPLIT_PASS_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_pass_fraction"]
+MODE_A_Z_SPLIT_REVIEW_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_review_fraction"]
 
 
-#Return a positive float or fail before calibrated measurements.
 def _positive_finite(value, name):
     try:
         result = float(value)
@@ -26,7 +26,16 @@ def _positive_finite(value, name):
     return result
 
 
-#Convert common OME/ImageJ physical-length units to nanometres.
+def _non_negative_finite(value, name):
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a number >= 0; received {value!r}.") from error
+    if not np.isfinite(result) or result < 0:
+        raise ValueError(f"{name} must be finite and >= 0; received {value!r}.")
+    return result
+
+
 def _physical_value_to_nm(value, unit):
     if value is None or unit is None:
         return None
@@ -53,6 +62,33 @@ def _physical_value_to_nm(value, unit):
         return None
     converted = float(value) * factor
     return converted if np.isfinite(converted) and converted > 0 else None
+
+
+def source_tiff_files(folder):
+    """Source TIFFs of a folder: masks, ROIs, alignment sidecars and "final" exports are skipped."""
+    return sorted(
+        path for path in Path(folder).iterdir()
+        if path.is_file()
+        and path.suffix.lower() in {".tif", ".tiff"}
+        and not path.stem.lower().endswith(("_mask", "_roi"))
+        and "final" not in path.stem.lower()
+        and "_alignment_" not in path.stem.lower()
+    )
+
+
+def matching_mask_path(source_path):
+    """The conventional <stem>_Mask.tif/.tiff next to a source TIFF (the .tif path if neither exists)."""
+    for suffix in (".tif", ".tiff"):
+        candidate = source_path.with_name(f"{source_path.stem}_Mask{suffix}")
+        if candidate.is_file():
+            return candidate
+    return source_path.with_name(f"{source_path.stem}_Mask.tif")
+
+
+#Where the ROI of one image is saved: the run's output folder if given, else next to the mask.
+def roi_output_path(tif_path, mask_path, roi_output_dir=None):
+    folder = Path(roi_output_dir) if roi_output_dir is not None else Path(mask_path).parent
+    return folder / f"{Path(tif_path).stem}_ROI.tif"
 
 
 #Validate a binary/instance mask and never silently merge 0/255 objects.
@@ -88,11 +124,14 @@ def _prepare_labeled_mask(mask):
     return integer_mask
 
 
-#Return True when a region bbox reaches any image or stack boundary.
-def _touches_image_edge(region, image_shape):
+#Return True when a region reaches the array boundary or, for aligned stacks, the border of
+#the real data (alignment padding marked 0 in the valid-voxel mask).
+def _touches_image_edge(region, image_shape, valid_voxels=None):
     bbox_min = region.bbox[:region.image.ndim]
     bbox_max = region.bbox[region.image.ndim:]
-    return any(start == 0 or end == size for start, end, size in zip(bbox_min, bbox_max, image_shape))
+    if any(start == 0 or end == size for start, end, size in zip(bbox_min, bbox_max, image_shape)):
+        return True
+    return valid_voxels is not None and _touches_roi_edge(region, valid_voxels)
 
 
 def _touches_roi_edge(region, roi_mask):
@@ -117,6 +156,119 @@ def _touches_roi_edge(region, roi_mask):
     local_object[object_slices] = region.image.astype(bool)
     adjacent = binary_dilation(local_object) & ~local_object
     return bool(np.any(adjacent & ~roi[crop_slices]))
+
+
+#Split a drawn ROI stack into per-nucleus groups of (z, 2D mask) shapes.
+def _group_roi_shapes(mask_3d):
+    # napari Shapes.to_labels gives every shape its own ID (index + 1), not a nucleus ID,
+    # so nuclei are recovered from geometry: one node per connected region of each ID on
+    # each slice; nodes on different slices are linked when they overlap in XY, nodes on
+    # the same slice when they touch (overlapping shapes are painted over each other).
+    nodes = []
+    for z in np.where(mask_3d.any(axis=(1, 2)))[0]:
+        plane = mask_3d[z]
+        for value in np.unique(plane[plane > 0]):
+            components = label(plane == value)
+            for component_id in range(1, int(components.max()) + 1):
+                region = components == component_id
+                ys, xs = np.nonzero(region)
+                nodes.append((int(z), region, (ys.min(), ys.max(), xs.min(), xs.max())))
+
+    parent = list(range(len(nodes)))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for i, (z_i, mask_i, box_i) in enumerate(nodes):
+        grown_i = None
+        for j in range(i + 1, len(nodes)):
+            z_j, mask_j, box_j = nodes[j]
+            margin = 1 if z_i == z_j else 0
+            if (box_i[0] > box_j[1] + margin or box_j[0] > box_i[1] + margin
+                    or box_i[2] > box_j[3] + margin or box_j[2] > box_i[3] + margin):
+                continue
+            if z_i == z_j:
+                if grown_i is None:
+                    grown_i = binary_dilation(mask_i)
+                linked = np.any(grown_i & mask_j)
+            else:
+                linked = np.any(mask_i & mask_j)
+            if linked:
+                parent[find(j)] = find(i)
+
+    groups = {}
+    for index, (z, mask, _) in enumerate(nodes):
+        groups.setdefault(find(index), []).append((z, mask))
+
+    ordered = []
+    for group in groups.values():
+        group.sort(key=lambda node: node[0])
+        slices = [z for z, _ in group]
+        duplicates = sorted({z for z in slices if slices.count(z) > 1})
+        if duplicates:
+            raise ValueError(
+                f"ROI shapes on the same Z-slice ({', '.join(map(str, duplicates))}) overlap or touch, "
+                "so they cannot be assigned to separate nuclei. Redraw them so they do not touch, "
+                "or draw one shape per nucleus per slice."
+            )
+        first_z, first_mask = group[0]
+        ordered.append(((first_z, int(np.flatnonzero(first_mask)[0])), group))
+    ordered.sort(key=lambda item: item[0])
+    return [group for _, group in ordered]
+
+
+#Raise when two nucleus ROIs claim the same voxel.
+def _assert_roi_groups_disjoint(group_masks):
+    claimed = None
+    for index, mask in enumerate(group_masks, start=1):
+        if claimed is None:
+            claimed = np.zeros(mask.shape, dtype=bool)
+        if np.any(claimed & mask):
+            raise ValueError(
+                f"The interpolated ROI of nucleus {index} overlaps another nucleus ROI; "
+                "the nuclei cannot be separated unambiguously."
+            )
+        claimed |= mask
+
+
+def _interpolate_or_extrude_roi(mask_3d: np.ndarray) -> np.ndarray:
+    """
+    Process a user-drawn 3D ROI mask into a per-nucleus label volume (cell_id 1..N):
+    - Shapes are grouped into nuclei by XY overlap across slices (see _group_roi_shapes).
+    - A nucleus drawn on multiple Z-slices is interpolated between its own slices with
+      signed distance fields; slices outside its [z_min, z_max] stay zero (cuts off noise).
+    - A nucleus drawn on exactly 1 Z-slice is extruded across all Z slices
+      (preserves the single-slice workflow).
+    With one nucleus (ExM) the result equals the former binary implementation.
+    """
+    if mask_3d.ndim != 3 or mask_3d.max() == 0:
+        return mask_3d
+
+    group_masks = []
+    for group in _group_roi_shapes(mask_3d):
+        group_mask = np.zeros(mask_3d.shape, dtype=bool)
+        if len(group) == 1:
+            group_mask[:] = group[0][1]
+        else:
+            for (z0, m0), (z1, m1) in zip(group, group[1:]):
+                # 2D EDT within one XY slice needs no `sampling`: XY pixels are isotropic.
+                # Z enters only through the linear blend weight (slice index), not the EDT,
+                # so this is not the anisotropic 3D EDT case.
+                d0 = distance_transform_edt(m0) - distance_transform_edt(~m0)
+                d1 = distance_transform_edt(m1) - distance_transform_edt(~m1)
+                for z in range(z0, z1 + 1):
+                    w1 = (z - z0) / (z1 - z0)
+                    group_mask[z] |= ((1.0 - w1) * d0 + w1 * d1) > 0
+        group_masks.append(group_mask)
+
+    _assert_roi_groups_disjoint(group_masks)
+    out = np.zeros(mask_3d.shape, dtype=np.int32)
+    for cell_id, group_mask in enumerate(group_masks, start=1):
+        out[group_mask] = cell_id
+    return out
 
 
 #Detect split silhouettes without deciding biological object identity.
@@ -197,7 +349,7 @@ def _select_focus_slice(volume):
     scores = [laplace(volume[z].astype(np.float32)).var() for z in range(volume.shape[0])]
     return int(np.argmax(scores))
 
-# Validate or infer the channel axis used to extract signal images.
+#Validate or infer the channel axis used to extract signal images.
 def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
     if img_raw.ndim != 4:
         return expected_axis
@@ -216,7 +368,6 @@ def _resolve_channel_axis(img_raw, expected_axis=1, max_channels=6):
 
     raise ValueError(f"Could not confidently identify the channel axis for TIF shape {sizes}.")
 
-#Remove only singleton dimensions while keeping the corresponding axis string in sync.
 def _squeeze_with_axes(array, axes):
     data = np.asarray(array)
     normalized_axes = str(axes).upper()
@@ -230,7 +381,6 @@ def _squeeze_with_axes(array, axes):
     return np.squeeze(data), "".join(normalized_axes[index] for index in keep)
 
 
-#Load TIFF pixels and series axes together; the axes are required for unambiguous channel selection.
 def _read_tiff_with_axes(tif_path):
     with tifffile.TiffFile(tif_path) as tif:
         if len(tif.series) != 1:
@@ -249,8 +399,29 @@ def _alignment_drift_csv(tif_path):
     return path.with_name(f"{stem}_drift.csv")
 
 
+#Load the aligner's valid-voxel sidecar (1 = real data, 0 = zero padding from shifting).
+def _load_valid_voxel_mask(tif_path, expected_shape):
+    drift_csv = _alignment_drift_csv(tif_path)
+    valid_path = drift_csv.with_name(drift_csv.name.replace("_drift.csv", "_alignment_valid.tif"))
+    if not valid_path.is_file():
+        if drift_csv.is_file():
+            print(
+                f"      [Alignment] Warning: {Path(tif_path).name} is aligned but has no valid-voxel mask "
+                f"({valid_path.name}); re-align with the current ExQt so padding is excluded from statistics."
+            )
+        return None
+    valid = np.asarray(tifffile.imread(valid_path)) > 0
+    if valid.shape != tuple(expected_shape):
+        raise ValueError(
+            f"Alignment valid-voxel mask {valid_path.name} has shape {valid.shape}, "
+            f"but the image has shape {tuple(expected_shape)}."
+        )
+    return valid
+
+
 def validate_alignment_qc(tif_path):
-    """Reject an aligned input if its companion drift CSV reports a hard FAIL."""
+    """Return the aligner's overall status ("PASS" / "REVIEW") for an aligned input, None when
+    the input is not aligned; raise ValueError when the stack must be excluded."""
     drift_csv = _alignment_drift_csv(tif_path)
     if not drift_csv.is_file():
         return None
@@ -262,22 +433,33 @@ def validate_alignment_qc(tif_path):
     if table.empty or not required.issubset(table.columns):
         raise ValueError(f"Alignment QC is incomplete for {Path(tif_path).name}: {drift_csv.name}")
 
-    statuses = set(table["status"].astype(str))
-    if "FAIL" in statuses:
-        raise ValueError(
-            f"Alignment QC is FAIL for {Path(tif_path).name}; "
-            "the stack is excluded from statistics."
-        )
-
     numeric = table[["step_shift_y_px", "step_shift_x_px", "step_magnitude_px"]].to_numpy(dtype=float)
     if not np.isfinite(numeric).all():
         raise ValueError(f"Alignment QC contains non-finite shifts for {Path(tif_path).name}")
 
-    if "REVIEW" in statuses or "FAIL" in statuses:
-        states = ", ".join(sorted(statuses))
-        print(f"      [Alignment QC] Notice: {Path(tif_path).name} contains steps with ({states}) — inspect drift plot.")
+    statuses = set(table["status"].astype(str))
+    if "overall_status" in table.columns:
+        overall_values = set(table["overall_status"].astype(str))
+        if len(overall_values) != 1 or not overall_values <= {"PASS", "REVIEW", "FAIL"}:
+            raise ValueError(f"Alignment QC has an invalid overall_status for {Path(tif_path).name}: {sorted(overall_values)}")
+        overall = overall_values.pop()
+    elif "FAIL" in statuses:
+        # Drift CSV from an older ExQt: the overall verdict is unknown, so stay strict.
+        raise ValueError(
+            f"Alignment QC for {Path(tif_path).name} has FAIL steps and no overall_status "
+            "(older aligner); the stack is excluded from statistics. Please re-align it."
+        )
+    else:
+        overall = "REVIEW" if "REVIEW" in statuses else "PASS"
 
-    return drift_csv
+    if overall == "FAIL":
+        raise ValueError(
+            f"Alignment QC is FAIL for {Path(tif_path).name}; "
+            "the stack is excluded from statistics."
+        )
+    if overall == "REVIEW":
+        print(f"      [Alignment QC] {Path(tif_path).name} is REVIEW: analysed, but excluded from primary statistics.")
+    return overall
 
 
 
@@ -322,22 +504,15 @@ def get_metadata_from_tif(tif_path):
                         sources["z_step"] = f"ImageJ spacing ({imagej_unit})"
             
             tags = tif.pages[0].tags
-            if "pixel_size" not in meta and "XResolution" in tags and "ResolutionUnit" in tags:
+            #Inch/cm ResolutionUnit is print DPI (e.g. default 72 dpi), not a microscope calibration; XResolution is trusted only with an explicit ImageJ length unit.
+            imagej_length_unit = _physical_value_to_nm(1.0, imagej_unit) is not None
+            if "pixel_size" not in meta and "XResolution" in tags and imagej_length_unit:
                 numerator, denominator = tags["XResolution"].value
-                resolution_unit = tags["ResolutionUnit"].value
-                unit_code = getattr(resolution_unit, "value", resolution_unit)
-                try:
-                    unit_code = int(unit_code)
-                except (TypeError, ValueError):
-                    unit_code = None
-                unit_name = {2: "inch", 3: "cm"}.get(unit_code)
-                if unit_name is None and _physical_value_to_nm(1.0, imagej_unit) is not None:
-                    unit_name = imagej_unit
-                if numerator > 0 and denominator > 0 and unit_name is not None:
-                    pixel_size = _physical_value_to_nm(denominator / numerator, unit_name)
+                if numerator > 0 and denominator > 0:
+                    pixel_size = _physical_value_to_nm(denominator / numerator, imagej_unit)
                     if pixel_size is not None:
                         meta["pixel_size"] = pixel_size
-                        sources["pixel_size"] = f"TIFF XResolution ({unit_name})"
+                        sources["pixel_size"] = f"TIFF XResolution ({imagej_unit})"
 
             if not {"pixel_size", "z_step"}.intersection(meta):
                 return None
@@ -350,26 +525,28 @@ def get_metadata_from_tif(tif_path):
 
 def process_condensates(
     tif_path, mask_path, mode="3d", target_z_slice=None, expansion_factor=1.0,
-    min_voxels=5, show_napari=True, pixel_size_nm=None, z_step_nm=None,
+    min_voxels=DEFAULT_SETTINGS["raw_min_voxels"], show_napari=True, pixel_size_nm=None, z_step_nm=None,
     signal_channel=1, dapi_channel=0, channel_axis=1, auto_roi=True,
     send_layer_func=None, request_roi_func=None, mode_a_enabled=False,
-    mode_a_min_core_voxels=20, mode_a_exclude_split_slices=True,
+    mode_a_min_core_voxels=DEFAULT_SETTINGS["mode_a_min_core_voxels"], mode_a_exclude_split_slices=True,
     mode_a_z_split_min_component_voxels=MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
     mode_a_z_split_min_component_fraction=MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
     mode_a_z_split_pass_fraction=MODE_A_Z_SPLIT_PASS_FRACTION,
     mode_a_z_split_review_fraction=MODE_A_Z_SPLIT_REVIEW_FRACTION,
+    detector_offset_adu=0.0,
+    detector_offset_source="manual",
+    roi_output_dir=None,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
     tif_path = Path(tif_path)
     mask_path = Path(mask_path)
-    validate_alignment_qc(tif_path)
+    alignment_status = validate_alignment_qc(tif_path) or "not_aligned"
     print(f"\n[1/5] Loading Pair: {tif_path.name} & {mask_path.name}")
 
     if send_layer_func:
         send_layer_func({"type": "clear_layers"})
 
-    #Load both inputs together so all later measurements refer to the same field of view and can be displayed through the GUI callback.
     img_raw, raw_axes = _read_tiff_with_axes(tif_path)
     img_mask, mask_axes = _read_tiff_with_axes(mask_path)
 
@@ -389,6 +566,7 @@ def process_condensates(
     pixel_size_nm = _positive_finite(pixel_size_nm, "Pixel size XY")
     z_step_nm = _positive_finite(z_step_nm, "Z-step")
     expansion_factor = _positive_finite(expansion_factor, "Expansion factor")
+    detector_offset_adu = _non_negative_finite(detector_offset_adu, "Detector offset")
 
     #Channel selection is isolated here - downstream processing works with a
     #single intensity volume regardless of the original TIFF layout.
@@ -409,18 +587,21 @@ def process_condensates(
         img_dapi = np.take(img_raw, dapi_channel, axis=ch_axis)
         img_intensity = np.take(img_raw, signal_channel, axis=ch_axis)
         raw_spatial = "".join(a for a in raw_axes if a != "C")
+    elif img_raw.ndim == 3 and "C" in raw_axes:
+        raise ValueError(
+            f"{tif_path.name}: 2D multi-channel images (axes {raw_axes}) are not supported yet. "
+            "Save the signal channel as a single-channel TIFF, or acquire a Z-stack."
+        )
     else:
         img_dapi = img_raw
         img_intensity = img_raw
         raw_spatial = raw_axes
 
-    #Canonicalize raw spatial axes to ZYX if they are permuted (e.g. ZXY)
     if raw_spatial and set(raw_spatial) == {"Z", "Y", "X"} and raw_spatial != "ZYX":
         raw_perm = [raw_spatial.index(a) for a in "ZYX"]
         img_intensity = np.transpose(img_intensity, raw_perm)
         img_dapi = np.transpose(img_dapi, raw_perm)
 
-    #Canonicalize mask spatial axes to ZYX or YX based on declared mask metadata
     if mask_axes and set(mask_axes) == {"Z", "Y", "X"} and mask_axes != "ZYX":
         mask_perm = [mask_axes.index(a) for a in "ZYX"]
         img_mask = np.transpose(img_mask, mask_perm)
@@ -439,9 +620,9 @@ def process_condensates(
                             f"Mask shape {img_mask.shape}. Ensure your segmentation software outputs correct dimensions.")
 
     is_stack = img_intensity.ndim == 3
+    valid_voxels = _load_valid_voxel_mask(tif_path, img_intensity.shape)
     print(f"      Mode: {mode}")
 
-    #Convert the requested mode into one processing image/mask pair.
     if mode == "single_slice":
         if not is_stack:
             raise ValueError("single_slice mode needs a 3D (Z,Y,X) stack.")
@@ -450,12 +631,17 @@ def process_condensates(
         img_intensity = img_intensity[z_idx]
         img_dapi_process = img_dapi[z_idx]
         img_mask_process = img_mask[z_idx]
+        if valid_voxels is not None:
+            valid_voxels = valid_voxels[z_idx]
         is_3d = False
 
     elif mode == "2d":
         img_intensity = img_intensity if not is_stack else img_intensity.max(axis=0)
         img_dapi_process = img_dapi if not is_stack else img_dapi.max(axis=0)
         img_mask_process = img_mask if not is_stack else img_mask.max(axis=0)
+        if valid_voxels is not None and is_stack:
+            # A projected pixel is valid only if it is valid in every slice.
+            valid_voxels = valid_voxels.all(axis=0)
         is_3d = False
 
     elif mode == "3d":
@@ -468,6 +654,7 @@ def process_condensates(
 
     print(f"\n[2/5] ROI extraction (Auto-ROI: {auto_roi})")
     #A manual ROI is requested through callbacks so the worker can pause and wait for user input. The ROI is applied to the mask before regionprops.
+    roi_source = "auto_fov" if (auto_roi or request_roi_func is None) else "manual"
     if auto_roi or request_roi_func is None:
         roi_mask = np.ones_like(img_mask_process, dtype=bool)
         extruded_mask = np.ones_like(img_mask_process, dtype=int)
@@ -492,12 +679,12 @@ def process_condensates(
         print("Waiting for user to draw ROI in Napari...")
         extruded_mask = request_roi_func(img_intensity.shape, is_3d)
         if is_3d and extruded_mask.max() > 0:
-            mask_2d = extruded_mask.max(axis=0)
-            extruded_mask = np.repeat(mask_2d[np.newaxis, :, :], extruded_mask.shape[0], axis=0)
+            extruded_mask = _interpolate_or_extrude_roi(extruded_mask)
         roi_mask = extruded_mask > 0
 
-    #Persist the ROI mask so auditors can verify which region was selected.
-    roi_save_path = mask_path.with_name(f"{tif_path.stem}_ROI.tif")
+    #Persist the ROI mask so auditors can verify which region was selected. With roi_output_dir (the run's output folder) every run keeps its own ROI and the input folder is not touched.
+    roi_save_path = roi_output_path(tif_path, mask_path, roi_output_dir)
+    roi_save_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         tifffile.imwrite(str(roi_save_path), extruded_mask.astype(np.uint8), compression="zlib")
         print(f"      [ROI] Saved ROI mask -> {roi_save_path.name}")
@@ -508,7 +695,6 @@ def process_condensates(
 
     img_mask_process = img_mask_process * roi_mask
 
-    #Binary masks are labeled consistently.
     labeled_mask = _prepare_labeled_mask(img_mask_process)
 
     print("[4/5] Extracting true signal metrics...")
@@ -524,15 +710,18 @@ def process_condensates(
             f"(Z,Y,X)=({eff_z_step_nm:.3f}, {eff_pixel_size_nm:.3f}, {eff_pixel_size_nm:.3f}) nm"
         )
 
-    #Estimate dark camera offset from the lowest 0.5% percentile of pixels INSIDE ROI only.
-    roi_pixels = img_intensity[roi_mask] if np.any(roi_mask) else img_intensity.ravel()
-    camera_offset = float(np.percentile(roi_pixels, 0.5)) if roi_pixels.size > 0 else 0.0
+    #The detector offset is an explicit acquisition setting (default 0 = no subtraction).
+    #It is never estimated from ROI pixels: a low percentile depends on ROI shape and noise.
+    k_offset = detector_offset_adu
 
     #Precompute nucleoplasm (background within cell ROI across active Z-slices) mean intensity per cell_id.
-    cell_ids = np.unique(extruded_mask[extruded_mask > 0])
+    #Auto-ROI has no nucleus outline, so the "nucleoplasm" would include gel/background: no K there.
+    cell_ids = np.unique(extruded_mask[extruded_mask > 0]) if roi_source != "auto_fov" else []
     nucleoplasm_means = {}
     for cid in cell_ids:
         bg_mask = (extruded_mask == cid) & (labeled_mask == 0)
+        if valid_voxels is not None:
+            bg_mask &= valid_voxels
 
         if is_3d:
             #Per-cell Z-bounds: only Z-slices where THIS cell has labeled objects
@@ -548,11 +737,12 @@ def process_condensates(
             nucleoplasm_means[cid] = float(np.mean(img_intensity[bg_mask]))
         else:
             global_bg = (extruded_mask == cid) & (labeled_mask == 0)
+            if valid_voxels is not None:
+                global_bg &= valid_voxels
             nucleoplasm_means[cid] = float(np.mean(img_intensity[global_bg])) if np.any(global_bg) else np.nan
 
 
 
-    #Regionprops supplies geometry and intensity statistics used to build the stable CSV row schema consumed by postprocessing.py.
     props = regionprops(labeled_mask, intensity_image=img_intensity)
     objects_data = []
 
@@ -578,13 +768,17 @@ def process_condensates(
             continue
 
         bg_int = nucleoplasm_means.get(cell_id, np.nan)
-        net_mean_int = max(mean_int - camera_offset, 0.0)
-        if not np.isfinite(bg_int):
+        net_mean_int = max(mean_int - k_offset, 0.0)
+        if roi_source == "auto_fov":
+            net_bg_int = np.nan
+            k_valid = False
+            k_invalid_reason = "auto_roi_no_nucleoplasm"
+        elif not np.isfinite(bg_int):
             net_bg_int = np.nan
             k_valid = False
             k_invalid_reason = "no_nucleoplasm"
         else:
-            net_bg_int = bg_int - camera_offset
+            net_bg_int = bg_int - k_offset
             if net_bg_int <= 0:
                 net_bg_int = np.nan
                 k_valid = False
@@ -600,6 +794,8 @@ def process_condensates(
             "mode": mode,
             "is_3d": is_3d,
             "cell_id": cell_id,
+            "roi_source": roi_source,
+            "alignment_status": alignment_status,
             "object_id": region.label,
             "Z_px": z_px, "Y_px": y_px, "X_px": x_px,
             "mean_intensity": round(mean_int, 2),
@@ -607,12 +803,19 @@ def process_condensates(
             "integrated_density": round(region.area * mean_int, 2),
             "nucleoplasm_mean_intensity": round(bg_int, 2) if np.isfinite(bg_int) else np.nan,
             "partition_coefficient": part_coeff,
-            "camera_offset": round(camera_offset, 2),
+            "K_offset_adu": float(k_offset),
+            "K_offset_method": "explicit_setting",
+            "K_offset_source": str(detector_offset_source),
             "K_valid": k_valid,
             "K_invalid_reason": k_invalid_reason if not k_valid else "",
         }
 
-        #Convert pixel counts into calibrated biological units while keeping raw counts for auditability and downstream QC.
+        #Truncated objects (image/stack border, alignment padding, ROI boundary) are flagged in every mode; postprocessing keeps them out of primary.
+        touches_edge = _touches_image_edge(region, labeled_mask.shape, valid_voxels)
+        touches_roi_edge = _touches_roi_edge(region, roi_mask)
+        row["touches_image_edge"] = touches_edge
+        row["touches_roi_edge"] = touches_roi_edge
+
         row["applied_pixel_size_nm"] = float(pixel_size_nm)
         row["applied_z_step_nm"] = float(z_step_nm) if is_3d else float("nan")
         if is_3d:
@@ -632,11 +835,8 @@ def process_condensates(
 
 
 
-        #Optional Radial FA Profiling metrics operate on each local region mask and are
         if mode_a_enabled:
             object_mask = region.image.astype(bool)
-            touches_edge = _touches_image_edge(region, labeled_mask.shape)
-            touches_roi_edge = _touches_roi_edge(region, roi_mask)
             topology = _assess_z_split_topology(
                 object_mask,
                 min_component_voxels=mode_a_z_split_min_component_voxels,
@@ -684,6 +884,8 @@ def process_condensates(
             if qc_reasons:
                 metrics["mode_a_primary_include"] = False
                 metrics["mode_a_qc_reason"] = ";".join(qc_reasons)
+                # QC reasons found after the metrics were computed also void the class.
+                metrics["condensate_class"] = UNCLASSIFIED_QC
 
             row.update({
                 "A_object": metrics["A_object"],
@@ -701,6 +903,11 @@ def process_condensates(
                 "Delta_intensity_core_middle": metrics["delta_intensity_core_middle"],
                 "Delta_intensity_core_shell": metrics["delta_intensity_core_shell"],
                 "condensate_class": metrics.get("condensate_class", "Unclassified"),
+                "gradient_t_core_shell": metrics["gradient_t_core_shell"],
+                "gradient_p_core_shell": metrics["gradient_p_core_shell"],
+                "gradient_significant": metrics["gradient_significant"],
+                "gradient_test": metrics["gradient_test"],
+                "gradient_alpha": metrics["gradient_alpha"],
                 "A_object_valid": metrics["A_object_valid"],
                 "A_shell_valid": metrics["A_shell_valid"],
                 "A_middle_valid": metrics["A_middle_valid"],
@@ -731,15 +938,16 @@ def process_condensates(
                 "mode_a_sampling_order": metrics["mode_a_sampling_order"],
                 "mode_a_min_core_voxels": metrics["mode_a_min_core_voxels"],
                 "mode_a_layer_scheme": MODE_A_LAYER_SCHEME,
-                "principal_std_z_nm": metrics.get("principal_std_z_nm", np.nan),
-                "principal_std_y_nm": metrics.get("principal_std_y_nm", np.nan),
-                "principal_std_x_nm": metrics.get("principal_std_x_nm", np.nan),
+                "principal_std_1_nm": metrics.get("principal_std_1_nm", np.nan),
+                "principal_std_2_nm": metrics.get("principal_std_2_nm", np.nan),
+                "principal_std_3_nm": metrics.get("principal_std_3_nm", np.nan),
                 "null_FA_object": metrics.get("null_FA_object", np.nan),
                 "null_FA_shell": metrics.get("null_FA_shell", np.nan),
                 "null_FA_middle": metrics.get("null_FA_middle", np.nan),
                 "null_FA_core": metrics.get("null_FA_core", np.nan),
                 "null_delta_FA_core_shell": metrics.get("null_delta_FA_core_shell", np.nan),
                 "null_valid": metrics.get("null_valid", False),
+                "null_invalid_reason": metrics.get("null_invalid_reason", ""),
                 "delta_FA_excess": metrics.get("delta_FA_excess", np.nan),
             })
 
@@ -747,7 +955,6 @@ def process_condensates(
 
     print(f"      Found {len(objects_data)} valid condensates inside ROI.")
 
-    #Preview callbacks are optional, allowing the same numerical function 
     print("[5/5] Generating Preview")
     if send_layer_func:
         z_scale = z_step_nm / pixel_size_nm if is_3d else 1.0
@@ -767,13 +974,19 @@ def process_condensates(
         send_layer_func({"type": "labels", "name": "ROI Boundaries",                "data": roi_mask.astype(int), "kwargs": lbl_kwargs_roi})
         send_layer_func({"type": "labels", "name": "Segmentation Mask",             "data": labeled_mask,  "kwargs": lbl_kwargs_seg})
 
-        coords = [region.centroid for region in props]
-        if objects_data and len(coords) > 0:
+        #Only objects that made it into the table (min_voxels, cell_id checks) are marked.
+        measured_ids = {row["object_id"] for row in objects_data}
+        measured = [region for region in props if region.label in measured_ids]
+        if measured:
+            coords = [region.centroid for region in measured]
             if is_3d:
-                sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in props]
+                sizes = [max((3 * region.area / (4 * math.pi))**(1/3) * 2.0, 3.0) for region in measured]
             else:
-                sizes = [max(math.sqrt(region.area / math.pi) * 2.0, 3.0) for region in props]
-                
-            send_layer_func({"type": "points", "name": "Detected Condensates", "data": coords, "kwargs": {"size": sizes, "symbol": "disc", "face_color": "yellow" if is_3d else "cyan", "out_of_slice_display": False}})
+                sizes = [max(math.sqrt(region.area / math.pi) * 2.0, 3.0) for region in measured]
+            points_kwargs = {"size": sizes, "symbol": "disc", "face_color": "yellow" if is_3d else "cyan", "out_of_slice_display": False}
+            if layer_scale is not None:
+                #Same Z scale as the image/labels, otherwise 3D points sit at the wrong height.
+                points_kwargs["scale"] = layer_scale
+            send_layer_func({"type": "points", "name": "Detected Condensates", "data": coords, "kwargs": points_kwargs})
 
     return pd.DataFrame(objects_data)

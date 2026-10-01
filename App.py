@@ -3,24 +3,28 @@ import json
 import threading
 from datetime import datetime
 from Batch import (
-    MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
-    MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
-    MODE_A_Z_SPLIT_PASS_FRACTION,
-    MODE_A_Z_SPLIT_REVIEW_FRACTION,
+    _interpolate_or_extrude_roi,
     get_metadata_from_tif,
+    matching_mask_path as _matching_mask_path,
     process_condensates,
+    roi_output_path,
+    source_tiff_files as _source_tiff_files,
 )
-from rezim_a_metrics import MODE_A_LAYER_SCHEME
+from rezim_a_metrics import GRADIENT_ALPHA, GRADIENT_TEST, MODE_A_LAYER_SCHEME
+from provenance import code_provenance, file_sha256, input_file_record
+from reference_values import REFERENCE_VALUES
+from defaults import DEFAULT_SETTINGS
+from lif_metadata import offset_from_lif
 from stack_aligner import AlignmentConfig, align_tiff_folder
 import sys
 import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
                                 QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
                                 QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
-                                QMessageBox, QProgressBar)
+                                QMessageBox, QProgressBar, QSplitter)
 from PySide6.QtGui import QAction
 import qdarktheme
-from PySide6.QtCore import QSettings, QThread, Signal
+from PySide6.QtCore import QSettings, QThread, Signal, Qt
 import numpy as np
 import tifffile
 import pandas as pd
@@ -29,28 +33,23 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from postprocessing import (
     QCPolicyMismatchError,
+    _prepare_reporting_frames,
+    detect_red_flags,
     generate_excel_stats,
     generate_plots,
     generate_rezim_a_plots,
     merge_statistics_folder,
 )
-from calibration_policy import summarize_calibrations
+from calibration_policy import (
+    CALIBRATION_SOURCE_GUI,
+    CALIBRATION_SOURCE_TIFF,
+    looks_pre_expansion,
+    resolve_file_calibration,
+    summarize_calibrations,
+    validate_calibration,
+)
 from size_preview import collect_size_preview
 
-DEFAULT_SETTINGS = {
-    "adv_pixel_size": 58.0,
-    "adv_z_step": 250.0,
-    "adv_signal_ch": 1,
-    "adv_dapi_ch": 0,
-    "raw_min_voxels": 5,
-    "mode_a_enabled": False,
-    "mode_a_min_core_voxels": 20,
-    "mode_a_exclude_split_slices": True,
-    "mode_a_z_split_min_component_voxels": MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS,
-    "mode_a_z_split_min_component_fraction": MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION,
-    "mode_a_z_split_pass_fraction": MODE_A_Z_SPLIT_PASS_FRACTION,
-    "mode_a_z_split_review_fraction": MODE_A_Z_SPLIT_REVIEW_FRACTION,
-}
 
 REPORT_DEFAULTS = {
     "report_excel": True,
@@ -61,12 +60,17 @@ REPORT_DEFAULTS = {
     "report_mode_a_plots": True,
     "report_partitioning_plots": True,
 }
+#Radial FA Profiling settings passed unchanged from DEFAULT_SETTINGS/params to Batch.
+MODE_A_KEYS = (
+    "mode_a_min_core_voxels", "mode_a_exclude_split_slices",
+    "mode_a_z_split_min_component_voxels", "mode_a_z_split_min_component_fraction",
+    "mode_a_z_split_pass_fraction", "mode_a_z_split_review_fraction",
+)
 
 
 def _safe_float(value, default):
     if value is None:
         return default
-    #Parse  numeric settings without breaking GUI startup.
     try:
         if isinstance(value, str):
             value = value.replace(',', '.')
@@ -75,7 +79,12 @@ def _safe_float(value, default):
         return default
 
 
-#Parse QSettings boolean values from either native or text forms.
+def apply_theme(dark):
+    app = QApplication.instance()
+    if app is not None:
+        app.setStyleSheet(qdarktheme.load_stylesheet("dark" if dark else "light"))
+
+
 def _safe_bool(value, default=False):
     if value is None:
         return default
@@ -84,25 +93,17 @@ def _safe_bool(value, default=False):
     return bool(value)
 
 
-def _source_tiff_files(folder):
-    """Return conventional ExQt source TIFFs while excluding masks and derived files."""
-    return sorted(
-        path for path in Path(folder).iterdir()
-        if path.is_file()
-        and path.suffix.lower() in {".tif", ".tiff"}
-        and not path.stem.lower().endswith("_mask")
-        and "final" not in path.stem.lower()
-        and "_alignment_" not in path.stem.lower()
-    )
+#Offset source stored by AdvancedSettingsDialog; anything unreadable counts as a manual value.
+def _load_offset_source(settings):
+    try:
+        source = json.loads(settings.value("adv_detector_offset_source") or "")
+    except (TypeError, ValueError):
+        return {"method": "manual"}
+    return source if isinstance(source, dict) and "method" in source else {"method": "manual"}
 
 
-def _matching_mask_path(source_path):
-    """Return an existing conventional mask path in either supported TIFF suffix."""
-    for suffix in (".tif", ".tiff"):
-        candidate = source_path.with_name(f"{source_path.stem}_Mask{suffix}")
-        if candidate.is_file():
-            return candidate
-    return source_path.with_name(f"{source_path.stem}_Mask.tif")
+class AnalysisAborted(Exception):
+    """Raised inside the worker when the user stops the batch during ROI drawing."""
 
 
 class AnalysisWorker(QThread):
@@ -118,13 +119,21 @@ class AnalysisWorker(QThread):
         self.roi_event = threading.Event()
         self.review_event = threading.Event()
         self.user_roi_data = None
+        self.user_roi_source = "manual"
         self.abort_requested = False
 
     #Pause the worker until the GUI returns a painted ROI mask.
     def request_roi_callback(self, img_shape, is_3d):
+        # Reset first so an ROI from the previous image can never be returned for this one.
+        self.user_roi_data = None
+        self.user_roi_source = "manual"
         self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d})
         self.roi_event.wait()
         self.roi_event.clear()
+        if self.abort_requested:
+            raise AnalysisAborted()
+        if self.user_roi_data is None:
+            raise RuntimeError("No ROI was received from the GUI for this image.")
         return self.user_roi_data
 
     #Wake any pending ROI/review wait and mark the batch for shutdown.
@@ -133,229 +142,233 @@ class AnalysisWorker(QThread):
         self.review_event.set()
         self.roi_event.set() 
 
-    #Validate the folder, delegate measurements to Batch, and write outputs.
     def run(self):
+        p = self.params
         try:
-            folder_path = Path(self.params["input_folder"])
-            if not folder_path.exists() or not folder_path.is_dir():
+            folder_path = Path(p["input_folder"])
+            if not folder_path.is_dir():
                 self.progress.emit("Error: Input folder does not exist or is not valid.")
                 self.progress.emit("Done")
                 return
+            output_folder = Path(p["output_folder"]) if p["output_folder"] else folder_path
+            frames, calibrations, input_records, excluded_files = [], {}, {}, []
 
-            # Pair each source TIFF with its conventional *_Mask.tif or *_Mask.tiff file.
-            raw_files = _source_tiff_files(folder_path)
-            all_dataframes = []
+            def discard(name):
+                self.progress.emit(f"Discarded and stopped at: {name}")
+                excluded_files.append({"name": name, "reason": "discarded by user"})
 
-            for raw_tif in raw_files:
+            for raw_tif in _source_tiff_files(folder_path):
                 if self.abort_requested:
                     self.progress.emit("Analysis stopped by user.")
                     break
-
                 mask_file = _matching_mask_path(raw_tif)
                 if not mask_file.exists():
                     self.progress.emit(f"Skipping {raw_tif.name}: Mask not found.")
+                    excluded_files.append({"name": raw_tif.name, "reason": "mask not found"})
                     continue
-
-                # Determine effective calibration for this file, falling back to batch parameters
-                file_pixel_size = self.params["pixel_size_nm"]
-                file_z_step = self.params["z_step_nm"]
-                detected_meta = self.params.get("detected_metadata_by_file", {}).get(raw_tif.name)
-                if not detected_meta:
-                    detected_meta = get_metadata_from_tif(raw_tif)
-                if detected_meta:
-                    p_size = detected_meta.get("pixel_size") or detected_meta.get("pixel_size_nm")
-                    z_s = detected_meta.get("z_step") or detected_meta.get("z_step_nm")
-                    if p_size is not None and float(p_size) > 0:
-                        file_pixel_size = float(p_size)
-                    if z_s is not None and float(z_s) > 0:
-                        file_z_step = float(z_s)
-
-                self.progress.emit(f"Processing: {raw_tif.name} (XY={file_pixel_size:g} nm, Z={file_z_step:g} nm)")
-
                 try:
-                    #Batch owns image measurements; the worker only supplies
-                    df_file = process_condensates(
-                        tif_path=raw_tif,
-                        mask_path=mask_file,
-                        mode=self.params["mode"],
-                        expansion_factor=self.params["expansion_factor"],
-                        min_voxels=self.params.get("min_voxels", 5),
-                        auto_roi=self.params["auto_roi"],
-                        send_layer_func=self.layer_ready.emit if self.params.get("show_napari", True) else None,
-                        request_roi_func=self.request_roi_callback if not self.params.get("auto_roi", False) else None,
-                        pixel_size_nm=file_pixel_size,
-                        z_step_nm=file_z_step,
-                        signal_channel=self.params["signal_channel"],
-                        dapi_channel=self.params["dapi_channel"],
-
-                        mode_a_enabled=self.params.get("mode_a_enabled", False),
-                        mode_a_min_core_voxels=self.params.get("mode_a_min_core_voxels", 20),
-                        mode_a_exclude_split_slices=self.params.get("mode_a_exclude_split_slices", True),
-                        mode_a_z_split_min_component_voxels=self.params.get("mode_a_z_split_min_component_voxels", MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS),
-                        mode_a_z_split_min_component_fraction=self.params.get("mode_a_z_split_min_component_fraction", MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION),
-                        mode_a_z_split_pass_fraction=self.params.get("mode_a_z_split_pass_fraction", MODE_A_Z_SPLIT_PASS_FRACTION),
-                        mode_a_z_split_review_fraction=self.params.get("mode_a_z_split_review_fraction", MODE_A_Z_SPLIT_REVIEW_FRACTION),
+                    #The GUI's calibration choice decides; the worker never re-reads TIFF tags.
+                    calibration = resolve_file_calibration(
+                        raw_tif.name, p.get("calibration_source", CALIBRATION_SOURCE_GUI),
+                        p["pixel_size_nm"], p["z_step_nm"], p.get("detected_metadata_by_file", {}),
                     )
-                    appended_this_round = False
-                    if df_file is not None and not df_file.empty:
-                        all_dataframes.append(df_file)
-                        appended_this_round = True
-
-                    #Review happens after a file is computed
-                    if self.params.get("review_each_image", False):
+                    self.progress.emit(
+                        f"Processing: {raw_tif.name} (XY={calibration['pixel_size_nm']:g} nm, "
+                        f"Z={calibration['z_step_nm']:g} nm, source={calibration['source']})"
+                    )
+                    df_file = process_condensates(
+                        tif_path=raw_tif, mask_path=mask_file, mode=p["mode"],
+                        expansion_factor=p["expansion_factor"],
+                        min_voxels=p.get("min_voxels", DEFAULT_SETTINGS["raw_min_voxels"]),
+                        auto_roi=p["auto_roi"],
+                        send_layer_func=self.layer_ready.emit if p.get("show_napari", True) else None,
+                        request_roi_func=None if p.get("auto_roi", False) else self.request_roi_callback,
+                        pixel_size_nm=calibration["pixel_size_nm"], z_step_nm=calibration["z_step_nm"],
+                        signal_channel=p["signal_channel"], dapi_channel=p["dapi_channel"],
+                        mode_a_enabled=p.get("mode_a_enabled", False),
+                        **{key: p.get(key, DEFAULT_SETTINGS[key]) for key in MODE_A_KEYS},
+                        detector_offset_adu=p.get("detector_offset_adu", DEFAULT_SETTINGS["adv_detector_offset"]),
+                        detector_offset_source=p.get("detector_offset_source", {}).get("method", "manual"),
+                        roi_output_dir=output_folder,
+                    )
+                    #Abort is honoured regardless of review: the current image is never kept.
+                    if self.abort_requested:
+                        discard(raw_tif.name)
+                        break
+                    measured = df_file is not None and not df_file.empty
+                    if measured:
+                        if not p.get("auto_roi", False):
+                            df_file["roi_source"] = self.user_roi_source
+                        record = input_file_record(raw_tif, mask_file)
+                        roi_path = roi_output_path(raw_tif, mask_file, output_folder)
+                        if roi_path.is_file():
+                            record.update(roi_file=roi_path.name, roi_sha256=file_sha256(roi_path))
+                    if p.get("review_each_image", False):
                         self.progress.emit(f"Review: {raw_tif.name}")
                         self.request_review_signal.emit()
                         self.review_event.wait()
                         self.review_event.clear()
-
                         if self.abort_requested:
-                            if appended_this_round:
-                                all_dataframes.pop() 
-                            self.progress.emit(f"Discarded and stopped at: {raw_tif.name}")
+                            discard(raw_tif.name)
                             break
+                    if measured:
+                        frames.append(df_file)
+                        calibrations[raw_tif.name] = calibration
+                        input_records[raw_tif.name] = record
+                except AnalysisAborted:
+                    discard(raw_tif.name)
+                    break
                 except Exception as e:
-                    self.progress.emit(f"Error: {str(e)}")
+                    self.progress.emit(f"Error: {raw_tif.name}: {e}")
+                    excluded_files.append({"name": raw_tif.name, "reason": str(e)})
 
-            #Concatenate approved files once, then create the CSV 
-            if all_dataframes:
-                final_df = __import__("pandas").concat(all_dataframes, ignore_index=True)
-                output_folder = Path(self.params["output_folder"]) if self.params["output_folder"] else folder_path
-                output_folder.mkdir(parents=True, exist_ok=True)
-                output_csv = output_folder / f"{folder_path.name}_Output_Batch_{self.params['mode']}.csv"
-                final_df.to_csv(output_csv, index=False)
-                self.progress.emit(f"CSV saved: {output_csv.name}")
-
-                #Store calibration, mode, and interpretation limits in a JSON alongside the CSV for reproducibility and future reference.
-                metadata = {
-                    "timestamp": datetime.now().isoformat(),
-                    "software": "ExQt",
-                    "parameters": {
-                        "mode": self.params["mode"],
-                        "expansion_factor": self.params["expansion_factor"],
-                        "min_voxels": self.params.get("min_voxels", 5),
-                        "pixel_size_nm": self.params["pixel_size_nm"],
-                        "z_step_nm": self.params["z_step_nm"],
-                        # Keep the applied and detected calibration evidence together in metadata JSON.
-                        "calibration_policy": self.params.get("calibration_policy", "one_explicit_calibration_per_batch"),
-                        "calibration_confirmation": self.params.get("calibration_confirmation", "unknown"),
-                        "detected_metadata_by_file": self.params.get("detected_metadata_by_file", {}),
-                        "plot_min_size": self.params.get("plot_min_size", 0.0001),
-                        "plot_max_size": self.params.get("plot_max_size", 2.0)
-                    },
-                    "channels": {
-                        "signal_channel": self.params["signal_channel"],
-                        "dapi_channel": self.params["dapi_channel"]
-                    },
-                    "mode_a": {
-                        "enabled": self.params.get("mode_a_enabled", False),
-                        "available_in_mode": "3d",
-                        "min_core_voxels": self.params.get("mode_a_min_core_voxels", 20),
-                        "minimum_voxel_policy": "same minimum applied to object, shell, middle, and core FA validity; also used as minimum core size",
-                        "exclude_split_slices_from_primary": self.params.get("mode_a_exclude_split_slices", True),
-                        "require_z_topology_pass_for_primary": self.params.get("mode_a_exclude_split_slices", True),
-                        "z_split_policy": "substantial_component_fraction_v1",
-                        "z_split_min_component_voxels": self.params.get("mode_a_z_split_min_component_voxels", MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS),
-                        "z_split_min_component_fraction": self.params.get("mode_a_z_split_min_component_fraction", MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION),
-                        "z_split_pass_fraction": self.params.get("mode_a_z_split_pass_fraction", MODE_A_Z_SPLIT_PASS_FRACTION),
-                        "z_split_review_fraction": self.params.get("mode_a_z_split_review_fraction", MODE_A_Z_SPLIT_REVIEW_FRACTION),
-                        "layer_scheme": MODE_A_LAYER_SCHEME,
-                        "sampling_order": "Z,Y,X",
-                        "metrics": [
-                            "A_object", "A_shell", "A_middle", "A_core",
-                            "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
-                        ],
-                        "interpretation": "Geometric structural-response metrics; not direct stiffness, liquidity, or viscosity measurements."
-                    },
-                    "reporting": {
-                        "enabled": self.params.get("generate_reports", False),
-                        "excel": self.params.get("report_excel", True),
-                        "primary_csv": self.params.get("report_primary_csv", True),
-                        "excluded_csv": self.params.get("report_excluded_csv", True),
-                        "raw_audit_csv": self.params.get("report_raw_audit_csv", False),
-                        "standard_plots": self.params.get("report_standard_plots", True),
-                        "mode_a_plots": self.params.get("report_mode_a_plots", True),
-                    },
-                }
-                meta_path = output_folder / f"{folder_path.name}_Output_Batch_{self.params['mode']}_metadata.json"
-                try:
-                    with open(meta_path, "w", encoding="utf-8") as f:
-                        json.dump(metadata, f, indent=4)
-                    self.progress.emit("Metadata saved.")
-                except Exception as e:
-                    self.progress.emit(f"Error saving metadata: {str(e)}")
-
-                report_tables_requested = self.params.get("generate_reports", False) and any((
-                    self.params.get("report_excel", True),
-                    self.params.get("report_primary_csv", True),
-                    self.params.get("report_excluded_csv", True),
-                    self.params.get("report_raw_audit_csv", False),
-                ))
-                if report_tables_requested:
-                    try:
-                        report_result = generate_excel_stats(
-                            str(output_csv),
-                            min_size=self.params.get("plot_min_size", 0.0001),
-                            max_size=self.params.get("plot_max_size", 2.0),
-                            generate_excel=self.params.get("report_excel", True),
-                            generate_primary_csv=self.params.get("report_primary_csv", True),
-                            generate_excluded_csv=self.params.get("report_excluded_csv", True),
-                            generate_raw_audit_csv=self.params.get("report_raw_audit_csv", False),
-                        )
-                        generated = [name for name in ("excel", "primary_csv", "excluded_csv", "all_objects_csv") if report_result.get(name)]
-                        self.progress.emit(f"Selected tables generated: {', '.join(generated)}")
-                    except Exception as e:
-                        self.progress.emit(f"Error generating report tables: {str(e)}")
-
-                if self.params.get("generate_reports", False) and self.params.get("report_standard_plots", True):
-                    try:
-                        generate_plots(
-                            str(output_csv),
-                            min_size=self.params.get("plot_min_size", 0.0001),
-                            max_size=self.params.get("plot_max_size", 2.0),
-                        )
-                        self.progress.emit("Graphs were generated.")
-                    except Exception as e:
-                        self.progress.emit(f"Error generating graphs: {str(e)}")
-
-                #Radial FA Profiling creates an additional audit report
-                if (
-                    self.params.get("generate_reports", False)
-                    and self.params.get("report_mode_a_plots", True)
-                    and self.params.get("mode_a_enabled")
-                    and self.params["mode"] == "3d"
-                ):
-                    try:
-                        generate_rezim_a_plots(
-                            str(output_csv),
-                            min_size=self.params.get("plot_min_size"),
-                            max_size=self.params.get("plot_max_size"),
-                        )
-                        self.progress.emit("Radial FA Profiling plots were generated.")
-                    except Exception as e:
-                        self.progress.emit(f"Error generating Radial FA Profiling plots: {str(e)}")
-
-                if (
-                    self.params.get("generate_reports", False)
-                    and self.params.get("report_partitioning_plots", True)
-                ):
-                    try:
-                        from partitioning_plots import export_partitioning_analysis
-                        export_partitioning_analysis(
-                            str(output_csv), output_folder, file_stem=output_csv.stem,
-                            min_size=self.params.get("plot_min_size"),
-                            max_size=self.params.get("plot_max_size"),
-                        )
-                        self.progress.emit("Partitioning & Classification plots (K_part) were generated.")
-                    except Exception as e:
-                        self.progress.emit(f"Error generating Partitioning plots: {str(e)}")
+            if frames:
+                self._write_outputs(folder_path, output_folder, frames, calibrations, input_records, excluded_files)
             else:
                 self.progress.emit("No data available for processing.")
-
-
             self.progress.emit("Done")
         except Exception as e:
-            self.progress.emit(f"Error when loading: {str(e)}")
+            self.progress.emit(f"Error when loading: {e}")
             self.progress.emit("Done")
+
+    #Save the batch CSV and metadata.json, then the reports the user selected.
+    def _write_outputs(self, folder_path, output_folder, frames, calibrations, input_records, excluded_files):
+        p = self.params
+        final_df = pd.concat(frames, ignore_index=True)
+        output_folder.mkdir(parents=True, exist_ok=True)
+        output_csv = output_folder / f"{folder_path.name}_Output_Batch_{p['mode']}.csv"
+        final_df.to_csv(output_csv, index=False)
+        self.progress.emit(f"CSV saved: {output_csv.name}")
+
+        # Red flags are reported loudly and never used to filter.
+        red_flags = detect_red_flags(final_df)
+        for flag in red_flags:
+            self.progress.emit(f"RED FLAG: {flag['message']}")
+
+        metadata = self._run_metadata(final_df, red_flags, calibrations, input_records, excluded_files)
+        try:
+            with open(output_folder / f"{output_csv.stem}_metadata.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=4)
+            self.progress.emit("Metadata saved.")
+        except Exception as e:
+            self.progress.emit(f"Error saving metadata: {e}")
+
+        min_size = p.get("plot_min_size", DEFAULT_SETTINGS["plot_min_size"])
+        max_size = p.get("plot_max_size", DEFAULT_SETTINGS["plot_max_size"])
+
+        def wanted(key):
+            return p.get("generate_reports", False) and p.get(key, REPORT_DEFAULTS[key])
+
+        def report(error_label, action):
+            try:
+                self.progress.emit(action())
+            except Exception as e:
+                self.progress.emit(f"Error generating {error_label}: {e}")
+
+        table_keys = ("report_excel", "report_primary_csv", "report_excluded_csv", "report_raw_audit_csv")
+        if any(wanted(key) for key in table_keys):
+            def tables():
+                result = generate_excel_stats(
+                    str(output_csv), min_size=min_size, max_size=max_size,
+                    generate_excel=p.get("report_excel", True),
+                    generate_primary_csv=p.get("report_primary_csv", True),
+                    generate_excluded_csv=p.get("report_excluded_csv", True),
+                    generate_raw_audit_csv=p.get("report_raw_audit_csv", False),
+                )
+                names = [n for n in ("excel", "primary_csv", "excluded_csv", "all_objects_csv") if result.get(n)]
+                return f"Selected tables generated: {', '.join(names)}"
+            report("report tables", tables)
+        if wanted("report_standard_plots"):
+            def standard_plots():
+                generate_plots(str(output_csv), min_size=min_size, max_size=max_size)
+                return "Graphs were generated."
+            report("graphs", standard_plots)
+        if wanted("report_mode_a_plots") and p.get("mode_a_enabled") and p["mode"] == "3d":
+            def mode_a_plots():
+                generate_rezim_a_plots(str(output_csv), min_size=min_size, max_size=max_size)
+                return "Radial FA Profiling plots were generated."
+            report("Radial FA Profiling plots", mode_a_plots)
+        if wanted("report_partitioning_plots"):
+            def partitioning():
+                from partitioning_plots import export_partitioning_analysis
+                # The report must see primary_qc_valid, which only exists after QC preparation.
+                qc_frame = _prepare_reporting_frames(final_df, min_size, max_size)[3]
+                export_partitioning_analysis(qc_frame, output_folder, file_stem=output_csv.stem,
+                                            min_size=min_size, max_size=max_size)
+                return "Partitioning & Classification plots (K_part) were generated."
+            report("Partitioning plots", partitioning)
+
+    #Everything needed to reproduce and interpret the run.
+    def _run_metadata(self, final_df, red_flags, calibrations, input_records, excluded_files):
+        p = self.params
+        #Batch-level calibration only when every file used the same one; per-file truth is below.
+        pairs = {(c["pixel_size_nm"], c["z_step_nm"]) for c in calibrations.values()}
+        uniform_xy, uniform_z = pairs.pop() if len(pairs) == 1 else (None, None)
+        setting = lambda key: p.get(key, DEFAULT_SETTINGS[key])
+        review_files = (
+            sorted(final_df.loc[final_df["alignment_status"].astype(str).eq("REVIEW"), "filename"].unique().tolist())
+            if "alignment_status" in final_df.columns else []
+        )
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "software": "ExQt",
+            "provenance": code_provenance(),
+            "red_flags": red_flags,
+            "reference_values": REFERENCE_VALUES,
+            "parameters": {
+                "mode": p["mode"],
+                "auto_roi": p.get("auto_roi"),
+                "expansion_factor": p["expansion_factor"],
+                "min_voxels": p.get("min_voxels", DEFAULT_SETTINGS["raw_min_voxels"]),
+                "pixel_size_nm": uniform_xy,
+                "z_step_nm": uniform_z,
+                "gui_pixel_size_nm": p["pixel_size_nm"],
+                "gui_z_step_nm": p["z_step_nm"],
+                "calibration_source": p.get("calibration_source", CALIBRATION_SOURCE_GUI),
+                "applied_calibration_by_file": calibrations,
+                "calibration_confirmation": p.get("calibration_confirmation", "unknown"),
+                "detected_metadata_by_file": p.get("detected_metadata_by_file", {}),
+                "plot_min_size": setting("plot_min_size"),
+                "plot_max_size": setting("plot_max_size"),
+            },
+            "files": {
+                "analysed_files": list(calibrations),
+                "input_files": list(input_records.values()),
+                "alignment_review_files": review_files,
+                "excluded_files": excluded_files,
+            },
+            "classification": {"gradient_test": GRADIENT_TEST, "gradient_alpha": GRADIENT_ALPHA},
+            "partitioning": {
+                "K_offset_method": "explicit_setting",
+                "detector_offset_adu": p.get("detector_offset_adu", DEFAULT_SETTINGS["adv_detector_offset"]),
+                "offset_source": p.get("detector_offset_source", {"method": "manual"}),
+                "auto_roi": p.get("auto_roi"),
+                "auto_roi_K_policy": "K not computed (NaN, K_invalid_reason=auto_roi_no_nucleoplasm)",
+                "padding_policy": "voxels flagged 0 in <stem>_alignment_valid.tif are excluded from nucleoplasm statistics",
+            },
+            "channels": {"signal_channel": p["signal_channel"], "dapi_channel": p["dapi_channel"]},
+            "mode_a": {
+                "enabled": p.get("mode_a_enabled", False),
+                "available_in_mode": "3d",
+                "min_core_voxels": setting("mode_a_min_core_voxels"),
+                "minimum_voxel_policy": "same minimum applied to object, shell, middle, and core FA validity; also used as minimum core size",
+                "exclude_split_slices_from_primary": setting("mode_a_exclude_split_slices"),
+                "require_z_topology_pass_for_primary": setting("mode_a_exclude_split_slices"),
+                "z_split_policy": "substantial_component_fraction_v1",
+                **{key.replace("mode_a_", ""): setting(key) for key in MODE_A_KEYS if key.startswith("mode_a_z_split_")},
+                "layer_scheme": MODE_A_LAYER_SCHEME,
+                "sampling_order": "Z,Y,X",
+                "metrics": [
+                    "A_object", "A_shell", "A_middle", "A_core",
+                    "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
+                ],
+                "interpretation": "Geometric structural-response metrics; not direct stiffness, liquidity, or viscosity measurements.",
+            },
+            "reporting": {
+                "enabled": p.get("generate_reports", False),
+                **{key.replace("report_", ""): p.get(key, default) for key, default in REPORT_DEFAULTS.items()},
+            },
+        }
 
 class AlignmentWorker(QThread):
     """Run the small TIFF aligner without freezing the GUI."""
@@ -509,7 +522,6 @@ class AlignmentOptionsDialog(QDialog):
             "Click 'Auto-detect' to measure inter-plane correlation for each channel automatically."
         )
 
-        #Spinbox + Auto-detect button on the same row
         ref_row = QHBoxLayout()
         ref_row.addWidget(self.reference_channel_spin)
         self.auto_detect_btn = QPushButton("Auto-detect…")
@@ -521,7 +533,6 @@ class AlignmentOptionsDialog(QDialog):
         ref_row.addWidget(self.auto_detect_btn)
         form.addRow("Reference channel (0-based):", ref_row)
 
-        #Shows per-channel correlation results after detection
         self.channel_info_label = QLabel("")
         self.channel_info_label.setWordWrap(True)
         self.channel_info_label.setStyleSheet("color: gray; font-size: 10px;")
@@ -626,7 +637,6 @@ class AlignmentOptionsDialog(QDialog):
 
 
 class ReportOptionsDialog(QDialog):
-    #Choose derived outputs without changing the source audit CSV
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -889,16 +899,16 @@ class SizePreviewDialog(QDialog):
 
 
 class AdvancedSettingsDialog(QDialog):
-    #Edit and persist calibration, channel, and Radial FA Profiling settings.
     def __init__(self, parent=None, mode="3d"):
         super().__init__(parent)
-        self.setWindowTitle("Advanced Settings")
-        self.setMinimumWidth(300)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(460)
 
         self.settings = QSettings("MyLab", "ExQt")
 
         layout = QVBoxLayout()
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
 
         self.pixel_size_spin = QDoubleSpinBox()
         self.pixel_size_spin.setRange(1.0, 2000.0)
@@ -919,13 +929,35 @@ class AdvancedSettingsDialog(QDialog):
         self.dapi_spin = QSpinBox()
         form.addRow("DAPI Channel:", self.dapi_spin)
 
+        self.detector_offset_spin = QDoubleSpinBox()
+        self.detector_offset_spin.setRange(0.0, 65535.0)
+        self.detector_offset_spin.setDecimals(1)
+        self.detector_offset_spin.setToolTip(
+            "Detector/camera offset in ADU subtracted from condensate and nucleoplasm intensity for K_part. "
+            "Take it from the acquisition settings or a dark frame; 0 = no subtraction "
+            "(e.g. photon-counting HyD). It is never estimated from the image."
+        )
+        self.detector_offset_lif_button = QPushButton("From .lif…")
+        self.detector_offset_lif_button.setToolTip(
+            "Read the detector settings of a Leica .lif file. If every active detector is in "
+            "photon-counting mode, the offset is 0 ADU and the file is recorded as its source."
+        )
+        self.detector_offset_lif_button.clicked.connect(self.read_offset_from_lif)
+        offset_row = QWidget()
+        offset_layout = QHBoxLayout(offset_row)
+        offset_layout.setContentsMargins(0, 0, 0, 0)
+        offset_layout.addWidget(self.detector_offset_spin, stretch=1)
+        offset_layout.addWidget(self.detector_offset_lif_button)
+        form.addRow("Detector offset (ADU):", offset_row)
+        self._offset_source = {"method": "manual"}
+
         self.raw_min_voxels_spin = QSpinBox()
         self.raw_min_voxels_spin.setRange(1, 10000)
         self.raw_min_voxels_spin.setToolTip(
             "Early connected-component noise floor before calibrated biological-size filtering. "
             "This is separate from the analyzed µm²/µm³ range and from Radial FA Profiling layer validity."
         )
-        form.addRow("Raw noise filter (pixels/voxels):", self.raw_min_voxels_spin)
+        form.addRow("Noise filter (voxels):", self.raw_min_voxels_spin)
 
         self.mode_a_enabled_check = QCheckBox("Enable Radial FA Profiling (3D)")
         self.mode_a_enabled_check.setToolTip(
@@ -939,7 +971,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin.setToolTip(
             "Minimum voxels required for a layer FA to be valid; the same value also sets the minimum core size."
         )
-        form.addRow("Radial FA Profiling min. voxels per layer:", self.mode_a_min_core_spin)
+        form.addRow("Min. voxels per layer:", self.mode_a_min_core_spin)
         self.mode_a_label = form.labelForField(self.mode_a_min_core_spin)
 
         self.mode_a_exclude_split_check = QCheckBox(
@@ -950,6 +982,9 @@ class AdvancedSettingsDialog(QDialog):
             "and keeps REVIEW/FAIL objects in the CSV outside the primary comparison."
         )
         form.addRow("", self.mode_a_exclude_split_check)
+
+        self.dark_mode_check = QCheckBox("Dark mode")
+        form.addRow("Appearance:", self.dark_mode_check)
 
         layout.addLayout(form)
 
@@ -963,7 +998,6 @@ class AdvancedSettingsDialog(QDialog):
 
         self.setLayout(layout)
 
-    #Enable controls only when the selected processing mode supports them.
     def _apply_mode_state(self, mode):
         is_3d = mode == "3d"
         self.z_step_spin.setEnabled(is_3d)
@@ -979,31 +1013,68 @@ class AdvancedSettingsDialog(QDialog):
         if not is_3d:
             self.mode_a_enabled_check.setToolTip("Radial FA Profiling is available only in 3D mode.")
 
-    #Populate controls from QSettings, applying safe defaults.
     def load_adv_settings(self):
         self.pixel_size_spin.setValue(_safe_float(self.settings.value("adv_pixel_size", DEFAULT_SETTINGS["adv_pixel_size"]), DEFAULT_SETTINGS["adv_pixel_size"]))
         self.z_step_spin.setValue(_safe_float(self.settings.value("adv_z_step", DEFAULT_SETTINGS["adv_z_step"]), DEFAULT_SETTINGS["adv_z_step"]))
         self.signal_spin.setValue(int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])))
         self.dapi_spin.setValue(int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])))
         self.raw_min_voxels_spin.setValue(int(self.settings.value("raw_min_voxels", DEFAULT_SETTINGS["raw_min_voxels"])))
+        self.detector_offset_spin.setValue(_safe_float(self.settings.value("adv_detector_offset", DEFAULT_SETTINGS["adv_detector_offset"]), DEFAULT_SETTINGS["adv_detector_offset"]))
+        self._offset_source = _load_offset_source(self.settings)
+        self.dark_mode_check.setChecked(_safe_bool(self.settings.value("dark_mode", False)))
         self.mode_a_enabled_check.setChecked(_safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])))
         self.mode_a_min_core_spin.setValue(int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])))
         self.mode_a_exclude_split_check.setChecked(_safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])))
 
-    #Persist dialog values before closing successfully.
     def accept(self):
         self.settings.setValue("adv_pixel_size", self.pixel_size_spin.value())
         self.settings.setValue("adv_z_step", self.z_step_spin.value())
         self.settings.setValue("adv_signal_ch", self.signal_spin.value())
         self.settings.setValue("adv_dapi_ch", self.dapi_spin.value())
         self.settings.setValue("raw_min_voxels", self.raw_min_voxels_spin.value())
+        self.settings.setValue("adv_detector_offset", self.detector_offset_spin.value())
+        source = self._offset_source
+        if source.get("method") == "lif_photon_counting" and self.detector_offset_spin.value() != 0.0:
+            source = {"method": "manual"}  # the user changed the value after reading the LIF file
+        self.settings.setValue("adv_detector_offset_source", json.dumps(source))
+        self.settings.setValue("dark_mode", self.dark_mode_check.isChecked())
+        apply_theme(self.dark_mode_check.isChecked())
         self.settings.setValue("mode_a_enabled", self.mode_a_enabled_check.isChecked())
         self.settings.setValue("mode_a_min_core_voxels", self.mode_a_min_core_spin.value())
         self.settings.setValue("mode_a_exclude_split_slices", self.mode_a_exclude_split_check.isChecked())
         super().accept()
 
+    #Read the detector offset from a Leica .lif header; only photon counting sets a value.
+    def read_offset_from_lif(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Leica LIF file", "", "Leica LIF (*.lif)")
+        if not path:
+            return
+        try:
+            value, source = offset_from_lif(path)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Detector offset from LIF", str(error))
+            return
+        lines = "\n".join(
+            f"  • {d['name']} (channel {d['channel']}): {d['mode'] or 'unknown mode'}, "
+            f"Offset {d['offset']}, Gain {d['gain']}"
+            for d in source["detectors"]
+        )
+        details = f"{source['file']} – active detectors:\n{lines or '  (none)'}"
+        if value is None:
+            QMessageBox.warning(
+                self, "Detector offset from LIF",
+                f"{details}\n\nNo offset was set: {source['message']}",
+            )
+            return
+        self.detector_offset_spin.setValue(value)
+        self._offset_source = source
+        QMessageBox.information(
+            self, "Detector offset from LIF",
+            f"{details}\n\nAll active detectors count photons, so the offset is {value:g} ADU. "
+            "The file is recorded as the source of this value when you press OK.",
+        )
+
 class ExQt(QMainWindow): 
-    #Main window connecting user controls, Napari, and AnalysisWorker.
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ExQt: Analysis of nuclear condensates")
@@ -1043,7 +1114,8 @@ class ExQt(QMainWindow):
 
         self.left_panel_layout.addLayout(self.output_layout)
 
-        self.same_folder_checkbox = QCheckBox("Save to the same folder as input")
+        self.same_folder_checkbox = QCheckBox("Save next to input")
+        self.same_folder_checkbox.setToolTip("Write the results into the input folder instead of a separate output folder.")
         self.same_folder_checkbox.toggled.connect(self.switch_same_folder)
         self.left_panel_layout.addWidget(self.same_folder_checkbox)
         
@@ -1055,9 +1127,11 @@ class ExQt(QMainWindow):
 
         self.exp_factor_spin = QDoubleSpinBox()
         self.exp_factor_spin.setMinimum(0.1)
+        # 3 decimals: a rounded ExF (4.25 -> 4.3) changes volumes by ExF^3 (~3.6 %).
+        self.exp_factor_spin.setDecimals(3)
+        self.exp_factor_spin.setSingleStep(0.01)
         self.exp_factor_spin.setValue(4.0)
-        self.exp_factor_spin.setDecimals(1)
-        form_layout.addRow("Expansion Factor:", self.exp_factor_spin)
+        form_layout.addRow("Expansion factor:", self.exp_factor_spin)
 
         self.show_napari_check = QCheckBox("Show Napari preview")
         self.show_napari_check.setChecked(True)
@@ -1067,11 +1141,12 @@ class ExQt(QMainWindow):
         self.auto_roi_check.setToolTip("Auto-ROI treats entire image as a single cell (Per-FOV metrics).")
         form_layout.addRow("", self.auto_roi_check)
 
-        self.review_check = QCheckBox("Pause and review segmentations")
+        self.review_check = QCheckBox("Review each image")
+        self.review_check.setToolTip("Pause after each image to approve or discard its segmentation before the next file.")
         form_layout.addRow("", self.review_check)
 
         report_row = QHBoxLayout()
-        self.generate_reports_check = QCheckBox("Generate selected reports")
+        self.generate_reports_check = QCheckBox("Generate")
         self.generate_reports_check.setToolTip(
             "The original machine/audit CSV is always saved. This switch controls only additional reports."
         )
@@ -1088,7 +1163,7 @@ class ExQt(QMainWindow):
             "Lower calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
             "The original raw audit CSV remains unfiltered."
         )
-        form_layout.addRow("Analyzed Size Min (µm²/µm³):", self.plot_min_size_spin)
+        form_layout.addRow("Min size:", self.plot_min_size_spin)
 
         self.plot_max_size_spin = QDoubleSpinBox()
         self.plot_max_size_spin.setRange(0.0001, 100000.0)
@@ -1097,9 +1172,9 @@ class ExQt(QMainWindow):
             "Upper calibrated biological-size bound used by primary statistics, clean CSVs and plots. "
             "The original raw audit CSV remains unfiltered."
         )
-        form_layout.addRow("Analyzed Size Max (µm²/µm³):", self.plot_max_size_spin)
+        form_layout.addRow("Max size:", self.plot_max_size_spin)
 
-        self.size_preview_button = QPushButton("Preview size distribution...")
+        self.size_preview_button = QPushButton("Preview sizes...")
         self.size_preview_button.setToolTip(
             "Scan the supplied masks before analysis and choose the biological-size range interactively. "
             "The preview is calculated before manual ROI."
@@ -1142,21 +1217,29 @@ class ExQt(QMainWindow):
 
         self.status_label = QLabel("Prepared")
         self.status_label.setStyleSheet("color: gray; font-weight: bold; margin-top: 10px;")
+        # Long messages (e.g. the ROI drawing help) must wrap, otherwise the label forces the
+        # whole left panel to the width of the text and squeezes the Napari viewer.
+        self.status_label.setWordWrap(True)
         self.left_panel_layout.addWidget(self.status_label)
 
-        master_layout = QHBoxLayout()
+        self.viewer = napari.Viewer(show=False)
+        left_panel = QWidget()
+        left_panel.setLayout(self.left_panel_layout)
 
-        self.viewer = napari.Viewer(show=False) 
-        master_layout.addLayout(self.left_panel_layout, stretch=1)
-        master_layout.addWidget(self.viewer.window._qt_window, stretch=3)
-
-        central_widget = QWidget()
-        central_widget.setLayout(master_layout) 
-        self.setCentralWidget(central_widget)
+        # Adjustable split between the controls and the viewer; the position is remembered.
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(self.viewer.window._qt_window)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 3)
+        self.main_splitter.setSizes([340, 1460])
+        self.setCentralWidget(self.main_splitter)
 
         self.settings = QSettings("MyLab", "ExQt")
-        #TIFF metadata is advisory only; the user controls the calibration in Advanced Settings.
+        #TIFF calibration is applied only when the user explicitly chooses it (calibration_source).
         self.detected_metadata_by_file = {}
+        self.calibration_source = CALIBRATION_SOURCE_GUI
         self.calibration_warning = ""
         self.metadata_scanned_folder = None
         self.load_settings()
@@ -1165,7 +1248,6 @@ class ExQt(QMainWindow):
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         self.on_mode_changed(self.mode_combo.currentText()) 
 
-    #Start the independent, non-destructive TIFF alignment workflow.
     def start_alignment(self):
         folder_path = self.folder_input.text().strip()
         if not folder_path or not Path(folder_path).is_dir():
@@ -1215,13 +1297,11 @@ class ExQt(QMainWindow):
         self.alignment_worker.failed.connect(self.alignment_failed)
         self.alignment_worker.start()
 
-    #Display alignment-worker progress without changing the analysis controls.
     def update_alignment_status(self, pct, text):
         print(f"ALIGNMENT LOG [{pct}%]: {text}")
         self.align_progress_bar.setValue(pct)
         self.status_label.setText(text)
 
-    #Restore controls and present the audited batch outcome after alignment.
     def alignment_completed(self, batch_result):
         self.align_stacks_action.setEnabled(True)
         self.btn_run.setEnabled(True)
@@ -1269,7 +1349,6 @@ class ExQt(QMainWindow):
                 self._try_auto_fill_metadata(aligned_folder)
                 self.status_label.setText(f"Using aligned data: {aligned_folder}")
 
-    #Restore controls after a setup or file-level error that aborted the batch.
     def alignment_failed(self, text):
         self.align_stacks_action.setEnabled(True)
         self.btn_run.setEnabled(True)
@@ -1277,11 +1356,12 @@ class ExQt(QMainWindow):
         self.status_label.setText(f"Alignment failed: {text}")
         QMessageBox.warning(self, "Alignment failed", text)
 
-    #Update controls when the processing mode changes; Radial FA Profiling is 3D-only.
     def on_mode_changed(self, mode):
-        pass
+        # Size bounds are volumes in 3D and areas in 2D / single slice.
+        unit = " µm³" if mode == "3d" else " µm²"
+        self.plot_min_size_spin.setSuffix(unit)
+        self.plot_max_size_spin.setSuffix(unit)
 
-    #Select the input folder and opportunistically load TIFF calibration.
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose folder with data")
         if folder:
@@ -1294,32 +1374,67 @@ class ExQt(QMainWindow):
         self.metadata_scanned_folder = str(folder.resolve())
         files = _source_tiff_files(folder)
         self.detected_metadata_by_file = {}
+        self.calibration_source = CALIBRATION_SOURCE_GUI
         self.calibration_warning = ""
+        implausible = []
 
         for tif_path in files:
             meta = get_metadata_from_tif(tif_path)
             if meta and "pixel_size" in meta and "z_step" in meta:
+                try:
+                    validate_calibration(meta["pixel_size"], meta["z_step"])
+                except ValueError as error:
+                    implausible.append(f"{tif_path.name}: {error}")
+                    continue
                 self.detected_metadata_by_file[tif_path.name] = {
                     "pixel_size_nm": float(meta["pixel_size"]),
                     "z_step_nm": float(meta["z_step"]),
                     "sources": meta.get("sources", {}),
                 }
 
-        summary = summarize_calibrations(self.detected_metadata_by_file)
-        self.calibration_warning = ""
-        if summary["has_mismatch"]:
-            self.status_label.setText(f"Per-file TIFF calibration active ({summary['calibration_count']} calibrations).")
-            calib_details = "\n".join(f"  • XY={xy:g} nm, Z={z:g} nm" for xy, z in summary["calibrations"])
-            QMessageBox.information(
+        if implausible:
+            QMessageBox.warning(
                 self,
-                "Per-file TIFF calibration active",
+                "Implausible TIFF calibration ignored",
+                "These files report a calibration outside the supported range and it will NOT be used:\n\n"
+                + "\n".join(implausible)
+                + "\n\nThe calibration from Settings applies to them.",
+            )
+
+        gui_pixel_size_nm = _safe_float(self.settings.value("adv_pixel_size"), DEFAULT_SETTINGS["adv_pixel_size"])
+        gui_z_step_nm = _safe_float(self.settings.value("adv_z_step"), DEFAULT_SETTINGS["adv_z_step"])
+        expansion_factor = self.exp_factor_spin.value()
+        summary = summarize_calibrations(self.detected_metadata_by_file)
+        pre_expansion_note = ""
+        if any(
+            looks_pre_expansion(xy, z, gui_pixel_size_nm, gui_z_step_nm, expansion_factor)
+            for xy, z in summary["calibrations"]
+        ):
+            pre_expansion_note = (
+                "\n\nWARNING: the TIFF calibration ≈ current Settings / ExF "
+                f"(XY {gui_pixel_size_nm:g} / {expansion_factor:g} nm). The files seem to be calibrated to the "
+                "PRE-EXPANSION size; using it would divide by ExF twice."
+            )
+        if summary["has_mismatch"]:
+            calib_details = "\n".join(f"  • XY={xy:g} nm, Z={z:g} nm" for xy, z in summary["calibrations"])
+            reply = QMessageBox.question(
+                self,
+                "Different TIFF calibrations",
                 (
                     f"Input files contain {summary['calibration_count']} different physical calibrations:\n\n"
                     f"{calib_details}\n\n"
-                    "ExQt will automatically apply each file's exact acquisition calibration during analysis. "
-                    "Values in Advanced Settings will serve as fallback if metadata is missing."
+                    "Yes: apply each file's own TIFF calibration (Settings only for files without it).\n"
+                    f"No: apply Settings (XY={gui_pixel_size_nm:g} nm, Z={gui_z_step_nm:g} nm) to all files."
+                    f"{pre_expansion_note}"
                 ),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No if pre_expansion_note else QMessageBox.Yes,
             )
+            if reply == QMessageBox.Yes:
+                self.calibration_source = CALIBRATION_SOURCE_TIFF
+                self.status_label.setText(f"Per-file TIFF calibration selected ({summary['calibration_count']} calibrations).")
+            else:
+                self.status_label.setText("TIFF calibrations ignored; Settings apply to all files.")
         elif summary["calibration_count"] == 1:
 
             pixel_size_nm, z_step_nm = summary["calibrations"][0]
@@ -1330,12 +1445,14 @@ class ExQt(QMainWindow):
                     "All readable input files report the same calibration:\n\n"
                     f"XY pixel size: {pixel_size_nm:g} nm\n"
                     f"Z-step: {z_step_nm:g} nm\n\n"
-                    "Use these values in ExQt Advanced Settings? They will still be shown "
+                    "Use these values in ExQt Settings? They will still be shown "
                     "for confirmation before analysis starts."
+                    f"{pre_expansion_note}"
                 ),
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
+                QMessageBox.No if pre_expansion_note else QMessageBox.Yes,
             )
+            # Either answer leaves calibration_source="gui": Settings are what gets applied.
             if reply == QMessageBox.Yes:
                 self.settings.setValue("adv_pixel_size", pixel_size_nm)
                 self.settings.setValue("adv_z_step", z_step_nm)
@@ -1348,7 +1465,7 @@ class ExQt(QMainWindow):
                 )
         elif files:
             self.status_label.setText(
-                "No usable physical metadata detected; enter calibration manually in Advanced Settings."
+                "No usable physical metadata detected; enter calibration manually in Settings."
             )
             
     def create_menu(self):
@@ -1369,28 +1486,12 @@ class ExQt(QMainWindow):
         tools_menu.addAction(self.merge_runs_action)
         self.merge_runs_action.triggered.connect(self.merge_existing_runs)
 
-        settings_menu = menu_bar.addMenu("Settings")
-        self.dark_mode_action = QAction("Dark Mode", self)
-        self.dark_mode_action.setCheckable(True)
-        settings_menu.addAction(self.dark_mode_action)
-        self.dark_mode_action.toggled.connect(self.switch_theme)
+        # A top-level action (no sub-menu): one click opens the settings window.
+        self.settings_action = QAction("Settings", self)
+        menu_bar.addAction(self.settings_action)
+        self.settings_action.triggered.connect(self.open_settings)
 
-        settings_menu.addSeparator() 
-
-        self.advanced = QAction("Advanced...", self)
-        settings_menu.addAction(self.advanced)
-        self.advanced.triggered.connect(self.open_advanced_settings)
-
-    #Apply the selected qdarktheme stylesheet to the Qt application.
-    def switch_theme(self, active):
-        app = QApplication.instance() 
-        if active:
-            app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-        else:
-            app.setStyleSheet(qdarktheme.load_stylesheet("light"))
-
-    #Open calibration and Radial FA Profiling settings for the current process mode.
-    def open_advanced_settings(self):
+    def open_settings(self):
         dialog = AdvancedSettingsDialog(self, mode=self.mode_combo.currentText())
         dialog.exec()
 
@@ -1449,7 +1550,6 @@ class ExQt(QMainWindow):
             ),
         )
 
-    #Select the destination used for generated CSV and derived outputs.
     def choose_output_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
         if folder:
@@ -1514,6 +1614,8 @@ class ExQt(QMainWindow):
                 z_step_nm=z_step_nm,
                 min_voxels=min_voxels,
                 signal_channel=signal_channel,
+                calibration_source=self.calibration_source,
+                detected_metadata_by_file=self.detected_metadata_by_file,
             )
         except Exception as error:
             self.status_label.setText("Size preview failed.")
@@ -1572,7 +1674,6 @@ class ExQt(QMainWindow):
         if not range_was_set["value"]:
             self.status_label.setText("Size preview closed without changing the range.")
 
-    #Synchronize output selection with the input folder when requested.
     def switch_same_folder(self, checked):
         self.output_path_edit.setDisabled(checked)
         self.btn_output_browse.setDisabled(checked)
@@ -1582,21 +1683,26 @@ class ExQt(QMainWindow):
         else:
             self.output_path_edit.clear()
 
-    #Restore folder and plotting preferences saved by the last session.
     def load_settings(self):
+        dark_mode = self.settings.value("dark_mode")
+        if dark_mode is not None:
+            apply_theme(_safe_bool(dark_mode))
+        splitter_state = self.settings.value("main_splitter_state")
+        if splitter_state is not None:
+            self.main_splitter.restoreState(splitter_state)
         self.folder_input.setText(self.settings.value("input_folder", ""))
         self.output_path_edit.setText(self.settings.value("output_folder", ""))
         
-        self.plot_min_size_spin.setValue(_safe_float(self.settings.value("plot_min_size", 0.0001), 0.0001))
-        self.plot_max_size_spin.setValue(_safe_float(self.settings.value("plot_max_size", 2.0), 2.0))
+        self.plot_min_size_spin.setValue(_safe_float(self.settings.value("plot_min_size", DEFAULT_SETTINGS["plot_min_size"]), DEFAULT_SETTINGS["plot_min_size"]))
+        self.plot_max_size_spin.setValue(_safe_float(self.settings.value("plot_max_size", DEFAULT_SETTINGS["plot_max_size"]), DEFAULT_SETTINGS["plot_max_size"]))
         self.generate_reports_check.setChecked(_safe_bool(self.settings.value("generate_reports", False)))
         
         same_folder_saved = self.settings.value("same_folder", "false")
         if str(same_folder_saved).lower() == "true":
             self.same_folder_checkbox.setChecked(True)
 
-    #Persist user-facing paths and plot limits before the window closes.
     def closeEvent(self, event):
+        self.settings.setValue("main_splitter_state", self.main_splitter.saveState())
         self.settings.setValue("input_folder", self.folder_input.text())
         self.settings.setValue("output_folder", self.output_path_edit.text())
         self.settings.setValue("same_folder", self.same_folder_checkbox.isChecked())
@@ -1605,7 +1711,6 @@ class ExQt(QMainWindow):
         self.settings.setValue("generate_reports", self.generate_reports_check.isChecked())
         event.accept()
 
-    #Validate selections, collect settings, and start the worker thread.
     def start_analysis(self):
         folder_path = self.folder_input.text()
         if not folder_path or not os.path.isdir(folder_path):
@@ -1647,9 +1752,14 @@ class ExQt(QMainWindow):
             DEFAULT_SETTINGS["adv_z_step"],
         )
         expansion_factor = self.exp_factor_spin.value()
+        try:
+            validate_calibration(pixel_size_nm, z_step_nm)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid calibration", f"Settings calibration is not usable:\n\n{error}")
+            return
         summary = summarize_calibrations(self.detected_metadata_by_file)
 
-        if summary["has_mismatch"]:
+        if self.calibration_source == CALIBRATION_SOURCE_TIFF:
             calibration_text = (
                 f"Per-file TIFF calibration is ACTIVE ({summary['calibration_count']} distinct calibrations found):\n\n"
             )
@@ -1658,11 +1768,21 @@ class ExQt(QMainWindow):
                     f"  • XY={xy:g} nm, Z={z:g} nm "
                     f"(biological: Y/X={xy / expansion_factor:g} nm, Z={z / expansion_factor:g} nm)\n"
                 )
+            without_tiff = [f.name for f in files if f.name not in self.detected_metadata_by_file]
             calibration_text += (
-                f"\nFallback calibration (Advanced Settings): XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm\n"
-                f"Expansion factor: {expansion_factor:g}×\n\n"
-                "ExQt will automatically calculate biological sizes using each file's exact acquisition calibration."
+                f"\nFallback calibration (Settings): XY={pixel_size_nm:g} nm, Z={z_step_nm:g} nm, "
+                f"used for {len(without_tiff)} file(s) without TIFF calibration\n"
+                f"Expansion factor: {expansion_factor:g}×"
             )
+            if any(
+                looks_pre_expansion(xy, z, pixel_size_nm, z_step_nm, expansion_factor)
+                for xy, z in summary["calibrations"]
+            ):
+                calibration_text += (
+                    "\n\nWARNING: a TIFF calibration ≈ Settings / ExF. The files seem to be "
+                    "calibrated to the PRE-EXPANSION size; applying ExF again would make volumes "
+                    f"{expansion_factor:g}³× too small."
+                )
         elif self.mode_combo.currentText() == "3d":
             calibration_text = (
                 f"Acquisition XY pixel size: {pixel_size_nm:g} nm\n"
@@ -1677,6 +1797,16 @@ class ExQt(QMainWindow):
                 f"Expansion factor: {expansion_factor:g}×\n\n"
                 f"Effective biological XY sampling: {pixel_size_nm / expansion_factor:g} nm"
             )
+        detector_offset_adu = _safe_float(
+            self.settings.value("adv_detector_offset", DEFAULT_SETTINGS["adv_detector_offset"]),
+            DEFAULT_SETTINGS["adv_detector_offset"],
+        )
+        calibration_text += (
+            f"\n\nDetector offset subtracted for K_part: {detector_offset_adu:g} ADU"
+            + (" (none)" if detector_offset_adu == 0 else "")
+        )
+        if self.auto_roi_check.isChecked():
+            calibration_text += "\nAuto-ROI: K_part is not computed (no nucleus outline)."
         if _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])):
             calibration_text += (
                 "\n\nRadial FA Profiling min. voxels per layer: "
@@ -1705,32 +1835,22 @@ class ExQt(QMainWindow):
             "review_each_image": self.review_check.isChecked(),
             "show_napari": self.show_napari_check.isChecked(),
             "generate_reports": self.generate_reports_check.isChecked(),
-            "report_excel": _safe_bool(self.settings.value("report_excel", REPORT_DEFAULTS["report_excel"]), REPORT_DEFAULTS["report_excel"]),
-            "report_primary_csv": _safe_bool(self.settings.value("report_primary_csv", REPORT_DEFAULTS["report_primary_csv"]), REPORT_DEFAULTS["report_primary_csv"]),
-            "report_excluded_csv": _safe_bool(self.settings.value("report_excluded_csv", REPORT_DEFAULTS["report_excluded_csv"]), REPORT_DEFAULTS["report_excluded_csv"]),
-            "report_raw_audit_csv": _safe_bool(self.settings.value("report_raw_audit_csv", REPORT_DEFAULTS["report_raw_audit_csv"]), REPORT_DEFAULTS["report_raw_audit_csv"]),
-            "report_standard_plots": _safe_bool(self.settings.value("report_standard_plots", REPORT_DEFAULTS["report_standard_plots"]), REPORT_DEFAULTS["report_standard_plots"]),
-            "report_mode_a_plots": _safe_bool(self.settings.value("report_mode_a_plots", REPORT_DEFAULTS["report_mode_a_plots"]), REPORT_DEFAULTS["report_mode_a_plots"]),
-            "report_partitioning_plots": _safe_bool(self.settings.value("report_partitioning_plots", REPORT_DEFAULTS["report_partitioning_plots"]), REPORT_DEFAULTS["report_partitioning_plots"]),
+            **{key: _safe_bool(self.settings.value(key, default), default) for key, default in REPORT_DEFAULTS.items()},
             "plot_min_size": self.plot_min_size_spin.value(),
             "plot_max_size": self.plot_max_size_spin.value(),
             "pixel_size_nm": pixel_size_nm,
             "z_step_nm": z_step_nm,
-            # The normal GUI workflow uses one deliberate calibration per batch or per-file auto-calibration when mixed.
-
-            "calibration_policy": "per_file_with_fallback" if summary["has_mismatch"] else "one_explicit_calibration_per_batch",
+            "calibration_source": self.calibration_source,
             "calibration_confirmation": "confirmed_by_user_at_run_start",
-
             "detected_metadata_by_file": self.detected_metadata_by_file,
             "signal_channel": int(self.settings.value("adv_signal_ch", DEFAULT_SETTINGS["adv_signal_ch"])),
             "dapi_channel": int(self.settings.value("adv_dapi_ch", DEFAULT_SETTINGS["adv_dapi_ch"])),
+            "detector_offset_adu": detector_offset_adu,
+            "detector_offset_source": _load_offset_source(self.settings),
             "mode_a_enabled": _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])),
             "mode_a_min_core_voxels": int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])),
             "mode_a_exclude_split_slices": _safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])),
-            "mode_a_z_split_min_component_voxels": DEFAULT_SETTINGS["mode_a_z_split_min_component_voxels"],
-            "mode_a_z_split_min_component_fraction": DEFAULT_SETTINGS["mode_a_z_split_min_component_fraction"],
-            "mode_a_z_split_pass_fraction": DEFAULT_SETTINGS["mode_a_z_split_pass_fraction"],
-            "mode_a_z_split_review_fraction": DEFAULT_SETTINGS["mode_a_z_split_review_fraction"],
+            **{key: DEFAULT_SETTINGS[key] for key in MODE_A_KEYS if key.startswith("mode_a_z_split_")},
         }
 
         self.btn_run.setEnabled(False)
@@ -1745,7 +1865,6 @@ class ExQt(QMainWindow):
         self.worker.request_review_signal.connect(self.prepare_review)
         self.worker.start()
         
-    #Map worker progress signals onto status text and button state.
     def update_button_text(self, text):
         print(f"GUI LOG: {text}") 
         
@@ -1755,7 +1874,9 @@ class ExQt(QMainWindow):
             self.btn_run.setText("Start analysis")
             self.align_stacks_action.setEnabled(True)
             
-            if not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("No data"):
+            if getattr(getattr(self, "worker", None), "abort_requested", False):
+                self.status_label.setText("Stopped by user; the current image was discarded, earlier approved images were saved.")
+            elif not self.status_label.text().startswith("Error") and not self.status_label.text().startswith("No data"):
                 self.status_label.setText("Analysis completed successfully.")
                 QMessageBox.information(self, "Done", "Analysis was completed successfully\n\nResults are saved in CSV.")
         elif text.startswith("Error") or text.startswith("No data"):
@@ -1765,7 +1886,6 @@ class ExQt(QMainWindow):
             self.status_label.setText(text)
             self.btn_run.setText("Processing...")
 
-    #Translate Batch preview messages into Napari layers.
     def receive_layer(self, layer_info):
         layer_type = layer_info.get("type", "image")
 
@@ -1784,7 +1904,6 @@ class ExQt(QMainWindow):
         elif layer_type == "points":
             self.viewer.add_points(data, name=name, **kwargs)
 
-    # Present a shape-drawing ROI layer so the user can simply click and drag circles/ellipses.
     def prepare_manual_roi(self, info):
         self._current_roi_info = info
         shape = info["shape"]
@@ -1814,27 +1933,53 @@ class ExQt(QMainWindow):
         self.btn_confirm_roi.show()
         self.btn_stop_review.show()
         if hasattr(self, "status_label"):
-            self.status_label.setText("Draw circle/ellipse ROI around cell/nucleus and click 'Confirm ROI'...")
+            self.status_label.setText("Draw one shape per nucleus on 1 or more Z-slices (overlapping shapes on different slices = same nucleus, interpolated; outside its slices = 0; one slice = whole Z). Shapes must not touch on the same slice. Click 'Confirm ROI'...")
 
-    # Return the drawn ROI to the worker and resume processing.
     def confirm_roi(self):
         info = getattr(self, "_current_roi_info", {})
         shape = info.get("shape", None)
 
         mask_data = None
+        roi_layer_name = None
         if "Draw ROI" in self.viewer.layers:
+            roi_layer_name = "Draw ROI"
             layer = self.viewer.layers["Draw ROI"]
             if hasattr(layer, "to_labels") and shape is not None:
                 mask_data = layer.to_labels(labels_shape=shape)
             elif hasattr(layer, "to_masks") and shape is not None:
                 masks = layer.to_masks(mask_shape=shape)
                 mask_data = np.sum(masks, axis=0, dtype=int) if masks.ndim > len(shape) else masks.astype(int)
-            self.viewer.layers.remove("Draw ROI")
         elif "Paint ROI" in self.viewer.layers:
+            roi_layer_name = "Paint ROI"
             mask_data = self.viewer.layers["Paint ROI"].data
-            self.viewer.layers.remove("Paint ROI")
 
+        # Check the multi-nucleus grouping here so a drawing mistake can be fixed
+        # instead of failing the whole image later in the worker.
+        if mask_data is not None and info.get("is_3d") and mask_data.ndim == 3 and mask_data.max() > 0:
+            try:
+                _interpolate_or_extrude_roi(mask_data)
+            except ValueError as error:
+                QMessageBox.warning(self, "ROI cannot be used", f"{error}\n\nFix the drawn shapes and confirm again.")
+                return
+        if roi_layer_name is not None:
+            self.viewer.layers.remove(roi_layer_name)
+
+        roi_source = "manual"
         if mask_data is None or mask_data.max() == 0:
+            # Never fall back to the whole FOV silently: ask, and record it in the CSV.
+            reply = QMessageBox.question(
+                self,
+                "No ROI drawn",
+                "No ROI was drawn for this image.\n\n"
+                "Yes: analyse the whole field of view (recorded as roi_source = empty_fallback_fov).\n"
+                "No: go back and draw an ROI.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                self.prepare_manual_roi(info)
+                return
+            roi_source = "empty_fallback_fov"
             first_layer = next(iter(self.viewer.layers), None)
             if first_layer is not None:
                 mask_data = np.ones(first_layer.data.shape, dtype=int)
@@ -1844,6 +1989,7 @@ class ExQt(QMainWindow):
                 mask_data = np.ones((1, 1), dtype=int)
 
         self.worker.user_roi_data = mask_data
+        self.worker.user_roi_source = roi_source
         self.btn_confirm_roi.hide()
         self.btn_stop_review.hide()
         self.btn_run.show()
@@ -1851,7 +1997,6 @@ class ExQt(QMainWindow):
             self.status_label.setText("ROI confirmed. Processing...")
         self.worker.roi_event.set()
 
-    #Pause between images so the user can approve the current preview.
     def prepare_review(self):
         self.btn_run.hide()
         self.btn_confirm_roi.hide()
@@ -1860,7 +2005,6 @@ class ExQt(QMainWindow):
         if hasattr(self, "status_label"):
             self.status_label.setText("Waiting for user review...")
 
-    #Approve the current image and release the worker for the next one.
     def next_image_confirmed(self):
         self.btn_next_image.hide()
         self.btn_stop_review.hide()
@@ -1869,7 +2013,6 @@ class ExQt(QMainWindow):
             self.status_label.setText("Processing next...")
         self.worker.review_event.set()
 
-    #Stop the batch and discard the image currently under review.
     def stop_and_discard(self):
         self.btn_next_image.hide()
         self.btn_stop_review.hide()
@@ -1881,7 +2024,6 @@ class ExQt(QMainWindow):
         self.worker.request_abort()
 
 if __name__ == "__main__":
-    #Keep Qt application startup in the script entry point so imports remain
     app = QApplication(sys.argv)
     window = ExQt()
     window.showMaximized()

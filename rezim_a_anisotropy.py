@@ -1,4 +1,3 @@
-
 import numpy as np
 
 
@@ -26,13 +25,15 @@ def shape_anisotropy(mask, sampling=None, min_voxels=20):
 
     #Eigenvalues of the coordinate covariance describe spread along the object's principal axes.
     covariance = centered.T @ centered / voxel_count
-    eigenvalues = np.linalg.eigvalsh(covariance)
+    # eigh returns ascending eigenvalues; column k of eigenvectors belongs to eigenvalue k.
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
     eigenvalues = np.clip(eigenvalues, 0.0, None)
     eigenvalue_sum_of_squares = float(np.sum(eigenvalues**2))
 
     if eigenvalue_sum_of_squares == 0.0:
         fractional_anisotropy = np.nan
         principal_std_nm = np.full(binary_mask.ndim, np.nan)
+        principal_axes = np.full((binary_mask.ndim, binary_mask.ndim), np.nan)
     else:
         eigenvalue_mean = float(np.mean(eigenvalues))
         fractional_anisotropy = float(
@@ -44,10 +45,13 @@ def shape_anisotropy(mask, sampling=None, min_voxels=20):
             )
         )
         principal_std_nm = np.sqrt(eigenvalues)
+        principal_axes = eigenvectors
 
     return {
         "fractional_anisotropy": fractional_anisotropy,
         "principal_std": principal_std_nm,
+        #Columns are unit principal directions in physical (Z, Y, X) space, ascending by std.
+        "principal_axes": principal_axes,
         "voxel_count": voxel_count,
         "anisotropy_valid": (
             voxel_count >= min_voxels and np.isfinite(fractional_anisotropy)

@@ -1,4 +1,5 @@
 import numpy as np
+from defaults import DEFAULT_SETTINGS
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -16,9 +17,9 @@ REPORT_PRIMARY_COLUMNS = [
     "filename", "cell_id", "object_id", "Z_px", "Y_px", "X_px",
     "volume_px", "volume_bio_um3", "volume_gel_um3", "equivalent_diameter_um",
     "mean_intensity", "max_intensity", "integrated_density",
-    "nucleoplasm_mean_intensity", "partition_coefficient", "camera_offset", "K_valid", "K_invalid_reason",
+    "nucleoplasm_mean_intensity", "partition_coefficient", "K_offset_adu", "K_offset_method", "K_valid", "K_invalid_reason",
     "condensate_class", "mean_intensity_core", "mean_intensity_middle", "mean_intensity_shell",
-    "Delta_intensity_core_shell",
+    "Delta_intensity_core_shell", "gradient_p_core_shell", "gradient_significant",
     "A_object", "A_shell", "A_middle", "A_core",
     "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
     "mode_a_core_voxels", "mode_a_z_topology_status",
@@ -38,7 +39,7 @@ REPORT_EXCLUDED_COLUMNS = [
     "mode_a_object_touches_roi_edge", "mode_a_z_topology_status",
     "mode_a_z_occupied_slices", "mode_a_z_split_slices",
     "mode_a_z_split_slice_fraction", "fa_complete", "primary_qc_valid",
-    "mode_a_qc_reason",
+    "mode_a_qc_reason", "alignment_status", "touches_image_edge", "touches_roi_edge",
 ]
 
 
@@ -58,6 +59,80 @@ def _single_column_value(df, column, default=None):
     return values[0] if len(values) == 1 else default
 
 
+# Red flags: warning signs of over-segmentation or noise.
+RED_FLAG_MAX_OBJECTS_PER_NUCLEUS = 1000
+RED_FLAG_MIN_MEDIAN_VOXELS = 50
+
+
+def detect_red_flags(df):
+    """Return rules.md red flags as dicts: > 1000 objects in one nucleus (filename, cell_id),
+    or a per-file median object size < 50 voxels/pixels. Warnings only; nothing is removed."""
+    flags = []
+    if {"filename", "cell_id"}.issubset(df.columns):
+        counts = df.groupby(["filename", "cell_id"]).size()
+        for (filename, cell_id), count in counts.items():
+            if count > RED_FLAG_MAX_OBJECTS_PER_NUCLEUS:
+                flags.append({
+                    "flag": "objects_per_nucleus", "filename": str(filename), "cell_id": int(cell_id),
+                    "value": int(count), "threshold": RED_FLAG_MAX_OBJECTS_PER_NUCLEUS, "unit": "objects",
+                    "message": (
+                        f"{filename}, cell {int(cell_id)}: {int(count)} objects in one nucleus "
+                        f"(> {RED_FLAG_MAX_OBJECTS_PER_NUCLEUS}); likely over-segmentation or noise - "
+                        "check the mask, min_voxels and expansion_factor."
+                    ),
+                })
+    size_col, unit = (("volume_px", "voxels") if "volume_px" in df.columns
+                      else ("area_px", "pixels") if "area_px" in df.columns else (None, None))
+    if size_col is not None and "filename" in df.columns:
+        medians = df.groupby("filename")[size_col].median()
+        for filename, median in medians.items():
+            if np.isfinite(median) and median < RED_FLAG_MIN_MEDIAN_VOXELS:
+                flags.append({
+                    "flag": "median_size_below_min", "filename": str(filename), "cell_id": None,
+                    "value": float(median), "threshold": RED_FLAG_MIN_MEDIAN_VOXELS, "unit": unit,
+                    "message": (
+                        f"{filename}: median object size {float(median):g} {unit} "
+                        f"(< {RED_FLAG_MIN_MEDIAN_VOXELS}); likely noise or over-segmentation - "
+                        "check the mask, min_voxels and expansion_factor."
+                    ),
+                })
+    return flags
+
+
+def primary_selection_summary(report_df, size_col):
+    """Size of primary vs size-eligible excluded objects (known selection bias):
+    a valid core FA needs >= min_core_voxels in a core holding ~4 % of the volume."""
+    px_col = "volume_px" if "volume_px" in report_df.columns else ("area_px" if "area_px" in report_df.columns else None)
+    eligible = report_df[_as_bool_series(report_df["size_eligible"])]
+    primary_mask = _as_bool_series(eligible["primary_qc_valid"])
+    primary, excluded = eligible[primary_mask], eligible[~primary_mask]
+
+    def _median(frame, column):
+        if column is None or frame.empty:
+            return None
+        value = pd.to_numeric(frame[column], errors="coerce").median()
+        return float(value) if np.isfinite(value) else None
+
+    summary = {
+        "n_primary": int(len(primary)),
+        "n_excluded_eligible": int(len(excluded)),
+        "primary_fraction": float(len(primary) / len(eligible)) if len(eligible) else None,
+        "median_px_primary": _median(primary, px_col),
+        "median_px_excluded": _median(excluded, px_col),
+        "median_size_primary": _median(primary, size_col),
+        "median_size_excluded": _median(excluded, size_col),
+    }
+    unit = "voxels" if px_col == "volume_px" else "pixels"
+    fmt = lambda value: "n/a" if value is None else f"{value:g}"
+    summary["message"] = (
+        f"Primary {summary['n_primary']} vs excluded {summary['n_excluded_eligible']} size-eligible objects; "
+        f"median size {fmt(summary['median_px_primary'])} vs {fmt(summary['median_px_excluded'])} {unit}. "
+        "Primary requires a valid core FA, so it over-represents larger objects; "
+        "results describe that subset, not all condensates."
+    )
+    return summary
+
+
 def _load_run_metadata(csv_path):
     metadata_path = csv_path.with_name(f"{csv_path.stem}_metadata.json")
     if not metadata_path.exists():
@@ -68,8 +143,32 @@ def _load_run_metadata(csv_path):
 
 # Calibration is deliberately shown but excluded from the compatibility
 # fingerprint: correctly calibrated acquisitions may use different sampling.
+def _auto_roi_from_columns(df):
+    # Older runs have no parameters.auto_roi; roi_source carries the same information.
+    if "roi_source" not in df.columns or df["roi_source"].dropna().empty:
+        return None
+    return bool(df["roi_source"].astype(str).eq("auto_fov").all())
+
+
 def _qc_policy_entries(metadata, df, min_size, max_size):
     fields = [
+        ("analysis", "auto_roi", _metadata_value(metadata, "parameters.auto_roi", _auto_roi_from_columns(df)), True,
+        "Auto-ROI (whole FOV) vs manual nucleus ROI; changes what K_part and cell_id mean."),
+        ("partitioning", "K_offset_method", _metadata_value(
+            metadata, "partitioning.K_offset_method", _single_column_value(df, "K_offset_method")
+        ), True, "How the detector offset for K_part was obtained."),
+        ("partitioning", "detector_offset_adu", _metadata_value(
+            metadata, "partitioning.detector_offset_adu", _single_column_value(df, "K_offset_adu")
+        ), False, "Detector offset subtracted for K_part; set-up specific, may legitimately differ."),
+        ("classification", "gradient_test", _metadata_value(
+            metadata, "classification.gradient_test", _single_column_value(df, "gradient_test")
+        ), True, "Statistical test behind Core-/Shell-Enriched classes."),
+        ("classification", "gradient_alpha", _metadata_value(
+            metadata, "classification.gradient_alpha", _single_column_value(df, "gradient_alpha")
+        ), True, "Significance level of the gradient test."),
+        ("classification", "fa_globular_boundary", _metadata_value(
+            metadata, "reference_values.fa_globular_boundary.value"
+        ), True, "A_object boundary between Globular and Elongated classes (working value)."),
         ("analysis", "mode", _metadata_value(metadata, "parameters.mode", _single_column_value(df, "mode")), True,
         "Analysis dimensionality."),
         ("analysis", "expansion_factor", _metadata_value(metadata, "parameters.expansion_factor"), True,
@@ -122,6 +221,10 @@ def _qc_policy_entries(metadata, df, min_size, max_size):
         "Run-specific physical calibration; may legitimately differ."),
         ("provenance", "timestamp", _metadata_value(metadata, "timestamp"), False,
         "Run timestamp; not part of policy compatibility."),
+        ("provenance", "git_commit", _metadata_value(metadata, "provenance.git_commit"), False,
+        "Code revision; check it before comparing numbers between runs (VALIDATION_PROTOCOL §2)."),
+        ("provenance", "git_dirty", _metadata_value(metadata, "provenance.git_dirty"), False,
+        "True = code differed from git_commit; see provenance.source_sha256 in metadata.json."),
         ("provenance", "software", _metadata_value(metadata, "software"), False,
         "Software name; not part of policy compatibility."),
     ]
@@ -181,7 +284,21 @@ def _prepare_reporting_frames(df, min_size, max_size):
         complete_fa = pd.Series(True, index=report_df.index)
         primary_requested = pd.Series(True, index=report_df.index)
 
-    primary_mask = size_eligible & complete_fa & primary_requested
+    # Stacks whose alignment is REVIEW are analysed but never primary.
+    if "alignment_status" in report_df.columns:
+        alignment_ok = report_df["alignment_status"].astype(str).ne("REVIEW")
+    else:
+        alignment_ok = pd.Series(True, index=report_df.index)
+    report_df["alignment_ok"] = alignment_ok
+
+    # Objects truncated by the image/stack border, alignment padding or the ROI are never primary.
+    not_truncated = pd.Series(True, index=report_df.index)
+    for column in ("touches_image_edge", "touches_roi_edge"):
+        if column in report_df.columns:
+            not_truncated &= ~_as_bool_series(report_df[column])
+    report_df["not_truncated"] = not_truncated
+
+    primary_mask = size_eligible & complete_fa & primary_requested & alignment_ok & not_truncated
     report_df["size_eligible"] = size_eligible
     report_df["fa_complete"] = complete_fa
     report_df["primary_qc_valid"] = primary_mask
@@ -385,12 +502,16 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
                 terms.append(f'COUNTIF({_column_range(sheet_name, frame, column)},{excel_criterion})')
         return "+".join(terms) or "0"
 
+    # Older runs only have the Mode A copies of the edge flags.
+    image_edge_col = "touches_image_edge" if "touches_image_edge" in raw.columns else "mode_a_object_touches_edge"
+    roi_edge_col = "touches_roi_edge" if "touches_roi_edge" in raw.columns else "mode_a_object_touches_roi_edge"
     qc_rows = [
         ("Z topology PASS", f'={_combined_countif("mode_a_z_topology_status", "pass")}', "Among size-eligible objects."),
         ("Z topology REVIEW", f'={_combined_countif("mode_a_z_topology_status", "review")}', "Excluded from primary analysis."),
         ("Z topology FAIL", f'={_combined_countif("mode_a_z_topology_status", "fail")}', "Excluded from primary analysis."),
-        ("Touches image edge", f'={_combined_countif("mode_a_object_touches_edge", 1, quote=False)}', "Hard QC exclusion."),
-        ("Touches ROI edge", f'={_combined_countif("mode_a_object_touches_roi_edge", 1, quote=False)}', "Hard QC exclusion."),
+        # Flags are written as Excel booleans: COUNTIF(range, 1) would never count TRUE.
+        ("Touches image edge", f'={_combined_countif(image_edge_col, "TRUE", quote=False)}', "Hard QC exclusion (incl. alignment padding)."),
+        ("Touches ROI edge", f'={_combined_countif(roi_edge_col, "TRUE", quote=False)}', "Hard QC exclusion."),
     ]
     ws["A15"], ws["B15"], ws["C15"] = "Condition", "Count", "Meaning"
     for row_index, (label, formula, definition) in enumerate(qc_rows, start=16):
@@ -399,6 +520,7 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
         ws.cell(row=row_index, column=3, value=definition)
 
     filename = str(raw["filename"].iloc[0]) if len(raw) and "filename" in raw.columns else ""
+    red_flags = detect_red_flags(raw)
     calibration_z = _single_column_value(raw, "mode_a_sampling_z_nm")
     calibration_y = _single_column_value(raw, "mode_a_sampling_y_nm")
     config_rows = [
@@ -407,6 +529,11 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
         ("Eligible size range", f"{min_size:g}–{max_size:g} {size_unit}", "Run-specific reporting range."),
         ("Effective sampling Z (nm)", calibration_z, "After expansion correction; may differ between acquisitions."),
         ("Effective sampling Y/X (nm)", calibration_y, "After expansion correction; may differ between acquisitions."),
+        ("Red flags", "; ".join(f"{flag['flag']}: {flag['message']}" for flag in red_flags) or "none",
+        f"rules.md: > {RED_FLAG_MAX_OBJECTS_PER_NUCLEUS} objects per nucleus or median size < "
+        f"{RED_FLAG_MIN_MEDIAN_VOXELS} voxels. Check segmentation before interpreting."),
+        ("Primary selection bias", primary_selection_summary(report_df, size_col)["message"],
+        "Known limitation: a valid core FA needs enough core voxels (core ~4 % of volume)."),
     ]
     ws["E15"], ws["F15"], ws["G15"] = "Parameter", "Value", "Meaning"
     for row_index, (label, value, definition) in enumerate(config_rows, start=16):
@@ -415,7 +542,8 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
         ws.cell(row=row_index, column=7, value=definition)
 
     per_cell = _build_per_cell_summary(report_df, size_col)
-    start_row = 23
+    # The per-cell table starts below whichever block (QC conditions / parameters) is longer.
+    start_row = 16 + max(len(qc_rows), len(config_rows)) + 1
     per_cell_columns = (1, 2, 3, 5, 6, 7, 8, 9, 10)
     ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=10)
     ws.cell(start_row, 1, "Per-file / per-cell summary")
@@ -490,18 +618,19 @@ def generate_excel_stats(
         print(f"Error: File '{csv_filename}' not found!")
         return None
 
-    folder_name = csv_path.resolve().parent.name
-    output_excel = csv_path.parent / f"{folder_name}_Detailed_Stats.xlsx"
-    output_csv = csv_path.parent / f"{folder_name}_All_Condensates_With_Diameters.csv"
-    output_primary_csv = csv_path.parent / f"{folder_name}_Primary_Condensates.csv"
-    output_excluded_csv = csv_path.parent / f"{folder_name}_QC_Excluded.csv"
+    # Named after the run CSV (not the folder), so 3d and 2d runs in one folder do not overwrite each other.
+    run_name = csv_path.stem
+    output_excel = csv_path.parent / f"{run_name}_Detailed_Stats.xlsx"
+    output_csv = csv_path.parent / f"{run_name}_All_Condensates_With_Diameters.csv"
+    output_primary_csv = csv_path.parent / f"{run_name}_Primary_Condensates.csv"
+    output_excluded_csv = csv_path.parent / f"{run_name}_QC_Excluded.csv"
 
     df = pd.read_csv(csv_path)
     metadata, metadata_path = _load_run_metadata(csv_path)
     if min_size is None:
-        min_size = _metadata_value(metadata, "parameters.plot_min_size", 0.0001)
+        min_size = _metadata_value(metadata, "parameters.plot_min_size", DEFAULT_SETTINGS["plot_min_size"])
     if max_size is None:
-        max_size = _metadata_value(metadata, "parameters.plot_max_size", 2.0)
+        max_size = _metadata_value(metadata, "parameters.plot_max_size", DEFAULT_SETTINGS["plot_max_size"])
 
     raw, primary, excluded, report_df, size_col = _prepare_reporting_frames(
         df, float(min_size), float(max_size)
@@ -660,9 +789,13 @@ def _write_merge_summary(writer, run_stats, primary, fingerprint, root):
     ws.append([])
     ws.append(["Run ID", "Primary", "Size eligible", "Acceptance", "Median Delta A", "Calibration / provenance"])
     for record in run_stats.to_dict("records"):
+        # null = files in the run used different calibrations (see applied_calibration_by_file).
+        pixel_size = record.get("pixel_size_nm")
+        z_step = record.get("z_step_nm")
         calibration = (
-            f"XY={record.get('pixel_size_nm', np.nan):g} nm; "
-            f"Z={record.get('z_step_nm', np.nan):g} nm"
+            f"XY={pixel_size:g} nm; Z={z_step:g} nm"
+            if pd.notna(pixel_size) and pd.notna(z_step)
+            else "per-file / unknown (see run metadata.json)"
         )
         ws.append([
             record["run_id"], record["primary_objects"], record["size_eligible_objects"],
@@ -963,7 +1096,7 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
     }
 
 
-def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
+def generate_plots(csv_filename, min_size=DEFAULT_SETTINGS["plot_min_size"], max_size=DEFAULT_SETTINGS["plot_max_size"]):
     sns.set_theme(style="ticks", palette="muted")
     plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
 
@@ -972,7 +1105,6 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
         print(f"Error: File '{csv_filename}' not found!")
         return
 
-    folder_name = csv_path.resolve().parent.name
     df = pd.read_csv(csv_path)
 
 
@@ -1113,7 +1245,7 @@ def generate_plots(csv_filename, min_size=0.0001, max_size=2.0):
 
     fig.suptitle(scale_correction_label(load_scale_metadata(csv_path), df.columns), fontsize=11)
     plt.tight_layout(rect=(0, 0, 1, 0.96))
-    output_plot = csv_path.parent / f"{folder_name}_Analysis_Plots.png"
+    output_plot = csv_path.parent / f"{csv_path.stem}_Analysis_Plots.png"
     plt.savefig(output_plot, dpi=300)
     plt.close(fig)
 

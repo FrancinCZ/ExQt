@@ -12,7 +12,11 @@ from Batch import (
     _resolve_channel_axis,
     _select_focus_slice,
     get_metadata_from_tif,
+    matching_mask_path,
+    source_tiff_files,
 )
+from calibration_policy import CALIBRATION_SOURCE_GUI, CALIBRATION_SOURCE_TIFF, CALIBRATION_SOURCES
+from defaults import DEFAULT_SETTINGS
 
 
 
@@ -94,8 +98,10 @@ def collect_size_preview(
     expansion_factor=1.0,
     pixel_size_nm=None,
     z_step_nm=None,
-    min_voxels=5,
+    min_voxels=DEFAULT_SETTINGS["raw_min_voxels"],
     signal_channel=1,
+    calibration_source=CALIBRATION_SOURCE_GUI,
+    detected_metadata_by_file=None,
 ):
 
     folder = Path(input_folder)
@@ -118,6 +124,8 @@ def collect_size_preview(
         raise ValueError("Raw minimum pixels/voxels must be a positive integer.") from error
     if min_voxels < 1:
         raise ValueError("Raw minimum pixels/voxels must be at least 1.")
+    if calibration_source not in CALIBRATION_SOURCES:
+        raise ValueError(f"Unknown calibration_source {calibration_source!r}; expected one of {CALIBRATION_SOURCES}.")
 
     try:
         signal_channel = int(signal_channel)
@@ -126,15 +134,7 @@ def collect_size_preview(
     if signal_channel < 0:
         raise ValueError("Signal channel must be a non-negative integer.")
 
-    source_files = sorted(
-        path
-        for path in folder.iterdir()
-        if path.is_file()
-        and path.suffix.lower() in {".tif", ".tiff"}
-        and not path.stem.lower().endswith("_mask")
-        and "final" not in path.stem.lower()
-        and "_alignment_" not in path.stem.lower()
-    )
+    source_files = source_tiff_files(folder)
     if not source_files:
         return _empty_preview_table()
 
@@ -142,28 +142,29 @@ def collect_size_preview(
     unit = "µm³" if mode == "3d" else "µm²"
 
     for source_path in source_files:
-        # Determine effective calibration for this file, falling back to batch parameters
-        file_meta = get_metadata_from_tif(source_path)
+        # Same rule as the analysis worker: TIFF calibration only when the user chose it,
+        # and only a complete XY+Z pair; otherwise the GUI calibration.
         file_xy_nm = pixel_size_nm
         file_z_nm = z_step_nm
-        if file_meta:
-            if "pixel_size" in file_meta and file_meta["pixel_size"] is not None:
-                file_xy_nm = float(file_meta["pixel_size"])
-            if "z_step" in file_meta and file_meta["z_step"] is not None:
-                file_z_nm = float(file_meta["z_step"])
+        if calibration_source == CALIBRATION_SOURCE_TIFF:
+            if detected_metadata_by_file is None:
+                file_meta = get_metadata_from_tif(source_path) or {}
+                detected = {"pixel_size_nm": file_meta.get("pixel_size"), "z_step_nm": file_meta.get("z_step")}
+            else:
+                detected = detected_metadata_by_file.get(source_path.name) or {}
+            if detected.get("pixel_size_nm") is not None and detected.get("z_step_nm") is not None:
+                file_xy_nm = float(detected["pixel_size_nm"])
+                file_z_nm = float(detected["z_step_nm"])
 
         file_eff_xy_nm = file_xy_nm / expansion_factor
         if mode == "3d":
-            file_eff_z_nm = (file_z_nm if file_z_nm is not None else 350.0) / expansion_factor
+            # z_step_nm is validated for 3D above, so no fallback value is needed here.
+            file_eff_z_nm = file_z_nm / expansion_factor
             file_size_per_element = (file_eff_xy_nm**2 * file_eff_z_nm) / 1e9
         else:
             file_size_per_element = file_eff_xy_nm**2 / 1e6
 
-        mask_candidates = [
-            folder / f"{source_path.stem}_Mask.tif",
-            folder / f"{source_path.stem}_Mask.tiff",
-        ]
-        mask_path = next((path for path in mask_candidates if path.is_file()), mask_candidates[0])
+        mask_path = matching_mask_path(source_path)
         if not mask_path.is_file():
             raise ValueError(f"Missing matching mask for {source_path.name}: {mask_path.name}")
 

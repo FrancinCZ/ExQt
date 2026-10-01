@@ -31,6 +31,9 @@ class AlignmentConfig:
     max_bidirectional_disagreement_px: float = 0.75
     max_fail_fraction: float = 0.20
     expand_canvas: bool = True
+    #Optional stricter post-shift check ("residual_misalignment_after_translation").
+    #With the default equal to min_post_correlation it never triggers, because
+    #"weak_post_correlation" fires first; set it above min_post_correlation to enable it.
     min_residual_correlation: float = 0.20
 
 
@@ -212,13 +215,13 @@ def estimate_xy_drift(
     #Find the contiguous runs of insufficient_texture at both ends.
     first_non_texture = next(
         (i for i, (s, rr) in enumerate(zip(statuses, reasons_list))
-         if not (s == "FAIL" and rr == "insufficient_texture")),
+        if not (s == "FAIL" and rr == "insufficient_texture")),
         len(statuses),
     )
     last_non_texture = next(
         (len(statuses) - 1 - i
-         for i, (s, rr) in enumerate(zip(reversed(statuses), reversed(reasons_list)))
-         if not (s == "FAIL" and rr == "insufficient_texture")),
+        for i, (s, rr) in enumerate(zip(reversed(statuses), reversed(reasons_list)))
+        if not (s == "FAIL" and rr == "insufficient_texture")),
         -1,
     )
 
@@ -236,7 +239,11 @@ def estimate_xy_drift(
         else:
             overall = "FAIL"
 
-    return AlignmentResult(shifts, cumulative, pd.DataFrame(records), overall, tuple(reasons))
+    metrics = pd.DataFrame(records)
+    # The overall verdict (edge texture-less steps ignored, tolerated middle fails -> REVIEW)
+    # is what Batch must act on, not the per-step statuses.
+    metrics["overall_status"] = overall
+    return AlignmentResult(shifts, cumulative, metrics, overall, tuple(reasons))
 
 
 def extract_reference_stack(data: np.ndarray, axes: str, channel_index: int = 0) -> np.ndarray:
@@ -501,7 +508,8 @@ def align_tiff_stack(
     drift_plot = output_folder / f"{stem}_drift.png"
     output = output_folder / source.name if alignment.status in ("PASS", "REVIEW") else None
     mask_output = output_folder / Path(mask_path).name if output and mask is not None else None
-    for existing in (output, mask_output, drift_csv, drift_plot):
+    valid_output = output_folder / f"{stem}_alignment_valid.tif" if output else None
+    for existing in (output, mask_output, valid_output, drift_csv, drift_plot):
         if existing is not None and existing.exists():
             raise FileExistsError(f"Refusing to overwrite existing output: {existing}")
 
@@ -522,8 +530,15 @@ def align_tiff_stack(
                     mask_ome,
                     source_path=Path(mask_path),
                 )
+            #1 = real data, 0 = zero padding / shifted-in border (incl. partially interpolated
+            #edge voxels). Batch excludes 0 voxels from intensity statistics.
+            valid = apply_xy_shifts(
+                np.ones(reference.shape, dtype=np.float32), "ZYX", alignment.cumulative_shifts_yx,
+                expand_canvas=config.expand_canvas,
+            ) > 0.999
+            tifffile.imwrite(valid_output, valid.astype(np.uint8), compression="zlib")
         except Exception:
-            for partial in (output, mask_output):
+            for partial in (output, mask_output, valid_output):
                 if partial is not None and partial.exists():
                     partial.unlink()
             raise
@@ -554,6 +569,8 @@ def align_tiff_folder(
         path for path in input_folder.iterdir()
         if path.is_file() and path.suffix.lower() in {".tif", ".tiff"}
         and not path.stem.lower().endswith("_mask")
+        and not path.stem.lower().endswith("_roi")
+        and "_alignment_" not in path.stem.lower()
     )
     if not sources:
         raise FileNotFoundError(f"No TIFF files found in {input_folder}")
