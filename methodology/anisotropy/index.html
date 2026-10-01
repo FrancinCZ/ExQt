@@ -1141,7 +1141,7 @@
 <li><strong>expansion</strong> – local gel inhomogeneity can distort shape;</li>
 <li><strong>discretisation</strong> – objects with few voxels have noisy eigenvalues.</li>
 </ul>
-<p>FA alone does not identify the cause of a shape; explanations such as mechanical constraint by the surrounding chromatin are hypotheses that FA does not test.</p>
+<p>FA describes the shape of the mask only; it does not identify why an object has that shape.</p>
 <h2 id="how-it-is-calculated">How It Is Calculated</h2>
 <p>ExQt takes the physical coordinates of all mask voxels (voxel index × sampling in nm, order Z, Y, X), computes their covariance matrix and its eigenvalues <span class="arithmatex">\(\lambda_1 \le \lambda_2 \le \lambda_3\)</span> (variances along the object's own principal axes, not along X/Y/Z):</p>
 <div class="arithmatex">\[\text{FA} = \sqrt{\frac{3}{2}} \frac{\sqrt{(\lambda_1 - \bar{\lambda})^2 + (\lambda_2 - \bar{\lambda})^2 + (\lambda_3 - \bar{\lambda})^2}}{\sqrt{\lambda_1^2 + \lambda_2^2 + \lambda_3^2}}\]</div>
