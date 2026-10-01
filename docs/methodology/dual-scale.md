@@ -1,28 +1,26 @@
 # Dual-Scale Resolution & Volume Normalization
 
-In Expansion Microscopy (ExM), biological specimens are physically magnified within a swellable hydrogel polymer network. Consequently, two distinct spatial frames of reference exist simultaneously:
+In Expansion Microscopy the sample is physically expanded, so ExQt reports every size twice:
 
-1. **Hydrogel Space (Physical Measurement Frame):** The physical coordinates recorded by the microscope camera post-expansion.
-2. **Biological Space (Pre-Expansion Reference Frame):** The estimated native cellular scale prior to hydrogel anchoring and swelling.
-
-To avoid reporting ambiguity, ExQt natively preserves and exports both scales for every detected object.
+1. **Gel scale:** as measured in the image.
+2. **Biological scale:** the gel scale divided by the expansion factor – an estimate of the size before expansion.
 
 ---
 
 ## Mathematical Formulation
 
-Let $\Delta x, \Delta y$ denote the lateral pixel dimensions (in nm) and $\Delta z$ the axial optical section spacing (in nm) recorded by the microscope. For an isotropic linear expansion factor $\text{ExF}$, the effective biological sampling increments are:
+With pixel size $\Delta x, \Delta y$ and slice spacing $\Delta z$ (nm) and a uniform linear expansion factor $\text{ExF}$:
 
 
 $$\Delta x_{\text{bio}} = \frac{\Delta x}{\text{ExF}}, \quad \Delta y_{\text{bio}} = \frac{\Delta y}{\text{ExF}}, \quad \Delta z_{\text{bio}} = \frac{\Delta z}{\text{ExF}}$$
 
-For a segmented 3D condensate comprising $N_{\text{voxels}}$:
+For an object of $N_{\text{voxels}}$:
 
 $$\text{Vol}_{\text{gel}} = N_{\text{voxels}} \times \frac{\Delta x \cdot \Delta y \cdot \Delta z}{10^9} \quad [\mu\text{m}^3]$$
 
 $$\text{Vol}_{\text{bio}} = N_{\text{voxels}} \times \frac{\Delta x_{\text{bio}} \cdot \Delta y_{\text{bio}} \cdot \Delta z_{\text{bio}}}{10^9} = \frac{\text{Vol}_{\text{gel}}}{\text{ExF}^3} \quad [\mu\text{m}^3]$$
 
-The equivalent spherical diameter ($D_{\text{eq}}$) in biological space is:
+Equivalent sphere diameter:
 
 $$D_{\text{eq}} = \left( \frac{6 \cdot \text{Vol}_{\text{bio}}}{\pi} \right)^{1/3} \quad [\mu\text{m}]$$
 

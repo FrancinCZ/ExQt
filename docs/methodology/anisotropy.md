@@ -1,30 +1,23 @@
 # 3D Fractional Anisotropy (FA)
 
-**How stretched out is a condensate?**
+Fractional Anisotropy (FA) is a number between **0** and **1** that describes how elongated the 3D mask of an object is:
 
-Fractional Anisotropy (FA) is a single number between **0** and **1** that describes the 3D shape of an object:
+| FA | Axis ratio of a prolate ellipsoid (a:1:1) |
+| :--- | :---: |
+| 0.0 | 1.0 (sphere) |
+| 0.47 | 1.5 |
+| 0.71 | 2.0 |
+| 0.82 | 2.5 |
+| → 1 | → ∞ |
 
-| FA value | Prolate ellipsoid axis ratio (a:1:1) | What the shape looks like |
-| :--- | :---: | :--- |
-| **0.0** | 1.0 | Sphere |
-| **0.47** | 1.5 | Moderately elongated |
-| **0.71** | 2.0 | Clearly elongated |
-| **0.82** | 2.5 | Strongly elongated |
-| **→ 1** | → ∞ | Rod / filament |
+## What Affects FA
 
-(Values for a homogeneous ellipsoid. FA is computed from the covariance eigenvalues, i.e. variances, so it is not proportional to the axis ratio and approaches 1 only slowly.)
+FA describes the segmented mask, not the cause of its shape. Besides the structure itself it is affected by:
 
-## What FA Does and Does Not Tell You
-
-FA describes the geometry of the **segmented mask**. It does not by itself explain why an object has that shape. The measured value combines:
-
-- the shape of the structure itself;
-- **optics** – a confocal PSF is elongated along Z, so small objects look elongated even when round (see `fa_psf_elongation_limit` in `reference_values.py`, a working value not yet validated for the ExM gel);
-- **segmentation** – threshold and mask quality set where the boundary lies;
-- **expansion** – local gel inhomogeneity can distort shape;
-- **discretisation** – objects with few voxels have noisy eigenvalues.
-
-FA describes the shape of the mask only; it does not identify why an object has that shape.
+- **optics** – the confocal PSF is elongated along Z, so small objects appear elongated;
+- **segmentation** – where the mask boundary lies;
+- **expansion and axial scale** – non-uniform expansion or an incorrect Z-step change the shape;
+- **discretisation** – objects with few voxels give noisy values.
 
 ## How It Is Calculated
 

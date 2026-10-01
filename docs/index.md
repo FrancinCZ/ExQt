@@ -1,21 +1,20 @@
 # ExQt: Expansion Microscopy Quantification Tool
 
-**ExQt** (*Expansion Microscopy Quantification Tool*) is an open-source desktop application for measuring biomolecular condensates in 3D images. It works on existing segmentation masks (it does not segment images itself) and measures size, enrichment, shape and the core–shell profile of every object.
-
-It is designed to work across both **classical confocal immunofluorescence (IF)** and **Expansion Microscopy (ExM)**, providing a unified, auditable pipeline to measure the size, shape, enrichment and internal intensity profile of condensates in the cell nucleus.
+**ExQt** (*Expansion Microscopy Quantification Tool*) is an open-source desktop application for measuring objects in 3D fluorescence images of the cell nucleus, from confocal immunofluorescence (IF) or Expansion Microscopy (ExM). It works on existing segmentation masks; it does not segment images itself.
 
 ---
 
-## Why ExQt?
+## What ExQt Measures
 
-In diffraction-limited confocal microscopy, structures closer than the Abbe resolution limit can overlap and appear as a single object. Expansion Microscopy addresses this by physically magnifying the specimen in a swellable polymer hydrogel, allowing standard confocal hardware to resolve finer structural detail.
+For every object in the mask:
 
-Analyzing ExM data introduces specific computational requirements:
+- **Size** in the image (gel) scale and, divided by the expansion factor, in the estimated pre-expansion scale ($V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3$).
+- **Enrichment** $K_{\text{part}}$: mean intensity of the object relative to the surrounding nucleoplasm.
+- **Shape**: 3D Fractional Anisotropy (FA) of the mask.
+- **Layers** (optional): FA and mean intensity of three concentric layers, and the FA difference compared with a homogeneous ellipsoid of the same shape.
+- **Quality-control flags** and a record of the settings, code version and input files of each run.
 
-- **True 3D processing** — maintaining connectivity across anisotropic voxel grids ($\Delta z > \Delta x, \Delta y$).
-- **Dual-scale reporting** — preserving both the physical hydrogel scale ($V_{\text{gel}}$) and the estimated biological pre-expansion scale ($V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3$).
-- **Internal profiling** — quantifying concentration gradients across concentric layers (Core–Middle–Shell), rather than treating condensates as uniform blobs.
-- **Shape analysis** — comparing the FA of inner and outer layers with a homogeneous-ellipsoid null model of the same shape.
+All lengths use the physical voxel size, so the coarser Z sampling of confocal stacks is taken into account.
 
 ---
 
@@ -26,9 +25,10 @@ Analyzing ExM data introduces specific computational requirements:
 1. Load the stack and mask; select the signal channel; alignment QC (`Batch.validate_alignment_qc`).
 2. ROI: Auto-ROI (whole field of view) or manual nucleus ROI, interpolated per nucleus (`Batch._interpolate_or_extrude_roi`).
 3. Connected components of the mask inside the ROI; raw noise floor `min_voxels`.
-4. Per object: gel and biological volume ($V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3$), $K_{\text{part}}$ with an explicit detector offset, edge/ROI-edge flags, optional Radial FA Profiling with the geometric null model.
+4. Per object: volumes, $K_{\text{part}}$, edge flags and, optionally, layer metrics with the ellipsoid reference.
 5. Reports: primary set by `postprocessing._prepare_reporting_frames`, Excel, plots.
 
+---
 
 ## Installation
 
@@ -44,5 +44,3 @@ python App.py
 Without Git: on GitHub click **Code → Download ZIP**, unzip it, open a terminal in the unzipped folder and run the last two commands.
 
 With Conda instead of pip: `conda env create -f environment.yml`, then `conda activate exqt-env` and `python App.py`.
-
----

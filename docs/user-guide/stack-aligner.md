@@ -24,10 +24,10 @@ The analysis follows the overall status: `PASS` normal, `REVIEW` analysed but no
 
 ## Methodological Background & Inspiration
 
-The multi-channel 3D stack alignment strategy in `stack_aligner.py` is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the **Suzuki Lab at the McArdle Laboratory for Cancer Research** ([suzukilabmcardle/3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)).
+The alignment approach in `stack_aligner.py` is adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the **Suzuki Lab at the McArdle Laboratory for Cancer Research** ([suzukilabmcardle/3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)).
 
-In ExQt, the core concepts were re-engineered and implemented natively in Python using `skimage.registration.phase_cross_correlation` and `scipy.ndimage`, augmented with:
+In ExQt it is implemented in Python with `skimage.registration.phase_cross_correlation` and `scipy.ndimage`, and adds:
 1. **Reference channel suggestion**: **Auto-detect** ranks channels by the correlation between neighbouring slices (`ChannelDetectionWorker`).
 2. **Spectral Leakage Suppression**: 2D Hanning window preconditioning to reduce Fourier border discontinuities.
 3. **Canvas Expansion (`expand_canvas=True`)**: The canvas grows by the accumulated drift so no signal is cropped; the zero padding is recorded in `<stem>_alignment_valid.tif` and excluded from statistics.
-4. **Synchronized Mask Alignment**: Rigid transformation validation and synchronized translation applied automatically to corresponding binary/labeled `*_Mask.tif` stacks.
+4. **Mask alignment**: masks are shifted with the same translations as the image.

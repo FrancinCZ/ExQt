@@ -1,4 +1,4 @@
-# High-Throughput Batch Processing Engine
+# Batch Processing
 
 The batch analysis (`Batch.py`) processes every raw/mask pair in a folder one after another. With a manual ROI it pauses at each image so you can outline the nuclei; with Auto-ROI it runs without interaction.
 
@@ -6,12 +6,12 @@ The batch analysis (`Batch.py`) processes every raw/mask pair in a folder one af
 
 ## Directory Organization & File Pairing Convention
 
-ExQt matches raw fluorescent intensity images with their corresponding binary segmentation masks using a strict suffix convention:
+ExQt pairs each image with its mask by file name:
 
 ```
 Experiment_Folder/
-├── cell01.tif              <── Raw 3D fluorescent intensity stack
-├── cell01_Mask.tif         <── 3D binary segmentation mask (labels or binary)
+├── cell01.tif              <── image stack
+├── cell01_Mask.tif         <── mask (binary or labels)
 ├── cell02.tif
 ├── cell02_Mask.tif
 └── Result/                 <── Output folder of one run
@@ -23,24 +23,23 @@ Experiment_Folder/
 
 Each run saves its ROIs in its own output folder, so a new run never overwrites the ROI of an earlier one; the input folder is not modified. Leftover `*_ROI.tif` files in the input folder are ignored.
 
-When a batch run is executed, ExQt scans the directory, matches each raw `.tif` with its paired `*_Mask.tif`, validates dimensions, and processes each pair sequentially.
 
 ---
 
 ## Batch Lifecycle per Image Pair
 
-For each matched pair, ExQt executes the following deterministic sequence:
+For each pair:
 
 ```
-[1/5] Load 3D Stack & TIFF Header Calibration
+[1/5] Load stack and mask
        │
-[2/5] Nuclear ROI Extraction & Audit Save (*_ROI.tif)
+[2/5] ROI (Auto-ROI or drawn), saved as *_ROI.tif
        │
-[3/5] Mask Intersect (img_mask * roi_mask) & 3D Connected Components
+[3/5] Objects of the mask inside the ROI
        │
-[4/5] True Signal Extraction (Volumes, K_part, Radial EDT, Null Model)
+[4/5] Measurements (volumes, K_part, FA, layers)
        │
-[5/5] Save CSV Table (_Output_Batch_3d.csv) & Metadata (_metadata.json)
+[5/5] CSV and metadata.json
 ```
 
 ---

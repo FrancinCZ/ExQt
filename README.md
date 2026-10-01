@@ -1,6 +1,6 @@
 # ExQt: Expansion Microscopy Quantification Tool
 
-**ExQt** (*Expansion Microscopy Quantification Tool*) is a desktop application for measuring biomolecular condensates in 3D confocal and Expansion Microscopy (ExM) images. It does not segment images itself: it takes your existing segmentation masks (e.g. from Labkit or ilastik) and measures size, enrichment (K_part), shape (FA) and the core–shell profile of every object, with quality control and a full record of how each result was produced.
+**ExQt** (*Expansion Microscopy Quantification Tool*) is a desktop application for measuring objects in 3D confocal and Expansion Microscopy (ExM) images of the cell nucleus. It does not segment images itself: it takes existing segmentation masks (e.g. from Labkit or ilastik) and measures the size, enrichment (K_part) and shape (FA) of every object, optionally also for three concentric layers. Each run records its settings, code version and input files.
 
  **[📖 Read the Documentation](https://francincz.github.io/ExQt/)**
 
@@ -62,7 +62,7 @@ Click **Start analysis**. ExQt analyzes all matched pairs one by one and writes 
 
 ## Detailed Documentation
 
-For full mathematical definitions, algorithm walkthroughs, and data interpretation, visit our documentation:
+Definitions, calculations and limitations are described in the documentation:
 
 | Topic | Link |
 | :--- | :--- |
@@ -71,35 +71,32 @@ For full mathematical definitions, algorithm walkthroughs, and data interpretati
 | **Stack Aligner** | [User Guide → Stack Aligner](https://francincz.github.io/ExQt/user-guide/stack-aligner/) |
 | **Dual-Scale Volume ($V_{\text{bio}}$ vs $V_{\text{gel}}$)** | [Methodology → Dual-Scale](https://francincz.github.io/ExQt/methodology/dual-scale/) |
 | **Partition Coefficient ($K_{\text{part}}$)** | [Methodology → Partitioning](https://francincz.github.io/ExQt/methodology/partitioning/) |
-| **Core–Shell Radial Profiling** | [Methodology → Radial Profiling](https://francincz.github.io/ExQt/methodology/radial-profiling/) |
+| **Radial Profiling (layers)** | [Methodology → Radial Profiling](https://francincz.github.io/ExQt/methodology/radial-profiling/) |
 | **3D Fractional Anisotropy (FA)** | [Methodology → 3D Anisotropy](https://francincz.github.io/ExQt/methodology/anisotropy/) |
 | **Geometric Null Model** | [Methodology → Null Model](https://francincz.github.io/ExQt/methodology/null-model/) |
-| **Quality Control Tiers** | [Quality Control → QC Pipeline](https://francincz.github.io/ExQt/quality-control/qc-pipeline/) |
+| **Quality Control** | [Quality Control → QC Pipeline](https://francincz.github.io/ExQt/quality-control/qc-pipeline/) |
 | **Exclusion Rules** | [Quality Control → Exclusion Rules](https://francincz.github.io/ExQt/quality-control/exclusion-rules/) |
 | **CSV Data Dictionary** | [Data Dictionary (All Columns)](https://francincz.github.io/ExQt/data-dictionary/) |
-| **Plot Interpretation** | [Reports & Visualizations](https://francincz.github.io/ExQt/reporting/) |
+| **Reports** | [Reports & Visualizations](https://francincz.github.io/ExQt/reporting/) |
 
 ---
 
 ## Key Libraries & Dependencies
 
-ExQt is built in Python, integrating core scientific and bio-imaging libraries:
-
-- **[Napari](https://napari.org/):** Multi-dimensional 3D viewer embedded directly in the main window for interactive stack navigation and manual nuclear ROI delineation.
-- **[PySide6 (Qt for Python)](https://doc.qt.io/qtforpython/):** Native desktop graphical user interface framework powering all dialogs, interactive controls, and background batch worker threads.
-- **[scikit-image](https://scikit-image.org/):** 3D connected-component labeling, volumetric feature extraction (`measure.regionprops`), and Fourier phase cross-correlation.
-- **[SciPy](https://scipy.org/):** Exact 3D Euclidean Distance Transform (`scipy.ndimage.distance_transform_edt`) for Core–Middle–Shell radial peeling, and subpixel n-dimensional image shifts.
-- **[NumPy](https://numpy.org/) & [pandas](https://pandas.pydata.org/):** Spatial covariance tensor decomposition (Fractional Anisotropy), geometric null model simulations, and high-throughput tabular data management.
-- **[tifffile](https://github.com/cgohlke/tifffile):** Robust reading and writing of multi-channel 3D OME-TIFF files while preserving microscope physical calibration tags.
-- **[matplotlib](https://matplotlib.org/) & [seaborn](https://seaborn.pydata.org/):** Summary figures (300 DPI) and the interactive size preview histogram.
-- **[openpyxl](https://openpyxl.readthedocs.io/):** Multi-sheet Excel workbook (`_Detailed_Stats.xlsx`).
+- **[Napari](https://napari.org/):** image viewer and ROI drawing.
+- **[PySide6](https://doc.qt.io/qtforpython/):** user interface.
+- **[scikit-image](https://scikit-image.org/):** connected components, object measurements, phase cross-correlation.
+- **[SciPy](https://scipy.org/):** distance transform, image shifts, statistical test.
+- **[NumPy](https://numpy.org/) & [pandas](https://pandas.pydata.org/):** calculations and tables.
+- **[tifffile](https://github.com/cgohlke/tifffile):** reading and writing TIFF files and their calibration.
+- **[matplotlib](https://matplotlib.org/) & [seaborn](https://seaborn.pydata.org/):** figures.
+- **[openpyxl](https://openpyxl.readthedocs.io/):** Excel output.
 
 ---
 
-## Acknowledgments & Inspiration
+## Acknowledgments
 
-- **Z-stack aligner:** The XY drift correction (`stack_aligner.py`) is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the Suzuki Lab at the McArdle Laboratory for Cancer Research. It has been re-implemented in Python with sub-pixel phase cross-correlation, Hanning-window preconditioning, canvas expansion (the added border is marked and excluded from statistics) and per-step quality checks.
-- **Expansion Microscopy Community:** Designed to support quantitative biophysical analysis of biomolecular condensates and nuclear assemblies across classical confocal and high-expansion microscopy (ExM).
+- **Z-stack aligner:** The XY drift correction (`stack_aligner.py`) is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the Suzuki Lab at the McArdle Laboratory for Cancer Research. It is re-implemented in Python.
 
 ---
 

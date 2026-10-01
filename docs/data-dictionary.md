@@ -24,7 +24,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | :--- | :---: | :---: | :--- |
 | `volume_px` | voxels | `integer` | Total number of foreground voxels ($N_{\text{vox}}$) comprising the 3D mask. |
 | `volume_gel_um3` | $\mu\text{m}^3$ | `float` | Physical volume in hydrogel: $N_{\text{vox}} \times \frac{\Delta x \Delta y \Delta z}{10^9}$. |
-| `volume_bio_um3` | $\mu\text{m}^3$ | `float` | Pre-expansion biological volume: $\text{Vol}_{\text{gel}} / \text{ExF}^3$. |
+| `volume_bio_um3` | $\mu\text{m}^3$ | `float` | Estimated pre-expansion volume: $\text{Vol}_{\text{gel}} / \text{ExF}^3$. |
 | `equivalent_diameter_um`| $\mu\text{m}$ | `float` | Diameter of an equivalent sphere: $(6 \cdot \text{Vol}_{\text{bio}} / \pi)^{1/3}$. |
 | `applied_pixel_size_nm` | nm | `float` | Unscaled lateral pixel size $\Delta x$ actually applied to this file (Settings or, if chosen, the file's TIFF calibration; source in `*_metadata.json` → `applied_calibration_by_file`). |
 | `applied_z_step_nm` | nm | `float` | Unscaled axial slice spacing $\Delta z$ actually applied to this file (same source rules as `applied_pixel_size_nm`). |
@@ -42,20 +42,20 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `K_offset_adu` | ADU | `float` | Detector offset subtracted for $K_{\text{part}}$; explicit setting from Settings (0 = none). |
 | `K_offset_method` | - | `string` | How the offset was obtained; currently always `explicit_setting`. |
 | `K_offset_source` | - | `string` | Where the explicit value came from: `manual` or `lif_photon_counting` (read from a Leica .lif file, details in `*_metadata.json`). |
-| `partition_coefficient` | - | `float` | Concentration ratio: $\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})$. NaN when `K_valid` is `False`. |
+| `partition_coefficient` | - | `float` | Intensity ratio: $\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})$. NaN when `K_valid` is `False`. |
 | `K_valid` | - | `boolean` | `True` if a manual ROI nucleoplasm exists and $I_{\text{nuc}} - \text{offset} > 0$. K < 1 is not filtered. |
 | `K_invalid_reason` | - | `string` | `auto_roi_no_nucleoplasm`, `no_nucleoplasm`, or `negative_denominator`. |
 
 ---
 
-## 4. Mode A: Radial Profiling & Concentration Gradients
+## 4. Mode A: Radial Profiling
 
 | Column Name | Physical Unit | Data Type | Mathematical Definition & Description |
 | :--- | :---: | :---: | :--- |
 | `mean_intensity_core` | ADU | `float` | Mean intensity within the innermost 33% distance layer ($d_{\text{norm}} > 2/3$). |
 | `mean_intensity_middle` | ADU | `float` | Mean intensity within the intermediate layer ($1/3 < d_{\text{norm}} \le 2/3$). |
 | `mean_intensity_shell` | ADU | `float` | Mean intensity within the outer boundary layer ($0 < d_{\text{norm}} \le 1/3$). |
-| `Delta_intensity_core_shell` | ADU | `float` | Radial concentration difference: $I_{\text{core}} - I_{\text{shell}}$. |
+| `Delta_intensity_core_shell` | ADU | `float` | Mean intensity difference: $I_{\text{core}} - I_{\text{shell}}$. |
 | `condensate_class` | - | `string` | `<shape> / <gradient>`: shape `Globular (Low FA)` (A_object < `fa_globular_boundary`, 0.65, working value in `reference_values.py`) or `Elongated (High FA)`; gradient `Core-Enriched` / `Shell-Enriched` only if `gradient_significant`, else `No Significant Gradient`, or `Profile-Unavailable`. Also `Punctate / Small Cluster` (< 3 × min core voxels), `Unclassified` (no FA) and `Unclassified (QC)` (object failed Mode A QC). **Core-Enriched is expected from PSF blurring of a homogeneous object** – not evidence of biological enrichment without a null/PSF comparison. |
 | `gradient_t_core_shell` | - | `float` | Welch t statistic, core vs shell voxel intensities. |
 | `gradient_p_core_shell` | - | `float` | Two-sided Welch p-value (NaN if a layer has < 2 voxels). |
@@ -93,5 +93,5 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `mode_a_object_touches_edge` | - | `boolean` | Mode A copy of `touches_image_edge`. |
 | `mode_a_object_touches_roi_edge` | - | `boolean` | Mode A copy of `touches_roi_edge`. |
 | `alignment_status` | - | `string` | Aligner overall status of the input stack: `PASS`, `REVIEW` (analysed, never primary) or `not_aligned` (no `<stem>_drift.csv`). `FAIL` stacks are not analysed. |
-| `primary_qc_valid` | - | `boolean` | `True` if object passes all criteria to join the primary benchmark cohort. |
+| `primary_qc_valid` | - | `boolean` | `True` if the object is in the primary set (see Quality Control). |
 | `mode_a_qc_reason` | - | `string` | Semicolon-delimited list of rejection reasons for excluded objects. |
