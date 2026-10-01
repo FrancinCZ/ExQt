@@ -986,10 +986,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-z-split-topological-assessment-batchpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Z-Split Topological Assessment (Batch.py)
+        Implementation
       
     </span>
   </a>
@@ -1165,10 +1165,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-z-split-topological-assessment-batchpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Z-Split Topological Assessment (Batch.py)
+        Implementation
       
     </span>
   </a>
@@ -1198,12 +1198,13 @@
 <h2 id="catalog-of-rejection-criteria">Catalog of Rejection Criteria</h2>
 <h3 id="1-touches_image_edge-field-of-view-truncation">1. <code>touches_image_edge</code> (Field-of-View Truncation)</h3>
 <ul>
-<li><strong>Criterion:</strong> The object bounding box reaches <span class="arithmatex">\(Z = 0\)</span>, <span class="arithmatex">\(Z = Z_{\max}\)</span>, <span class="arithmatex">\(Y = 0\)</span>, <span class="arithmatex">\(Y = Y_{\max}\)</span>, <span class="arithmatex">\(X = 0\)</span>, or <span class="arithmatex">\(X = X_{\max}\)</span>.</li>
+<li><strong>Criterion:</strong> The object bounding box reaches <span class="arithmatex">\(Z = 0\)</span>, <span class="arithmatex">\(Z = Z_{\max}\)</span>, <span class="arithmatex">\(Y = 0\)</span>, <span class="arithmatex">\(Y = Y_{\max}\)</span>, <span class="arithmatex">\(X = 0\)</span>, or <span class="arithmatex">\(X = X_{\max}\)</span>, <strong>or</strong> (aligned stacks) the object touches alignment padding marked 0 in <code>&lt;stem&gt;_alignment_valid.tif</code>, i.e. the original field-of-view border moved inside the array by <code>expand_canvas</code>.</li>
+<li><strong>Scope:</strong> computed for every object in every mode (column <code>touches_image_edge</code>); Mode A keeps the copy <code>mode_a_object_touches_edge</code>.</li>
 <li><strong>Physical Rationale:</strong> An object bisected by the camera field of view has an artificially reduced volume and distorted Fractional Anisotropy.</li>
 </ul>
 <h3 id="2-touches_roi_edge-nuclear-envelope-crossing">2. <code>touches_roi_edge</code> (Nuclear Envelope Crossing)</h3>
 <ul>
-<li><strong>Criterion:</strong> Foreground voxels intersect the boundary of the nuclear ROI mask.</li>
+<li><strong>Criterion:</strong> Object voxels are adjacent to voxels outside the ROI, i.e. the ROI cut the object (column <code>touches_roi_edge</code>, all modes; never set when the ROI is the whole field of view).</li>
 <li><strong>Physical Rationale:</strong> Nuclear speckles reside inside the nucleoplasm. Condensates overlapping the nuclear envelope risk cytoplasmic signal leakage and nucleoplasmic baseline contamination.</li>
 </ul>
 <h3 id="3-z_topology_split-z_topology_review-axial-fragmentation">3. <code>z_topology_split</code> / <code>z_topology_review</code> (Axial Fragmentation)</h3>
@@ -1213,7 +1214,7 @@
 </ul>
 <h3 id="4-core_below_min_voxels-insufficient-core-volume">4. <code>core_below_min_voxels</code> (Insufficient Core Volume)</h3>
 <ul>
-<li><strong>Criterion:</strong> The innermost layer (Core: <span class="arithmatex">\(d_{\text{norm}} &gt; 2/3\)</span>) contains fewer than 20 voxels.</li>
+<li><strong>Criterion:</strong> The innermost layer (Core: <span class="arithmatex">\(d_{\text{norm}} &gt; 2/3\)</span>) contains fewer than <code>min_core_voxels</code> voxels (default 20).</li>
 <li><strong>Physical Rationale:</strong> Calculating a <span class="arithmatex">\(3\times3\)</span> covariance matrix and eigenvalue decomposition on fewer than 20 voxels is statistically underpowered and yields noisy, unreliable Fractional Anisotropy estimates.</li>
 </ul>
 <h3 id="5-empty_layer_name-zero-voxel-layer">5. <code>empty_layer_{name}</code> (Zero-Voxel Layer)</h3>
@@ -1222,60 +1223,11 @@
 <li><strong>Physical Rationale:</strong> Occurs when an object is extremely flat or thin, preventing the distance transform from forming intermediate layers.</li>
 </ul>
 <hr />
-<h2 id="production-code-z-split-topological-assessment-batchpy">Production Code: Z-Split Topological Assessment (<code>Batch.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py#L140-L195"><code>Batch.py:140–195</code></a> demonstrating the optical section component analysis:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM Batch.py: _assess_z_split_topology()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">_assess_z_split_topology</span><span class="p">(</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">mask</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">min_component_voxels</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">min_component_fraction</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.05</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">pass_fraction</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.15</span><span class="p">,</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">review_fraction</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.35</span><span class="p">,</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="sd">    Evaluates topological continuity of a 3D object across optical Z-sections.</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="sd">    Detects whether an object splits into multiple independent islands within individual slices.</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">occupied_slices</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">split_slices</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">raw_max_components</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">substantial_max_components</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="k">for</span> <span class="n">z_slice</span> <span class="ow">in</span> <span class="n">mask</span><span class="p">:</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="n">foreground_voxels</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">count_nonzero</span><span class="p">(</span><span class="n">z_slice</span><span class="p">))</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>        <span class="k">if</span> <span class="n">foreground_voxels</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>            <span class="k">continue</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        <span class="n">occupied_slices</span> <span class="o">+=</span> <span class="mi">1</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        <span class="n">labeled_slice</span> <span class="o">=</span> <span class="n">label</span><span class="p">(</span><span class="n">z_slice</span><span class="p">)</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>        <span class="n">component_areas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">bincount</span><span class="p">(</span><span class="n">labeled_slice</span><span class="o">.</span><span class="n">ravel</span><span class="p">())[</span><span class="mi">1</span><span class="p">:]</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>        <span class="n">raw_max_components</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">raw_max_components</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">component_areas</span><span class="o">.</span><span class="n">size</span><span class="p">))</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>        <span class="c1"># Filter out minor single-voxel perimeter spurs</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>        <span class="n">minimum_area</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">min_component_voxels</span><span class="p">),</span> <span class="n">min_component_fraction</span> <span class="o">*</span> <span class="n">foreground_voxels</span><span class="p">)</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>        <span class="n">substantial_components</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">count_nonzero</span><span class="p">(</span><span class="n">component_areas</span> <span class="o">&gt;=</span> <span class="n">minimum_area</span><span class="p">))</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>        <span class="n">substantial_max_components</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">substantial_max_components</span><span class="p">,</span> <span class="n">substantial_components</span><span class="p">)</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>        <span class="k">if</span> <span class="n">substantial_components</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>            <span class="n">split_slices</span> <span class="o">+=</span> <span class="mi">1</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">split_fraction</span> <span class="o">=</span> <span class="n">split_slices</span> <span class="o">/</span> <span class="n">occupied_slices</span> <span class="k">if</span> <span class="n">occupied_slices</span> <span class="k">else</span> <span class="mf">0.0</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="k">if</span> <span class="n">split_fraction</span> <span class="o">&lt;=</span> <span class="n">pass_fraction</span><span class="p">:</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>        <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;pass&quot;</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="k">elif</span> <span class="n">split_fraction</span> <span class="o">&lt;=</span> <span class="n">review_fraction</span><span class="p">:</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>        <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;review&quot;</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>        <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;fail&quot;</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>        <span class="s2">&quot;occupied_slice_count&quot;</span><span class="p">:</span> <span class="n">occupied_slices</span><span class="p">,</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>        <span class="s2">&quot;split_slice_count&quot;</span><span class="p">:</span> <span class="n">split_slices</span><span class="p">,</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>        <span class="s2">&quot;split_slice_fraction&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">split_fraction</span><span class="p">),</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="p">,</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>    <span class="p">}</span>
-</span></code></pre></div>
+<h2 id="implementation">Implementation</h2>
+<ul>
+<li>Flags are computed in <code>Batch.process_condensates</code>; Z-topology in <code>Batch._assess_z_split_topology</code> (policy <code>substantial_component_fraction_v1</code>, thresholds recorded in <code>*_metadata.json → mode_a</code>).</li>
+<li>The primary set is decided in <code>postprocessing._prepare_reporting_frames</code> (see the QC pipeline page).</li>
+</ul>
 
 
 

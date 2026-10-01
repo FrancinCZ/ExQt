@@ -741,10 +741,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-three-layers-peeling-the-onion" class="md-nav__link">
+  <a href="#the-three-layers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Three Layers (Peeling the Onion)
+        The Three Layers
       
     </span>
   </a>
@@ -752,10 +752,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#measuring-internal-gradients" class="md-nav__link">
+  <a href="#intensity-difference-between-layers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Measuring Internal Gradients
+        Intensity Difference Between Layers
       
     </span>
   </a>
@@ -763,10 +763,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-radial-partitioning-rezim_a_core_shellpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Radial Partitioning (rezim_a_core_shell.py)
+        Implementation
       
     </span>
   </a>
@@ -1043,10 +1043,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-three-layers-peeling-the-onion" class="md-nav__link">
+  <a href="#the-three-layers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Three Layers (Peeling the Onion)
+        The Three Layers
       
     </span>
   </a>
@@ -1054,10 +1054,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#measuring-internal-gradients" class="md-nav__link">
+  <a href="#intensity-difference-between-layers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Measuring Internal Gradients
+        Intensity Difference Between Layers
       
     </span>
   </a>
@@ -1065,10 +1065,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-radial-partitioning-rezim_a_core_shellpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Radial Partitioning (rezim_a_core_shell.py)
+        Implementation
       
     </span>
   </a>
@@ -1093,98 +1093,50 @@
 
 
 <h1 id="radial-profiling-mode-a-coreshell-architecture">Radial Profiling (Mode A: Core–Shell Architecture)</h1>
-<p>Are condensates uniform droplets, or do they have layers like an onion?</p>
-<p>Mode A answers this by dividing each 3D condensate into three concentric layers: <strong>Core</strong>, <strong>Middle</strong>, and <strong>Shell</strong>. This allows you to check whether a protein is concentrated deep inside or sits mostly on the surface.</p>
+<p>Mode A (Radial FA Profiling) divides each 3D object into three concentric layers – <strong>Core</strong>, <strong>Middle</strong> and <strong>Shell</strong> – and reports the shape (FA) and mean intensity of each layer, so the inner and outer parts of an object can be compared.</p>
 <hr />
-<h2 id="the-three-layers-peeling-the-onion">The Three Layers (Peeling the Onion)</h2>
-<p>Using the 3D distance from the condensate surface to its center (Euclidean Distance Transform), every voxel inside the object is assigned to one of three layers:</p>
+<h2 id="the-three-layers">The Three Layers</h2>
+<p>Every voxel gets its distance to the object surface from an anisotropic Euclidean distance transform (<code>sampling = (Z, Y, X)</code> nm), normalised by the maximum distance <span class="arithmatex">\(d_{\max}\)</span>:</p>
 <table>
 <thead>
 <tr>
 <th style="text-align: left;">Layer</th>
-<th style="text-align: left;">Region</th>
-<th style="text-align: left;">Plain-language meaning</th>
+<th style="text-align: left;">Normalised distance <span class="arithmatex">\(d / d_{\max}\)</span></th>
+<th style="text-align: center;">Share of a sphere's volume</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Core</strong></td>
-<td style="text-align: left;">Deepest center (<span class="arithmatex">\(d &gt; 2/3\)</span>)</td>
-<td style="text-align: left;">The innermost heart of the condensate.</td>
+<td style="text-align: left;"><strong>Shell</strong></td>
+<td style="text-align: left;"><span class="arithmatex">\(0 &lt; d \le 1/3\)</span></td>
+<td style="text-align: center;">≈ 70 %</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Middle</strong></td>
-<td style="text-align: left;">Intermediate zone (<span class="arithmatex">\(1/3 &lt; d \le 2/3\)</span>)</td>
-<td style="text-align: left;">The transition layer between core and surface.</td>
+<td style="text-align: left;"><span class="arithmatex">\(1/3 &lt; d \le 2/3\)</span></td>
+<td style="text-align: center;">≈ 26 %</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Shell</strong></td>
-<td style="text-align: left;">Outer surface (<span class="arithmatex">\(0 &lt; d \le 1/3\)</span>)</td>
-<td style="text-align: left;">The outer boundary facing the surrounding nucleoplasm.</td>
+<td style="text-align: left;"><strong>Core</strong></td>
+<td style="text-align: left;"><span class="arithmatex">\(d &gt; 2/3\)</span></td>
+<td style="text-align: center;">≈ 4 %</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="measuring-internal-gradients">Measuring Internal Gradients</h2>
-<p>For each layer, ExQt measures the average fluorescence brightness:
-- <span class="arithmatex">\(I_{\text{core}}\)</span>: Average brightness in the center
-- <span class="arithmatex">\(I_{\text{middle}}\)</span>: Average brightness in the middle layer
-- <span class="arithmatex">\(I_{\text{shell}}\)</span>: Average brightness at the surface</p>
-<p>The difference between core and shell brightness gives the gradient:</p>
-<div class="arithmatex">\[\Delta I_{\text{core-shell}} = I_{\text{core}} - I_{\text{shell}}\]</div>
+<p>Because the core is only about 4 % of the volume, an object needs roughly 500 voxels or more for the core to reach <code>min_core_voxels</code> (default 20). This is why the primary set over-represents large objects (see <em>Known Limitation</em> in the QC pipeline page).</p>
+<h2 id="intensity-difference-between-layers">Intensity Difference Between Layers</h2>
+<p>For each layer ExQt reports the mean intensity (<span class="arithmatex">\(I_{\text{core}}\)</span>, <span class="arithmatex">\(I_{\text{middle}}\)</span>, <span class="arithmatex">\(I_{\text{shell}}\)</span>) and the difference <span class="arithmatex">\(\Delta I_{\text{core-shell}} = I_{\text{core}} - I_{\text{shell}}\)</span>.</p>
+<p>The class (<code>condensate_class</code>) uses a two-sided Welch t-test of core vs shell voxel intensities at α = 0.01 (<code>gradient_p_core_shell</code>, <code>gradient_significant</code>):</p>
 <ul>
-<li><strong><span class="arithmatex">\(\Delta I &gt; 0\)</span> (Positive):</strong> The center is brighter than the surface — the protein concentrates in the core.</li>
-<li><strong><span class="arithmatex">\(\Delta I \approx 0\)</span> (Zero):</strong> The droplet is roughly uniform throughout.</li>
-<li><strong><span class="arithmatex">\(\Delta I &lt; 0\)</span> (Negative):</strong> The protein is enriched at the rim or shell.</li>
+<li>significant and <span class="arithmatex">\(\Delta I &gt; 0\)</span> → <em>Core-Enriched</em>; significant and <span class="arithmatex">\(\Delta I &lt; 0\)</span> → <em>Shell-Enriched</em>;</li>
+<li>not significant → <em>No Significant Gradient</em>; objects that failed QC → <em>Unclassified (QC)</em>.</li>
 </ul>
-<hr />
-<h2 id="production-code-radial-partitioning-rezim_a_core_shellpy">Production Code: Radial Partitioning (<code>rezim_a_core_shell.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/rezim_a_core_shell.py"><code>rezim_a_core_shell.py</code></a>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM rezim_a_core_shell.py: split_core_middle_shell()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">split_core_middle_shell</span><span class="p">(</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">object_mask</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">min_core_voxels</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">sampling</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">shell_end</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">core_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">object_mask</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="c1">#1. Pad by 1 voxel so bounding-box tangent faces are treated as external edges</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">padded_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;constant&quot;</span><span class="p">,</span> <span class="n">constant_values</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">padded_distance</span> <span class="o">=</span> <span class="n">distance_transform_edt</span><span class="p">(</span><span class="n">padded_mask</span><span class="p">,</span> <span class="n">sampling</span><span class="o">=</span><span class="n">sampling</span><span class="p">)</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">slices</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">slice</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">mask</span><span class="o">.</span><span class="n">ndim</span><span class="p">))</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">distance_from_edge</span> <span class="o">=</span> <span class="n">padded_distance</span><span class="p">[</span><span class="n">slices</span><span class="p">]</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">max_distance</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">distance_from_edge</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="k">if</span> <span class="n">max_distance</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">:</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Object is too small to form radial layers.&quot;</span><span class="p">)</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">normalized_distance</span> <span class="o">=</span> <span class="n">distance_from_edge</span> <span class="o">/</span> <span class="n">max_distance</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="c1">#2. Fixed thirds partition scheme</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">shell</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">normalized_distance</span> <span class="o">&lt;=</span> <span class="n">shell_end</span><span class="p">)</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">middle</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">normalized_distance</span> <span class="o">&gt;</span> <span class="n">shell_end</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">normalized_distance</span> <span class="o">&lt;=</span> <span class="n">core_start</span><span class="p">)</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">core</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">normalized_distance</span> <span class="o">&gt;</span> <span class="n">core_start</span><span class="p">)</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">core_voxels</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">core</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">complete_coverage</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">shell</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">middle</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">core</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span> <span class="o">==</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>        <span class="s2">&quot;core&quot;</span><span class="p">:</span> <span class="n">core</span><span class="p">,</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>        <span class="s2">&quot;middle&quot;</span><span class="p">:</span> <span class="n">middle</span><span class="p">,</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>        <span class="s2">&quot;shell&quot;</span><span class="p">:</span> <span class="n">shell</span><span class="p">,</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>        <span class="s2">&quot;normalized_distance&quot;</span><span class="p">:</span> <span class="n">normalized_distance</span><span class="p">,</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>        <span class="s2">&quot;qc&quot;</span><span class="p">:</span> <span class="p">{</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>            <span class="s2">&quot;object_voxels&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask</span><span class="o">.</span><span class="n">sum</span><span class="p">()),</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>            <span class="s2">&quot;core_voxels&quot;</span><span class="p">:</span> <span class="n">core_voxels</span><span class="p">,</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>            <span class="s2">&quot;max_distance&quot;</span><span class="p">:</span> <span class="n">max_distance</span><span class="p">,</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>            <span class="s2">&quot;core_valid&quot;</span><span class="p">:</span> <span class="n">core_voxels</span> <span class="o">&gt;=</span> <span class="n">min_core_voxels</span><span class="p">,</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>            <span class="s2">&quot;complete_coverage&quot;</span><span class="p">:</span> <span class="n">complete_coverage</span><span class="p">,</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>        <span class="p">},</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="p">}</span>
-</span></code></pre></div>
+<p>How to read it: a significant difference only says that the centre and the rim of the mask differ in brightness. Blurring by the PSF makes the centre of even a perfectly homogeneous object brighter than its rim, so <em>Core-Enriched</em> is expected without any internal structure. Antibody penetration, self-quenching or segmentation that includes blurred edge voxels can also shift the difference. The test assumes voxel noise is independent (true for photon noise, not after deconvolution or smoothing).</p>
+<h2 id="implementation">Implementation</h2>
+<ul>
+<li>Layers: <code>rezim_a_core_shell.split_core_middle_shell(mask, min_core_voxels, sampling)</code> (scheme <code>edt_over_max_thirds_v1</code>).</li>
+<li>Metrics and class: <code>rezim_a_metrics.compute_core_shell_metrics</code>, <code>rezim_a_metrics.classify_particle</code>; the FA class boundary comes from <code>reference_values.py</code>.</li>
+</ul>
 
 
 

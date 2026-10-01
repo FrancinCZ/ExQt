@@ -920,10 +920,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-primary-condensates-result_primary_condensatescsv" class="md-nav__link">
+  <a href="#3-primary-condensates-run_primary_condensatescsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Primary Condensates (Result_Primary_Condensates.csv)
+        3. Primary Condensates (&lt;run&gt;_Primary_Condensates.csv)
       
     </span>
   </a>
@@ -936,10 +936,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-classification-assignment-postprocessingpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Classification Assignment (postprocessing.py)
+        Implementation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#red-flags-warnings-nothing-is-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Red Flags (warnings, nothing is removed)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitation-size-selection-of-the-primary-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitation: Size Selection of the Primary Set
       
     </span>
   </a>
@@ -1105,10 +1127,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-primary-condensates-result_primary_condensatescsv" class="md-nav__link">
+  <a href="#3-primary-condensates-run_primary_condensatescsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Primary Condensates (Result_Primary_Condensates.csv)
+        3. Primary Condensates (&lt;run&gt;_Primary_Condensates.csv)
       
     </span>
   </a>
@@ -1121,10 +1143,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-classification-assignment-postprocessingpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Classification Assignment (postprocessing.py)
+        Implementation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#red-flags-warnings-nothing-is-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Red Flags (warnings, nothing is removed)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitation-size-selection-of-the-primary-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitation: Size Selection of the Primary Set
       
     </span>
   </a>
@@ -1163,39 +1207,27 @@
 <p>Everything detected by the mask inside the nuclear ROI. This includes noise specks, cut-off blobs at the edge of the image, and multi-object clumps.</p>
 <h3 id="2-size-eligible-objects">2. Size-Eligible Objects</h3>
 <p>Objects that fall within your chosen volume range (<span class="arithmatex">\(V_{\min}\)</span> to <span class="arithmatex">\(V_{\max}\)</span>). This quickly filters out sub-resolution noise (too small) and giant segmentation mergers (too large).</p>
-<h3 id="3-primary-condensates-result_primary_condensatescsv">3. Primary Condensates (<code>Result_Primary_Condensates.csv</code>)</h3>
+<h3 id="3-primary-condensates-run_primary_condensatescsv">3. Primary Condensates (<code>&lt;run&gt;_Primary_Condensates.csv</code>)</h3>
 <p>The clean, high-confidence dataset used for your final plots and statistics. An object only becomes a <strong>Primary Condensate</strong> if it passes all quality checks:
-- It does not touch the edges of the image.
-- It is fully inside the nucleus (does not intersect the nuclear boundary).
-- It has a continuous 3D structure across Z-slices.
-- It has enough voxels in the core for radial analysis (<span class="arithmatex">\(\ge 20\)</span> voxels).</p>
-<p>Objects that fail any check are saved into <code>Result_Excluded_Condensates.csv</code> with the exact reason recorded, so nothing is secretly deleted.</p>
+- It does not touch the edges of the image/stack or the alignment padding (<code>touches_image_edge</code>), in every mode.
+- It is not cut by the ROI boundary (<code>touches_roi_edge</code>), in every mode.
+- Its stack was not aligned with overall status <code>REVIEW</code> (<code>alignment_status</code>).
+- With Radial FA Profiling: continuous 3D structure across Z-slices, all layer FA valid and enough core voxels (<code>mode_a_primary_include</code>).</p>
+<p>Objects that fail any check are saved into <code>&lt;run&gt;_QC_Excluded.csv</code> with the exact reason recorded, so nothing is secretly deleted.</p>
 <hr />
-<h2 id="production-code-classification-assignment-postprocessingpy">Production Code: Classification Assignment (<code>postprocessing.py</code>)</h2>
-<p>Below is the production logic from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/postprocessing.py"><code>postprocessing.py</code></a> defining primary classification and segregating outputs:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># --- EXCERPT FROM postprocessing.py: classify_and_filter_objects() ---</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">filter_condensate_cohorts</span><span class="p">(</span><span class="n">df_raw</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">min_vol</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">max_vol</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]:</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="sd">    Segregates raw batch records into eligible, primary, and excluded cohorts.</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="c1"># 1. Size-Eligible cohort</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">df_eligible</span> <span class="o">=</span> <span class="n">df_raw</span><span class="p">[</span><span class="n">df_raw</span><span class="p">[</span><span class="s2">&quot;volume_bio_um3&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">between</span><span class="p">(</span><span class="n">min_vol</span><span class="p">,</span> <span class="n">max_vol</span><span class="p">)]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="c1"># 2. Primary cohort (must satisfy all internal Mode A quality checks)</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">is_primary</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="n">df_eligible</span><span class="p">[</span><span class="s2">&quot;primary_qc_valid&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">df_eligible</span><span class="p">[</span><span class="s2">&quot;mode_a_object_touches_edge&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">))</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">df_eligible</span><span class="p">[</span><span class="s2">&quot;mode_a_object_touches_roi_edge&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">))</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        <span class="o">&amp;</span> <span class="p">(</span><span class="n">df_eligible</span><span class="p">[</span><span class="s2">&quot;mode_a_z_topology_status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;pass&quot;</span><span class="p">)</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="p">)</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">df_primary</span> <span class="o">=</span> <span class="n">df_eligible</span><span class="p">[</span><span class="n">is_primary</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="c1"># 3. Excluded cohort (recorded with explicit audit trail)</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">df_excluded</span> <span class="o">=</span> <span class="n">df_raw</span><span class="p">[</span><span class="o">~</span><span class="n">df_raw</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">df_primary</span><span class="o">.</span><span class="n">index</span><span class="p">)]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="k">return</span> <span class="n">df_eligible</span><span class="p">,</span> <span class="n">df_primary</span><span class="p">,</span> <span class="n">df_excluded</span>
-</span></code></pre></div>
+<h2 id="implementation">Implementation</h2>
+<p>The flags are computed per object in <code>Batch.process_condensates</code>; <code>postprocessing._prepare_reporting_frames</code> combines them:</p>
+<p><code>primary_qc_valid = size_eligible &amp; fa_complete &amp; mode_a_primary_include &amp; alignment_ok &amp; not_truncated</code></p>
+<p>(<code>fa_complete</code> and <code>mode_a_primary_include</code> are always <code>True</code> when Radial FA Profiling is off; <code>alignment_ok</code> = <code>alignment_status != "REVIEW"</code>; <code>not_truncated</code> = neither <code>touches_image_edge</code> nor <code>touches_roi_edge</code>). The partitioning report (<code>partitioning_plots</code>) uses only <code>primary_qc_valid</code> objects and K only where <code>K_valid</code>.</p>
+<h2 id="red-flags-warnings-nothing-is-removed">Red Flags (warnings, nothing is removed)</h2>
+<p><code>postprocessing.detect_red_flags</code> reports two warning signs in the GUI log (<code>RED FLAG: …</code>), in <code>*_metadata.json → red_flags</code> and in the Excel Summary (<code>Red flags</code>):</p>
+<ul>
+<li>more than 1000 objects in one nucleus (<code>filename</code>, <code>cell_id</code>) – <code>objects_per_nucleus</code>;</li>
+<li>per-file median object size below 50 voxels (pixels in 2D) – <code>median_size_below_min</code>.</li>
+</ul>
+<p>Both usually mean over-segmentation or noise. Check the mask, <code>min_voxels</code> (default 5) and the expansion factor before interpreting any number from such a run.</p>
+<h2 id="known-limitation-size-selection-of-the-primary-set">Known Limitation: Size Selection of the Primary Set</h2>
+<p>With Radial FA Profiling the primary set requires a valid core FA (<code>min_core_voxels</code>, default 20). The core holds only about 4 % of an object's volume, so in practice objects need roughly 500 or more voxels to qualify. The primary set therefore over-represents large objects, and statistics from it describe that subset, not all condensates. The Excel Summary row <code>Primary selection bias</code> (<code>postprocessing.primary_selection_summary</code>) reports the number and the median size of primary vs size-eligible excluded objects for every run.</p>
 
 
 

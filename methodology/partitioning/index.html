@@ -721,24 +721,30 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#safety-checks" class="md-nav__link">
+    <nav class="md-nav" aria-label="How It Is Calculated">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-offset-to-use" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Safety Checks
+        Which offset to use
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#production-code-partitioning-engine-batchpy" class="md-nav__link">
+  <a href="#rules-implemented-in-batchprocess_condensates" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Partitioning Engine (Batch.py)
+        Rules Implemented in Batch.process_condensates
       
     </span>
   </a>
@@ -1051,24 +1057,30 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#safety-checks" class="md-nav__link">
+    <nav class="md-nav" aria-label="How It Is Calculated">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-offset-to-use" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Safety Checks
+        Which offset to use
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#production-code-partitioning-engine-batchpy" class="md-nav__link">
+  <a href="#rules-implemented-in-batchprocess_condensates" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Partitioning Engine (Batch.py)
+        Rules Implemented in Batch.process_condensates
       
     </span>
   </a>
@@ -1101,51 +1113,40 @@
 <p>Where:
 - <span class="arithmatex">\(I_{\text{condensate}}\)</span>: Average brightness inside the condensate.
 - <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span>: Average brightness of the diffuse nucleoplasm (inside the nucleus, but outside any condensates).
-- <span class="arithmatex">\(\text{offset}\)</span>: Dark camera baseline noise.</p>
+- <span class="arithmatex">\(\text{offset}\)</span>: Detector/camera offset in ADU, entered in <strong>Settings → Detector offset (ADU)</strong> (default <code>0</code> = no subtraction).</p>
+<h3 id="which-offset-to-use">Which offset to use</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Detector mode</th>
+<th style="text-align: left;">Offset</th>
+<th style="text-align: left;">How to set it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Photon counting (e.g. Leica HyD S/X/R in counting mode)</td>
+<td style="text-align: left;">0 ADU – photons are counted without an electronic offset</td>
+<td style="text-align: left;">Keep 0, or press <strong>From .lif…</strong> to read the detector settings and record the .lif file as the source.</td>
+</tr>
+<tr>
+<td style="text-align: left;">Analog (PMT, analog HyD, camera)</td>
+<td style="text-align: left;">Unknown from the file – Leica stores "Offset" there as an instrument setting, not in ADU</td>
+<td style="text-align: left;">Acquire a dark frame (laser off, same detector settings) and enter its median.</td>
+</tr>
+</tbody>
+</table>
+<p>The source of the value is saved per object in <code>K_offset_source</code> (<code>manual</code> or <code>lif_photon_counting</code>) and in <code>*_metadata.json → partitioning.offset_source</code> (file name, SHA-256 and detector settings).</p>
 <hr />
-<h2 id="safety-checks">Safety Checks</h2>
-<p>To prevent bugs and skewed statistics, ExQt applies three automatic safety checks:</p>
+<h2 id="rules-implemented-in-batchprocess_condensates">Rules Implemented in <code>Batch.process_condensates</code></h2>
 <ol>
-<li><strong>Dark offset inside the nucleus:</strong> Camera baseline is measured strictly inside the nucleus, avoiding zero-padded image borders.</li>
-<li><strong>Division-by-zero protection:</strong> If the nucleoplasm background is almost as dark as the camera offset (<span class="arithmatex">\(I_{\text{nucleoplasm}} - \text{offset} \le 1.0\)</span>), division would explode to infinity. ExQt sets <span class="arithmatex">\(K_{\text{part}} = \text{NaN}\)</span> instead.</li>
-<li><strong>True condensation check:</strong> A real condensate must be more concentrated than its surroundings (<span class="arithmatex">\(K_{\text{part}} \ge 1.0\)</span>). If it is darker than the background, it is flagged as invalid (<code>K_valid = False</code>).</li>
+<li><strong>Explicit offset, never estimated from the image.</strong> A low percentile of ROI pixels is not a camera offset: it follows the darkest thing inside the ROI and the noise level, so K would depend on ROI shape and noise, and a tight ROI inside the nucleus could inflate K several-fold. The applied value is stored per object in <code>K_offset_adu</code> with <code>K_offset_method = "explicit_setting"</code>, and in <code>*_metadata.json → partitioning</code>.</li>
+<li><strong>Nucleoplasm per nucleus.</strong> <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span> is the mean of the nucleus ROI (<code>cell_id</code>) minus all segmented objects, restricted to the Z-range in which that nucleus has objects.</li>
+<li><strong>Alignment padding excluded.</strong> Aligned stacks come with <code>&lt;stem&gt;_alignment_valid.tif</code> (written by <code>Tools → Align Z-stacks</code>). Voxels marked 0 (zero padding, shifted-in borders) never enter the nucleoplasm mean. Stacks aligned with an older ExQt have no such mask; a warning is printed and they should be re-aligned.</li>
+<li><strong>No K for Auto-ROI.</strong> Without a nucleus outline the "nucleoplasm" would include gel and background, so <code>partition_coefficient = NaN</code>, <code>K_valid = False</code>, <code>K_invalid_reason = "auto_roi_no_nucleoplasm"</code>.</li>
+<li><strong>Non-positive denominator.</strong> If <span class="arithmatex">\(I_{\text{nucleoplasm}} - \text{offset} \le 0\)</span>, K is NaN with <code>K_invalid_reason = "negative_denominator"</code>; with no nucleoplasm voxels, <code>"no_nucleoplasm"</code>. K &lt; 1 is <strong>not</strong> filtered out.</li>
 </ol>
-<hr />
-<h2 id="production-code-partitioning-engine-batchpy">Production Code: Partitioning Engine (<code>Batch.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py"><code>Batch.py</code></a>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM Batch.py: process_batch_pair()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">#1. Estimate dark camera offset from lowest 0.5% percentile INSIDE nuclear ROI</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">roi_pixels</span> <span class="o">=</span> <span class="n">img_intensity</span><span class="p">[</span><span class="n">roi_mask</span><span class="p">]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">roi_mask</span><span class="p">)</span> <span class="k">else</span> <span class="n">img_intensity</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">camera_offset</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">roi_pixels</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">))</span> <span class="k">if</span> <span class="n">roi_pixels</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">#2. Extract nucleoplasm intensity excluding all segmented condensates</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">nuc_pixels</span> <span class="o">=</span> <span class="n">img_intensity</span><span class="p">[</span><span class="n">roi_mask</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="p">(</span><span class="n">labeled_mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">))]</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">nucleoplasm_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">nuc_pixels</span><span class="p">))</span> <span class="k">if</span> <span class="n">nuc_pixels</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1">#3. Denominator-safe evaluation per segmented region</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">denom</span> <span class="o">=</span> <span class="n">nucleoplasm_mean</span> <span class="o">-</span> <span class="n">camera_offset</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">nucleoplasm_mean</span><span class="p">)</span> <span class="ow">or</span> <span class="n">denom</span> <span class="o">&lt;=</span> <span class="mf">1.0</span><span class="p">:</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">k_val</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">k_valid</span> <span class="o">=</span> <span class="kc">False</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">k_invalid_reason</span> <span class="o">=</span> <span class="s2">&quot;Nucleoplasm intensity &lt;= camera offset + 1.0&quot;</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">raw_k</span> <span class="o">=</span> <span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">mean_intensity</span> <span class="o">-</span> <span class="n">camera_offset</span><span class="p">)</span> <span class="o">/</span> <span class="n">denom</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="k">if</span> <span class="n">raw_k</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="n">k_val</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>        <span class="n">k_valid</span> <span class="o">=</span> <span class="kc">False</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>        <span class="n">k_invalid_reason</span> <span class="o">=</span> <span class="s2">&quot;K &lt; 1.0 (signal below nucleoplasm)&quot;</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>        <span class="n">k_val</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">raw_k</span><span class="p">)</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        <span class="n">k_valid</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>        <span class="n">k_invalid_reason</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="n">row</span><span class="p">[</span><span class="s2">&quot;camera_offset&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">camera_offset</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="n">row</span><span class="p">[</span><span class="s2">&quot;nucleoplasm_mean_intensity&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nucleoplasm_mean</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="n">row</span><span class="p">[</span><span class="s2">&quot;partition_coefficient&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">k_val</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="n">row</span><span class="p">[</span><span class="s2">&quot;K_valid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">k_valid</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="n">row</span><span class="p">[</span><span class="s2">&quot;K_invalid_reason&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">k_invalid_reason</span>
-</span></code></pre></div>
+<p>The numerator is clipped at 0 (<code>max(I_condensate - offset, 0)</code>).</p>
 
 
 

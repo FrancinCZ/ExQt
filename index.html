@@ -437,10 +437,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pipeline-orchestration-batchpy" class="md-nav__link">
+  <a href="#pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pipeline Orchestration (Batch.py)
+        Pipeline
       
     </span>
   </a>
@@ -1077,10 +1077,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pipeline-orchestration-batchpy" class="md-nav__link">
+  <a href="#pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pipeline Orchestration (Batch.py)
+        Pipeline
       
     </span>
   </a>
@@ -1144,8 +1144,8 @@
 
 
 <h1 id="exqt-expansion-microscopy-quantification-tool">ExQt: Expansion Microscopy Quantification Tool</h1>
-<p><strong>ExQt</strong> (<em>Expansion Microscopy Quantification Tool</em>) is an open-source, automated image-analysis platform for the 3D segmentation, biophysical quantification, and morphological profiling of biomolecular condensates.</p>
-<p>It is designed to work across both <strong>classical confocal immunofluorescence (IF)</strong> and <strong>Expansion Microscopy (ExM)</strong>, providing a unified, auditable pipeline to investigate liquid–liquid phase separation, internal compartmentalization, and morphological organization in the mammalian cell nucleus.</p>
+<p><strong>ExQt</strong> (<em>Expansion Microscopy Quantification Tool</em>) is an open-source desktop application for measuring biomolecular condensates in 3D images. It works on existing segmentation masks (it does not segment images itself) and measures size, enrichment, shape and the core–shell profile of every object.</p>
+<p>It is designed to work across both <strong>classical confocal immunofluorescence (IF)</strong> and <strong>Expansion Microscopy (ExM)</strong>, providing a unified, auditable pipeline to measure the size, shape, enrichment and internal intensity profile of condensates in the cell nucleus.</p>
 <hr />
 <h2 id="why-exqt">Why ExQt?</h2>
 <p>In diffraction-limited confocal microscopy, structures closer than the Abbe resolution limit can overlap and appear as a single object. Expansion Microscopy addresses this by physically magnifying the specimen in a swellable polymer hydrogel, allowing standard confocal hardware to resolve finer structural detail.</p>
@@ -1154,55 +1154,18 @@
 <li><strong>True 3D processing</strong> — maintaining connectivity across anisotropic voxel grids (<span class="arithmatex">\(\Delta z &gt; \Delta x, \Delta y\)</span>).</li>
 <li><strong>Dual-scale reporting</strong> — preserving both the physical hydrogel scale (<span class="arithmatex">\(V_{\text{gel}}\)</span>) and the estimated biological pre-expansion scale (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3\)</span>).</li>
 <li><strong>Internal profiling</strong> — quantifying concentration gradients across concentric layers (Core–Middle–Shell), rather than treating condensates as uniform blobs.</li>
-<li><strong>Shape analysis</strong> — separating external elongation from genuine internal organization via geometric reference models.</li>
+<li><strong>Shape analysis</strong> — comparing the FA of inner and outer layers with a homogeneous-ellipsoid null model of the same shape.</li>
 </ul>
 <hr />
-<h2 id="pipeline-orchestration-batchpy">Pipeline Orchestration (<code>Batch.py</code>)</h2>
-<p>The analysis kernel is <code>process_batch_pair()</code> in <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py"><code>Batch.py</code></a>. The excerpt below shows how voxel counts are converted into calibrated biophysical measurements:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#Batch.py: process_batch_pair()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">#Effective biological pixel scale (after expansion correction)</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">eff_pixel_size_nm</span> <span class="o">=</span> <span class="n">pixel_size_nm</span> <span class="o">/</span> <span class="n">expansion_factor</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">eff_z_step_nm</span>     <span class="o">=</span> <span class="n">z_step_nm</span> <span class="o">/</span> <span class="n">expansion_factor</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">#Camera dark offset: lowest 0.5th percentile inside the nuclear ROI</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">roi_pixels</span>    <span class="o">=</span> <span class="n">img_intensity</span><span class="p">[</span><span class="n">roi_mask</span><span class="p">]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">roi_mask</span><span class="p">)</span> <span class="k">else</span> <span class="n">img_intensity</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">camera_offset</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">roi_pixels</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">))</span> <span class="k">if</span> <span class="n">roi_pixels</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1">#Nuclear background (nucleoplasm: ROI interior minus condensate voxels)</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">nuc_pixels</span>       <span class="o">=</span> <span class="n">img_intensity</span><span class="p">[</span><span class="n">roi_mask</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="p">(</span><span class="n">labeled_mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">))]</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">nucleoplasm_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">nuc_pixels</span><span class="p">))</span> <span class="k">if</span> <span class="n">nuc_pixels</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1">#Per-object metric loop</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="k">for</span> <span class="n">region</span> <span class="ow">in</span> <span class="n">measure</span><span class="o">.</span><span class="n">regionprops</span><span class="p">(</span><span class="n">labeled_mask</span><span class="p">,</span> <span class="n">intensity_image</span><span class="o">=</span><span class="n">img_intensity</span><span class="p">):</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">voxel_volume_bio_um3</span> <span class="o">=</span> <span class="p">((</span><span class="n">eff_pixel_size_nm</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">eff_z_step_nm</span><span class="p">)</span> <span class="o">/</span> <span class="mf">1e9</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">voxel_volume_gel_um3</span> <span class="o">=</span> <span class="p">((</span><span class="nb">float</span><span class="p">(</span><span class="n">pixel_size_nm</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="nb">float</span><span class="p">(</span><span class="n">z_step_nm</span><span class="p">))</span> <span class="o">/</span> <span class="mf">1e9</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">row</span><span class="p">[</span><span class="s2">&quot;volume_px&quot;</span><span class="p">]</span>              <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">area</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">row</span><span class="p">[</span><span class="s2">&quot;volume_bio_um3&quot;</span><span class="p">]</span>         <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">area</span> <span class="o">*</span> <span class="n">voxel_volume_bio_um3</span><span class="p">)</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">row</span><span class="p">[</span><span class="s2">&quot;volume_gel_um3&quot;</span><span class="p">]</span>         <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">area</span> <span class="o">*</span> <span class="n">voxel_volume_gel_um3</span><span class="p">)</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">row</span><span class="p">[</span><span class="s2">&quot;equivalent_diameter_um&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">((</span><span class="mf">6.0</span> <span class="o">*</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;volume_bio_um3&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span> <span class="o">**</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">))</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="c1">#Partition coefficient (NaN if denominator is near-zero)</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">denom</span> <span class="o">=</span> <span class="n">nucleoplasm_mean</span> <span class="o">-</span> <span class="n">camera_offset</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">nucleoplasm_mean</span><span class="p">)</span> <span class="ow">or</span> <span class="n">denom</span> <span class="o">&lt;=</span> <span class="mf">1.0</span><span class="p">:</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>        <span class="n">row</span><span class="p">[</span><span class="s2">&quot;partition_coefficient&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>        <span class="n">row</span><span class="p">[</span><span class="s2">&quot;K_valid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>        <span class="n">k_val</span> <span class="o">=</span> <span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">mean_intensity</span> <span class="o">-</span> <span class="n">camera_offset</span><span class="p">)</span> <span class="o">/</span> <span class="n">denom</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>        <span class="n">row</span><span class="p">[</span><span class="s2">&quot;partition_coefficient&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">k_val</span><span class="p">)</span> <span class="k">if</span> <span class="n">k_val</span> <span class="o">&gt;=</span> <span class="mf">1.0</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>        <span class="n">row</span><span class="p">[</span><span class="s2">&quot;K_valid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">k_val</span> <span class="o">&gt;=</span> <span class="mf">1.0</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="c1">#Mode A: radial profiling and geometric null model</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="k">if</span> <span class="n">mode_a_enabled</span><span class="p">:</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>        <span class="n">radial_metrics</span> <span class="o">=</span> <span class="n">compute_core_shell_metrics</span><span class="p">(</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>            <span class="n">region</span><span class="o">.</span><span class="n">image</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">),</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>            <span class="n">region</span><span class="o">.</span><span class="n">intensity_image</span><span class="p">,</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>            <span class="n">voxel_spacing</span><span class="o">=</span><span class="p">(</span><span class="n">eff_z_step_nm</span><span class="p">,</span> <span class="n">eff_pixel_size_nm</span><span class="p">,</span> <span class="n">eff_pixel_size_nm</span><span class="p">)</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>        <span class="p">)</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>        <span class="n">row</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">radial_metrics</span><span class="p">)</span>
-</span></code></pre></div>
-<hr />
+<h2 id="pipeline">Pipeline</h2>
+<p><code>Batch.process_condensates</code> processes one raw/mask TIFF pair; the GUI worker in <code>App.py</code> runs it for every file and writes the CSV and <code>*_metadata.json</code>.</p>
+<ol>
+<li>Load the stack and mask; select the signal channel; alignment QC (<code>Batch.validate_alignment_qc</code>).</li>
+<li>ROI: Auto-ROI (whole field of view) or manual nucleus ROI, interpolated per nucleus (<code>Batch._interpolate_or_extrude_roi</code>).</li>
+<li>Connected components of the mask inside the ROI; raw noise floor <code>min_voxels</code>.</li>
+<li>Per object: gel and biological volume (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3\)</span>), <span class="arithmatex">\(K_{\text{part}}\)</span> with an explicit detector offset, edge/ROI-edge flags, optional Radial FA Profiling with the geometric null model.</li>
+<li>Reports: primary set by <code>postprocessing._prepare_reporting_frames</code>, Excel, plots.</li>
+</ol>
 <h2 id="installation">Installation</h2>
 <h3 id="prerequisites">Prerequisites</h3>
 <ul>
@@ -1210,10 +1173,10 @@
 <li>Windows, Linux, or macOS</li>
 </ul>
 <h3 id="setup">Setup</h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/FrancinCZ/ExQt.git
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>ExQt
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>python<span class="w"> </span>app.py
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/FrancinCZ/ExQt.git
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>ExQt
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>python<span class="w"> </span>app.py
 </span></code></pre></div>
 <hr />
 

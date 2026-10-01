@@ -573,10 +573,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-set-pixel-size-and-z-step-advanced-settings" class="md-nav__link">
+  <a href="#where-to-set-pixel-size-and-z-step-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to Set Pixel Size and Z-Step (Advanced Settings)
+        Where to Set Pixel Size and Z-Step (Settings)
       
     </span>
   </a>
@@ -617,19 +617,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#3-settings-dark-mode" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-menu-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Settings → Dark Mode
+        Top Menu: Settings
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1193,10 +1193,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-set-pixel-size-and-z-step-advanced-settings" class="md-nav__link">
+  <a href="#where-to-set-pixel-size-and-z-step-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to Set Pixel Size and Z-Step (Advanced Settings)
+        Where to Set Pixel Size and Z-Step (Settings)
       
     </span>
   </a>
@@ -1237,19 +1237,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#3-settings-dark-mode" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-menu-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Settings → Dark Mode
+        Top Menu: Settings
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1281,7 +1281,7 @@
 <ul>
 <li><strong>Input folder (<code>Browse</code>):</strong> Select the folder containing your raw multi-channel <code>.tif</code> stacks and their corresponding segmentation masks (<code>*_Mask.tif</code>).</li>
 <li><strong>Output folder (<code>Browse...</code>):</strong> Choose where results (<code>.csv</code>, <code>.xlsx</code>, figures) should be saved.</li>
-<li><strong>Save to the same folder as input:</strong> When checked, creates an automated output directory directly inside your input folder.</li>
+<li><strong>Save next to input:</strong> When checked, results are written into the input folder instead of a separate output folder.</li>
 </ul>
 <h3 id="2-processing-configuration">2. Processing Configuration</h3>
 <ul>
@@ -1289,28 +1289,28 @@
 <li><strong><code>3d</code> (Default):</strong> Full volumetric analysis across all optical Z-sections. Required for 3D shape anisotropy and radial core–shell profiling.</li>
 <li><strong><code>2d</code>:</strong> Maximum Intensity Projection (MIP) analysis.</li>
 <li><strong><code>single_slice</code>:</strong> Automatically selects and analyzes only the single sharpest in-focus plane.</li>
-<li><strong>Expansion Factor:</strong> Enter the linear physical expansion factor of your hydrogel (e.g., <code>1.0</code> for classical unexpanded confocal, <code>4.0</code> for standard ExM, or any custom expansion value). ExQt uses this to calculate true biological volumes (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}} / \text{ExF}^3\)</span>).</li>
+<li><strong>Expansion Factor:</strong> Enter the linear physical expansion factor of your hydrogel (e.g., <code>1.0</code> for classical unexpanded confocal; ≈ <code>8</code> for our Magnify protocol imaged in distilled water – Magnify expands 3–4.5× in 1× PBS, 5–7× in 1:50 PBS and 8–11× in water, so always record the imaging medium). Prefer an ExF measured on nuclei over the macroscopic gel ExF, because nuclei can expand less than the gel. ExQt uses this to calculate true biological volumes (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}} / \text{ExF}^3\)</span>).</li>
 <li><strong>Show Napari preview:</strong> Keeps the 3D viewer active and synchronized with each processed image.</li>
-<li><strong>Auto-ROI:</strong> When checked, treats the entire field of view as a single cell/nucleus (convenient for single-nucleus crops or high-throughput screens). When unchecked, ExQt pauses to let you outline the nucleus manually.</li>
-<li><strong>Pause and review segmentations:</strong> An optional quality check — pauses after each image to let you visually approve the segmentation mask before moving to the next file.</li>
+<li><strong>Auto-ROI:</strong> When checked, treats the entire field of view as a single cell/nucleus (convenient for single-nucleus crops or high-throughput screens). When unchecked, ExQt pauses to let you outline the nucleus manually. With Auto-ROI, <span class="arithmatex">\(K_{\text{part}}\)</span> is not computed (NaN, <code>auto_roi_no_nucleoplasm</code>), because there is no nucleus outline to define the nucleoplasm.</li>
+<li><strong>Review each image:</strong> An optional quality check — pauses after each image to let you visually approve the segmentation mask before moving to the next file.</li>
 </ul>
 <h3 id="3-size-filtering-interactive-preview">3. Size Filtering &amp; Interactive Preview</h3>
 <ul>
-<li><strong>Analyzed Size Min &amp; Max (<span class="arithmatex">\(\mu\text{m}^3\)</span> or <span class="arithmatex">\(\mu\text{m}^2\)</span>):</strong> Sets the physical volume boundaries for <strong>Primary Condensates</strong>. Objects smaller than Min (e.g., single-pixel noise) or larger than Max (e.g., giant unresolved clumps) are separated into the excluded dataset.</li>
-<li><strong>Preview size distribution... (Button):</strong> Opens an interactive histogram of your data <em>before</em> running the full batch. You can drag vertical sliders on the graph to visually pick the optimal Min and Max size cutoffs for your population.</li>
+<li><strong>Min size / Max size</strong> (µm³ in 3D, µm² in 2D; the unit is shown in the field): Sets the physical size boundaries for <strong>Primary Condensates</strong>. Objects smaller than Min (e.g., single-pixel noise) or larger than Max (e.g., giant unresolved clumps) are separated into the excluded dataset.</li>
+<li><strong>Preview sizes... (Button):</strong> Opens an interactive histogram of your data <em>before</em> running the full batch. You can drag vertical sliders on the graph to visually pick the optimal Min and Max size cutoffs for your population.</li>
 </ul>
 <h3 id="4-action-buttons">4. Action Buttons</h3>
 <ul>
-<li><strong>Start analysis (Blue button):</strong> Begins automated batch processing across all paired files in the input folder.</li>
-<li><strong>Confirm ROI and Continue (Green button):</strong> Appears when manual ROI drawing is active. Click this once you have drawn the nuclear boundary in Napari to proceed with feature extraction.</li>
+<li><strong>Start analysis (Blue button):</strong> Starts the analysis of all paired files in the input folder.</li>
+<li><strong>Confirm ROI and Continue (Green button):</strong> Appears when manual ROI drawing is active. Click this once you have drawn the nuclear boundary in Napari to proceed with feature extraction. Draw one shape per nucleus on one or more Z-slices. Shapes on different slices that overlap in XY are treated as the same nucleus and interpolated between its own slices (slices outside that range are excluded); a nucleus drawn on a single slice is extruded through the whole stack. Each nucleus gets its own <code>cell_id</code>. Shapes that overlap or touch on the same slice cannot be separated and are rejected with a message, so you can fix them. If nothing is drawn, ExQt asks before using the whole field of view (<code>roi_source = empty_fallback_fov</code>).</li>
 <li><strong>Approve &amp; Next Image (Orange button):</strong> Appears during Review Mode to approve the current segmentation and move to the next image.</li>
 <li><strong>Stop and Discard This Image (Red button):</strong> Discards the currently displayed image and safely stops the batch (all previously approved images remain saved).</li>
 </ul>
 <hr />
-<h2 id="where-to-set-pixel-size-and-z-step-advanced-settings">Where to Set Pixel Size and Z-Step (Advanced Settings)</h2>
+<h2 id="where-to-set-pixel-size-and-z-step-settings">Where to Set Pixel Size and Z-Step (Settings)</h2>
 <p>Microscope calibration parameters are accessed via the top menu bar:</p>
-<p><strong>Navigation:</strong> <code>Settings</code> → <code>Advanced...</code> (from the top menu bar)</p>
-<p>Opening <strong>Advanced Settings</strong> reveals the core optical calibration dialog:</p>
+<p><strong>Navigation:</strong> click <code>Settings</code> in the top menu bar; the settings window opens directly.</p>
+<p>The <strong>Settings</strong> window contains the optical calibration and all analysis options:</p>
 <table>
 <thead>
 <tr>
@@ -1341,7 +1341,12 @@
 <td style="text-align: left;">0-based channel index for the nuclear counterstain (e.g., blue DAPI channel).</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Raw noise filter (voxels)</strong></td>
+<td style="text-align: left;"><strong>Detector offset (ADU)</strong></td>
+<td style="text-align: center;"><code>0.0</code></td>
+<td style="text-align: left;">Detector/camera offset subtracted from condensate and nucleoplasm intensity for <span class="arithmatex">\(K_{\text{part}}\)</span>. From acquisition settings or a dark frame; <code>0</code> = no subtraction. Never estimated from the image. <strong>From .lif…</strong> reads a Leica .lif file: if every active detector is in photon-counting mode the offset is set to 0 and the file is recorded as its source.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Noise filter (voxels)</strong></td>
 <td style="text-align: center;"><code>5</code></td>
 <td style="text-align: left;">Early connected-component threshold to discard tiny single-pixel camera shot noise before calibration.</td>
 </tr>
@@ -1360,24 +1365,32 @@
 <td style="text-align: center;">Checked</td>
 <td style="text-align: left;">Flags condensates that split into multiple fragments across Z-slices, excluding them from primary benchmarks.</td>
 </tr>
+<tr>
+<td style="text-align: left;"><strong>Dark mode</strong></td>
+<td style="text-align: center;">Off</td>
+<td style="text-align: left;">Dark or light appearance; remembered for the next start.</td>
+</tr>
 </tbody>
 </table>
 <blockquote>
 <p>[!TIP]
-<strong>Automatic Metadata Detection:</strong> When you select an input folder with <code>Browse</code>, ExQt automatically reads the TIFF image headers. If valid physical pixel sizes are detected, ExQt auto-fills XY and Z calibration and confirms it in the bottom status bar!</p>
+<strong>Metadata Detection:</strong> When you select an input folder with <code>Browse</code>, ExQt reads OME / ImageJ calibration from the TIFF headers (plain TIFF DPI such as the default 72 dpi is ignored; values outside XY 1–2000 nm or Z 1–5000 nm are reported and ignored). ExQt then asks what to apply:
+- <strong>One calibration in all files:</strong> <em>Yes</em> copies it into Settings, <em>No</em> keeps your settings. Either way, the Settings values are applied to every file.
+- <strong>Different calibrations:</strong> <em>Yes</em> applies each file's own TIFF calibration (Settings only for files without one), <em>No</em> applies Settings to all files.</p>
+<p>If the TIFF calibration ≈ Settings / ExF, ExQt warns that the files seem to be calibrated to the pre-expansion size (applying ExF again would make volumes ExF³× too small). The calibration actually applied to each file and its source are saved in <code>*_metadata.json</code> (<code>calibration_source</code>, <code>applied_calibration_by_file</code>).</p>
 </blockquote>
 <hr />
 <h2 id="top-menu-tools">Top Menu: Tools</h2>
 <h3 id="1-tools-align-z-stacks">1. <code>Tools</code> → <code>Align Z-stacks...</code></h3>
-<p>Opens the <strong>Multi-Channel Stack Aligner</strong> dialog to correct for thermal stage drift or chromatic aberration before running condensate analysis:
+<p>Opens the <strong>Z-stack aligner</strong> dialog to correct lateral (XY) drift between consecutive Z-slices (e.g. stage or thermal drift) before running condensate analysis. It does not correct chromatic aberration between channels:
 - <strong>Reference channel:</strong> Choose the channel with the most continuous signal (or click <strong>Auto-detect...</strong> to let ExQt test inter-slice correlation automatically).
 - <strong>Max step per Z-plane (px):</strong> Maximum allowed shift between adjacent slices (default 8.0 px).
-- <strong>Expand canvas:</strong> Automatically enlarges the field of view by the cumulative drift so no edge voxels are clipped.
+- <strong>Expand canvas:</strong> Enlarges the field of view by the cumulative drift so no edge voxels are clipped; the added zero border is recorded in <code>&lt;stem&gt;_alignment_valid.tif</code> and excluded from statistics.
 - <strong>Align masks:</strong> Shifts matching <code>*_Mask.tif</code> files with the exact same translation vectors.</p>
 <h3 id="2-tools-merge-existing-runs">2. <code>Tools</code> → <code>Merge existing runs...</code></h3>
 <p>If you ran multiple batches across different days or folders, this tool scans the directory tree and merges all compatible output CSVs into a single unified Excel spreadsheet (<code>Merged_Stats.xlsx</code>) and comparison figure (<code>Merged_Stats.png</code>).</p>
-<h3 id="3-settings-dark-mode">3. <code>Settings</code> → <code>Dark Mode</code></h3>
-<p>Toggles between clean dark mode and light mode stylesheets for comfortable viewing in dim microscopy rooms.</p>
+<h2 id="top-menu-settings">Top Menu: Settings</h2>
+<p>One click opens the Settings window described above (calibration, channels, detector offset, Radial FA Profiling and dark mode).</p>
 
 
 

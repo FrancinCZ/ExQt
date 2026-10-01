@@ -1156,7 +1156,7 @@
 
 
 <h1 id="data-dictionary-exported-csv-schema">Data Dictionary: Exported CSV Schema</h1>
-<p>This reference document defines all 30+ columns exported in ExQt's primary measurement tables (<code>_Output_Batch_3d.csv</code> and <code>Result_Primary_Condensates.csv</code>).</p>
+<p>This reference document defines all 30+ columns exported in ExQt's primary measurement tables (<code>_Output_Batch_3d.csv</code> and <code>&lt;run&gt;_Primary_Condensates.csv</code>).</p>
 <hr />
 <h2 id="1-object-identification-centroid-coordinates">1. Object Identification &amp; Centroid Coordinates</h2>
 <table>
@@ -1180,6 +1180,12 @@
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>integer</code></td>
 <td style="text-align: left;">Identifier of the specific nucleus / cell within the field of view.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>roi_source</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">How the analysed region was defined: <code>auto_fov</code> (Auto-ROI, whole field of view), <code>manual</code> (ROI drawn by the user), <code>empty_fallback_fov</code> (nothing drawn, user explicitly confirmed the whole field of view).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>object_id</code></td>
@@ -1247,13 +1253,13 @@
 <td style="text-align: left;"><code>applied_pixel_size_nm</code></td>
 <td style="text-align: center;">nm</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Unscaled lateral pixel size <span class="arithmatex">\(\Delta x\)</span> supplied during batch configuration.</td>
+<td style="text-align: left;">Unscaled lateral pixel size <span class="arithmatex">\(\Delta x\)</span> actually applied to this file (Settings or, if chosen, the file's TIFF calibration; source in <code>*_metadata.json</code> → <code>applied_calibration_by_file</code>).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>applied_z_step_nm</code></td>
 <td style="text-align: center;">nm</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Unscaled axial slice spacing <span class="arithmatex">\(\Delta z\)</span> supplied during batch configuration.</td>
+<td style="text-align: left;">Unscaled axial slice spacing <span class="arithmatex">\(\Delta z\)</span> actually applied to this file (same source rules as <code>applied_pixel_size_nm</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -1291,31 +1297,43 @@
 <td style="text-align: left;"><code>nucleoplasm_mean_intensity</code></td>
 <td style="text-align: center;">ADU</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Mean intensity of the diffuse nucleoplasm (<span class="arithmatex">\(I_{\text{nuc}}\)</span>) within the nuclear ROI.</td>
+<td style="text-align: left;">Mean intensity of the diffuse nucleoplasm (<span class="arithmatex">\(I_{\text{nuc}}\)</span>) within this nucleus ROI (objects and alignment padding excluded, object Z-range only). NaN in Auto-ROI.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>camera_offset</code></td>
+<td style="text-align: left;"><code>K_offset_adu</code></td>
 <td style="text-align: center;">ADU</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Dark camera electronic offset derived from the 0.5th percentile of ROI pixels.</td>
+<td style="text-align: left;">Detector offset subtracted for <span class="arithmatex">\(K_{\text{part}}\)</span>; explicit setting from Settings (0 = none).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>K_offset_method</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">How the offset was obtained; currently always <code>explicit_setting</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>K_offset_source</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Where the explicit value came from: <code>manual</code> or <code>lif_photon_counting</code> (read from a Leica .lif file, details in <code>*_metadata.json</code>).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>partition_coefficient</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Concentration ratio: <span class="arithmatex">\((I_{\text{cond}} - \text{offset}) / (I_{\text{nuc}} - \text{offset})\)</span>.</td>
+<td style="text-align: left;">Concentration ratio: <span class="arithmatex">\(\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})\)</span>. NaN when <code>K_valid</code> is <code>False</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>K_valid</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>boolean</code></td>
-<td style="text-align: left;"><code>True</code> if denominator <span class="arithmatex">\(\ge 1.0\)</span> and <span class="arithmatex">\(K_{\text{part}} \ge 1.0\)</span>; <code>False</code> otherwise.</td>
+<td style="text-align: left;"><code>True</code> if a manual ROI nucleoplasm exists and <span class="arithmatex">\(I_{\text{nuc}} - \text{offset} &gt; 0\)</span>. K &lt; 1 is not filtered.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>K_invalid_reason</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>string</code></td>
-<td style="text-align: left;">Diagnostic text describing denominator collapse or non-condensation.</td>
+<td style="text-align: left;"><code>auto_roi_no_nucleoplasm</code>, <code>no_nucleoplasm</code>, or <code>negative_denominator</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -1359,7 +1377,31 @@
 <td style="text-align: left;"><code>condensate_class</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>string</code></td>
-<td style="text-align: left;">Categorical classification: <code>Core-Enriched</code>, <code>Shell-Enriched</code>, or <code>Uniform</code>.</td>
+<td style="text-align: left;"><code>&lt;shape&gt; / &lt;gradient&gt;</code>: shape <code>Globular (Low FA)</code> (A_object &lt; <code>fa_globular_boundary</code>, 0.65, working value in <code>reference_values.py</code>) or <code>Elongated (High FA)</code>; gradient <code>Core-Enriched</code> / <code>Shell-Enriched</code> only if <code>gradient_significant</code>, else <code>No Significant Gradient</code>, or <code>Profile-Unavailable</code>. Also <code>Punctate / Small Cluster</code> (&lt; 3 × min core voxels), <code>Unclassified</code> (no FA) and <code>Unclassified (QC)</code> (object failed Mode A QC). <strong>Core-Enriched is expected from PSF blurring of a homogeneous object</strong> – not evidence of biological enrichment without a null/PSF comparison.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gradient_t_core_shell</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Welch t statistic, core vs shell voxel intensities.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gradient_p_core_shell</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Two-sided Welch p-value (NaN if a layer has &lt; 2 voxels).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gradient_significant</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>gradient_p_core_shell &lt; gradient_alpha</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gradient_test</code> / <code>gradient_alpha</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code> / <code>float</code></td>
+<td style="text-align: left;"><code>welch_t_two_sided</code>, 0.01.</td>
 </tr>
 </tbody>
 </table>
@@ -1385,7 +1427,7 @@
 <td style="text-align: left;"><code>A_core</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">3D Fractional Anisotropy of the central core shell.</td>
+<td style="text-align: left;">3D Fractional Anisotropy of the core layer.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>A_middle</code></td>
@@ -1406,16 +1448,34 @@
 <td style="text-align: left;">Measured radial FA difference: <span class="arithmatex">\(\text{FA}_{\text{core}} - \text{FA}_{\text{shell}}\)</span>.</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>principal_std_1_nm</code>, <code>principal_std_2_nm</code>, <code>principal_std_3_nm</code></td>
+<td style="text-align: center;">nm</td>
+<td style="text-align: center;"><code>float</code></td>
+<td style="text-align: left;">Principal standard deviations of the object's voxel coordinates (physical, after ExF), <strong>ascending</strong>; ranked, not Z/Y/X.</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>null_delta_FA_core_shell</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Expected geometric gradient from a synthetic homogeneous matching ellipsoid.</td>
+<td style="text-align: left;">Expected geometric gradient of a homogeneous ellipsoid with the object's principal stds <strong>and eigenvectors</strong>, sampled on the same anisotropic grid.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>null_valid</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if the null shell/middle/core FA are all valid.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>null_invalid_reason</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Why the null model is unavailable (empty if valid): <code>non_finite_principal_std</code>, <code>non_finite_principal_axes</code>, <code>too_few_voxels</code>, <code>layer_split_failed</code>, <code>invalid_layer_fa</code>, <code>object_anisotropy_unavailable</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>delta_FA_excess</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Biological excess anisotropy: <span class="arithmatex">\(\Delta\text{FA}_{\text{measured}} - \Delta\text{FA}_{\text{null}}\)</span>.</td>
+<td style="text-align: left;"><span class="arithmatex">\(\Delta\text{FA}_{\text{measured}} - \Delta\text{FA}_{\text{null}}\)</span>: how far the mask's layer shapes depart from a same-shape homogeneous ellipsoid (mask geometry only, not protein distribution).</td>
 </tr>
 </tbody>
 </table>
@@ -1435,7 +1495,7 @@
 <td style="text-align: left;"><code>mode_a_core_voxels</code></td>
 <td style="text-align: center;">voxels</td>
 <td style="text-align: center;"><code>integer</code></td>
-<td style="text-align: left;">Count of voxels residing in the core layer (must be <span class="arithmatex">\(\ge 20\)</span> for valid FA).</td>
+<td style="text-align: left;">Count of voxels residing in the core layer (must be <span class="arithmatex">\(\ge\)</span> <code>min_core_voxels</code>, default 20, for valid FA).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>mode_a_z_topology_status</code></td>
@@ -1450,16 +1510,34 @@
 <td style="text-align: left;">Fraction of occupied <span class="arithmatex">\(Z\)</span>-slices containing <span class="arithmatex">\(\ge 2\)</span> disconnected components.</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>touches_image_edge</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if the object reaches the image/stack border or alignment padding (valid-voxel mask). All modes; excluded from primary.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>touches_roi_edge</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>boolean</code></td>
+<td style="text-align: left;"><code>True</code> if the ROI boundary cuts the object. All modes; excluded from primary.</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>mode_a_object_touches_edge</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>boolean</code></td>
-<td style="text-align: left;"><code>True</code> if object bounding box intersects the 3D image border.</td>
+<td style="text-align: left;">Mode A copy of <code>touches_image_edge</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>mode_a_object_touches_roi_edge</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>boolean</code></td>
-<td style="text-align: left;"><code>True</code> if object voxels intersect the nuclear envelope mask boundary.</td>
+<td style="text-align: left;">Mode A copy of <code>touches_roi_edge</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>alignment_status</code></td>
+<td style="text-align: center;">-</td>
+<td style="text-align: center;"><code>string</code></td>
+<td style="text-align: left;">Aligner overall status of the input stack: <code>PASS</code>, <code>REVIEW</code> (analysed, never primary) or <code>not_aligned</code> (no <code>&lt;stem&gt;_drift.csv</code>). <code>FAIL</code> stacks are not analysed.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>primary_qc_valid</code></td>

@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#multi-channel-stack-aligner-drift-aberration-correction" class="md-skip">
+        <a href="#z-stack-aligner-xy-drift-correction" class="md-skip">
           Skip to content
         </a>
       
@@ -596,58 +596,24 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#subpixel-registration-algorithm" class="md-nav__link">
+  <a href="#algorithm" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Subpixel Registration Algorithm
+        Algorithm
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Subpixel Registration Algorithm">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#steps-in-the-pipeline" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Steps in the Pipeline:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-plane-preconditioning-shift-validation-stack_alignerpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Plane Preconditioning &amp; Shift Validation (stack_aligner.py)
+        Implementation
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Production Code: Plane Preconditioning &amp; Shift Validation (stack_aligner.py)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#explanatory-breakdown" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Explanatory Breakdown:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1077,58 +1043,24 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#subpixel-registration-algorithm" class="md-nav__link">
+  <a href="#algorithm" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Subpixel Registration Algorithm
+        Algorithm
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Subpixel Registration Algorithm">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#steps-in-the-pipeline" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Steps in the Pipeline:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-plane-preconditioning-shift-validation-stack_alignerpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Plane Preconditioning &amp; Shift Validation (stack_aligner.py)
+        Implementation
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Production Code: Plane Preconditioning &amp; Shift Validation (stack_aligner.py)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#explanatory-breakdown" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Explanatory Breakdown:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1160,98 +1092,30 @@
 
 
 
-<h1 id="multi-channel-stack-aligner-drift-aberration-correction">Multi-Channel Stack Aligner (Drift &amp; Aberration Correction)</h1>
-<p>In sequential multi-channel 3D confocal acquisitions, spatial misalignment between channels frequently arises due to <strong>thermal drift</strong>, <strong>piezo stage backlash</strong>, or <strong>chromatic aberration</strong> across emission wavelengths.</p>
-<p>If an antibody channel (e.g., SON speckles in green) is misaligned with the nuclear counterstain (e.g., DAPI in blue) by even 200–500 nm, condensates located near the nuclear periphery will artificially cross into the background, corrupting partition coefficients and triggering spurious QC exclusion.</p>
+<h1 id="z-stack-aligner-xy-drift-correction">Z-Stack Aligner (XY Drift Correction)</h1>
+<p><code>stack_aligner.py</code> corrects <strong>lateral (XY) drift between consecutive Z-slices</strong> of one stack, e.g. from stage or thermal drift during acquisition. It estimates one translation per pair of neighbouring slices from a single reference channel and applies the accumulated correction to <strong>all channels</strong> of the stack (and optionally to the mask). It does not correct chromatic aberration between channels, rotation, scaling or non-rigid deformation.</p>
 <hr />
-<h2 id="subpixel-registration-algorithm">Subpixel Registration Algorithm</h2>
-<p>The <code>stack_aligner.py</code> module performs rigid translation estimation in Fourier space using <strong>Phase Cross-Correlation</strong> (<code>skimage.registration.phase_cross_correlation</code>):</p>
-<pre class="mermaid"><code>graph TD
-    A["Reference Channel (e.g. DAPI)"] --&gt; C["Preconditioning &amp; Hanning Taper"]
-    B["Moving Channel (e.g. Signal)"] --&gt; C
-    C --&gt; D["Phase Cross-Correlation (FFT Registration)"]
-    D --&gt; E["Subpixel Translation Vector (ΔY, ΔX)"]
-    E --&gt; F["Rigid Translation (ndimage.shift)"]
-    F --&gt; G["Bounding Box Crop (No Zero-Padding Artifact)"]</code></pre>
-<h3 id="steps-in-the-pipeline">Steps in the Pipeline:</h3>
+<h2 id="algorithm">Algorithm</h2>
 <ol>
-<li><strong>Edge-Tapering</strong>: Applies 2D Hanning window tapering along plane boundaries to suppress high-frequency spectral leakage caused by rectangular image edges in the FFT.</li>
-<li><strong>Phase Correlation</strong>: Estimates the rigid translation vector <span class="arithmatex">\((\Delta Y, \Delta X)\)</span> with subpixel accuracy (<span class="arithmatex">\(1/100\)</span>th of a pixel).</li>
-<li><strong>Bounding Box Cropping</strong>: Translates the image and <strong>crops</strong> the overlapping bounding box across all channels. <strong>Critically, ExQt does NOT pad shifted edges with zeros</strong>, because artificial zeros corrupt background noise calculations.</li>
+<li><strong>Plane preparation</strong> (<code>_prepare_plane</code>): percentile clipping (1–99 %), high-pass filter (σ = 8 px), light smoothing, normalisation and a 2D Hanning taper against FFT edge effects. Planes without texture are marked <code>insufficient_texture</code>.</li>
+<li><strong>Registration:</strong> <code>skimage.registration.phase_cross_correlation</code> between neighbouring planes, sub-pixel with <code>upsample_factor = 10</code> (1/10 px), in both directions; the two estimates must agree (<code>max_bidirectional_disagreement_px</code>).</li>
+<li><strong>Step checks:</strong> step size ≤ <code>max_step_px</code> (default 8 px), correlation after the shift (computed only over overlapping pixels), no loss of correlation. Each step is <code>PASS</code>, <code>REVIEW</code> or <code>FAIL</code>; a <code>FAIL</code> step gets zero shift.</li>
+<li><strong>Overall status:</strong> texture-less steps at the ends of the stack are ignored; <code>FAIL</code> steps in the middle up to <code>max_fail_fraction</code> (20 %) give <code>REVIEW</code>, more give <code>FAIL</code>. The overall status is written to <code>&lt;stem&gt;_drift.csv</code> (<code>overall_status</code>).</li>
+<li><strong>Output:</strong> with <code>expand_canvas</code> (default) the canvas is enlarged by the accumulated drift and the new border is filled with zeros. These padding voxels are marked 0 in <code>&lt;stem&gt;_alignment_valid.tif</code>, and the analysis excludes them from intensity statistics and uses them for edge detection. For <code>FAIL</code> no image is written.</li>
 </ol>
+<p>The analysis follows the overall status: <code>PASS</code> normal, <code>REVIEW</code> analysed but not primary, <code>FAIL</code> excluded.</p>
 <hr />
-<h2 id="production-code-plane-preconditioning-shift-validation-stack_alignerpy">Production Code: Plane Preconditioning &amp; Shift Validation (<code>stack_aligner.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/stack_aligner.py"><code>stack_aligner.py</code></a> demonstrating plane conditioning and post-shift correlation validation:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># --- EXCERPT FROM stack_aligner.py ---</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">_prepare_plane</span><span class="p">(</span><span class="n">plane</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">AlignmentConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="sd">    Preconditions a 2D optical section for FFT phase cross-correlation.</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="sd">    Applies percentile clipping, optional bandpass filtering, and Hanning edge-tapering.</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">image</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">plane</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">finite</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">finite</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="k">return</span> <span class="kc">None</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">image</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">finite</span><span class="p">,</span> <span class="n">image</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">image</span><span class="p">[</span><span class="n">finite</span><span class="p">]))</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="c1"># Clip extreme hot/dead pixels (1st to 99th percentile)</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">low</span><span class="p">,</span> <span class="n">high</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">99</span><span class="p">))</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">low</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">high</span><span class="p">)</span> <span class="ow">or</span> <span class="n">high</span> <span class="o">&lt;=</span> <span class="n">low</span><span class="p">:</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        <span class="k">return</span> <span class="kc">None</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">image</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">low</span><span class="p">,</span> <span class="n">high</span><span class="p">)</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="c1"># Optional bandpass filter to highlight structural texture</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">highpass_sigma</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">image</span> <span class="o">-</span> <span class="n">ndi</span><span class="o">.</span><span class="n">gaussian_filter</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">highpass_sigma</span><span class="p">)</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">smooth_sigma</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">gaussian_filter</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">config</span><span class="o">.</span><span class="n">smooth_sigma</span><span class="p">)</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="c1"># Normalize intensity to zero mean, unit variance</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">image</span><span class="p">))</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">std</span><span class="p">)</span> <span class="ow">or</span> <span class="n">std</span> <span class="o">&lt;</span> <span class="n">config</span><span class="o">.</span><span class="n">min_texture_std</span><span class="p">:</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>        <span class="k">return</span> <span class="kc">None</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">image</span> <span class="o">=</span> <span class="p">(</span><span class="n">image</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">image</span><span class="p">)))</span> <span class="o">/</span> <span class="n">std</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="c1"># Apply 2D Hanning edge taper to eliminate FFT boundary discontinuity</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">edge_taper</span> <span class="ow">and</span> <span class="nb">min</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">4</span><span class="p">:</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">image</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">outer</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">hanning</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">np</span><span class="o">.</span><span class="n">hanning</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="k">return</span> <span class="n">image</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="k">def</span><span class="w"> </span><span class="nf">_correlation</span><span class="p">(</span><span class="n">reference</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">moving</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">shift_yx</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="sd">    Computes Pearson correlation coefficient strictly over the overlapping valid pixels</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="sd">    after applying the candidate subpixel translation.</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">shifted</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>        <span class="n">moving</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">shift_yx</span><span class="p">),</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>        <span class="n">order</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;constant&quot;</span><span class="p">,</span> <span class="n">cval</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="kc">False</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="p">)</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">reference</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">shifted</span><span class="p">)</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">count_nonzero</span><span class="p">(</span><span class="n">valid</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">16</span><span class="p">:</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>    <span class="n">a</span> <span class="o">=</span> <span class="n">reference</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>    <span class="n">b</span> <span class="o">=</span> <span class="n">shifted</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>    <span class="n">a</span> <span class="o">-=</span> <span class="n">a</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>    <span class="n">b</span> <span class="o">-=</span> <span class="n">b</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>    <span class="n">denom</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">a</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">b</span> <span class="o">*</span> <span class="n">b</span><span class="p">))</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">b</span><span class="p">)</span> <span class="o">/</span> <span class="n">denom</span><span class="p">)</span> <span class="k">if</span> <span class="n">denom</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-</span></code></pre></div>
-<h3 id="explanatory-breakdown">Explanatory Breakdown:</h3>
+<h2 id="implementation">Implementation</h2>
 <ul>
-<li><strong><code>np.outer(np.hanning(...), np.hanning(...))</code></strong>: Multiplies the image by an elliptical window that smoothly ramps intensities to zero at the perimeter, eliminating circular convolution artifacts.</li>
-<li><strong><code>cval=np.nan</code> in <code>ndi.shift</code></strong>: Shifted non-overlapping border pixels are filled with <code>NaN</code> rather than zero, ensuring that the correlation coefficient is computed strictly over real intersecting biological structures.</li>
+<li><code>stack_aligner.estimate_xy_drift</code>, <code>apply_xy_shifts</code>, <code>align_tiff_stack</code>, <code>align_tiff_folder</code>; the reference channel can be suggested by <code>ChannelDetectionWorker</code> in <code>App.py</code>.</li>
 </ul>
 <hr />
 <h2 id="methodological-background-inspiration">Methodological Background &amp; Inspiration</h2>
 <p>The multi-channel 3D stack alignment strategy in <code>stack_aligner.py</code> is inspired by and adapted from the MATLAB <strong><a href="https://github.com/suzukilabmcardle/3D-Aligner">3D-Aligner</a></strong> developed by the <strong>Suzuki Lab at the McArdle Laboratory for Cancer Research</strong> (<a href="https://github.com/suzukilabmcardle/3D-Aligner">suzukilabmcardle/3D-Aligner</a>).</p>
 <p>In ExQt, the core concepts were re-engineered and implemented natively in Python using <code>skimage.registration.phase_cross_correlation</code> and <code>scipy.ndimage</code>, augmented with:
-1. <strong>Automated Reference Quality Scoring</strong>: Dynamic selection of the optimal structural reference channel (<code>ChannelDetectionWorker</code>).
-2. <strong>Spectral Leakage Suppression</strong>: Edge-preserving 2D Hanning window preconditioning to eliminate Fourier border discontinuities.
-3. <strong>Canvas Expansion (<code>expand_canvas=True</code>)</strong>: Expanding image bounding boxes to ensure shifted stacks retain all peripheral signals without zero-padding corruption.
+1. <strong>Reference channel suggestion</strong>: <strong>Auto-detect</strong> ranks channels by the correlation between neighbouring slices (<code>ChannelDetectionWorker</code>).
+2. <strong>Spectral Leakage Suppression</strong>: 2D Hanning window preconditioning to reduce Fourier border discontinuities.
+3. <strong>Canvas Expansion (<code>expand_canvas=True</code>)</strong>: The canvas grows by the accumulated drift so no signal is cropped; the zero padding is recorded in <code>&lt;stem&gt;_alignment_valid.tif</code> and excluded from statistics.
 4. <strong>Synchronized Mask Alignment</strong>: Rigid transformation validation and synchronized translation applied automatically to corresponding binary/labeled <code>*_Mask.tif</code> stacks.</p>
 
 

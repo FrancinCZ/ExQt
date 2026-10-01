@@ -551,10 +551,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#interactive-workflow-napari-layer-binding-3d-extrusion" class="md-nav__link">
+  <a href="#interactive-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Interactive Workflow: Napari Layer Binding &amp; 3D Extrusion
+        Interactive Workflow
       
     </span>
   </a>
@@ -562,30 +562,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-roi-handling-audit-persistence-batchpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: ROI Handling &amp; Audit Persistence (Batch.py)
+        Implementation
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Production Code: ROI Handling &amp; Audit Persistence (Batch.py)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#key-technical-safeguards" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Technical Safeguards:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1071,10 +1054,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#interactive-workflow-napari-layer-binding-3d-extrusion" class="md-nav__link">
+  <a href="#interactive-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Interactive Workflow: Napari Layer Binding &amp; 3D Extrusion
+        Interactive Workflow
       
     </span>
   </a>
@@ -1082,30 +1065,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-roi-handling-audit-persistence-batchpy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: ROI Handling &amp; Audit Persistence (Batch.py)
+        Implementation
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Production Code: ROI Handling &amp; Audit Persistence (Batch.py)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#key-technical-safeguards" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Technical Safeguards:
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1134,61 +1100,24 @@
 <li><strong>Denying False Positives:</strong> Delineates the nuclear boundary so that cytoplasmic granules, membrane debris, or nonspecific antibody precipitates outside the nucleus are rejected before feature extraction.</li>
 <li><strong>Establishing the Nucleoplasmic Baseline:</strong> The mean fluorescence intensity of the surrounding nucleoplasm (<span class="arithmatex">\(I_{\text{nuc}}\)</span>) serves as the reference denominator in calculating the partition coefficient:
    $<span class="arithmatex">\(K_{\text{part}} = \frac{I_{\text{condensate}} - \text{offset}}{I_{\text{nuc}} - \text{offset}}\)</span>$
-   If extracellular dark pixels (values near 0) are accidentally included in the nucleoplasmic mask, <span class="arithmatex">\(I_{\text{nuc}} - \text{offset}\)</span> approaches zero, causing the measured partition coefficient to artificially diverge into astronomical numbers (<span class="arithmatex">\(10^6\)</span>–<span class="arithmatex">\(10^8\)</span>).</li>
+   Pixels outside the nucleus (gel, background, alignment padding) lower <span class="arithmatex">\(I_{\text{nuc}}\)</span> and therefore raise <span class="arithmatex">\(K_{\text{part}}\)</span>. On synthetic data an ROI reaching 10 px (of a 30 px nucleus radius) into the gel raised K from 5.0 to 8.7. Alignment padding is excluded automatically; the ROI outline is the user's responsibility. With Auto-ROI no nucleoplasm is defined and K is not reported.</li>
 </ol>
 <hr />
-<h2 id="interactive-workflow-napari-layer-binding-3d-extrusion">Interactive Workflow: Napari Layer Binding &amp; 3D Extrusion</h2>
-<p>The workflow proceeds in three steps:
-1. <strong>Layer Dispatch:</strong> ExQt sends the multi-channel 3D stack and initial condensate labels to Napari, applying anisotropic spatial scaling <code>(z_step_nm / pixel_size_nm, 1, 1)</code>.
-2. <strong>Interactive Contouring:</strong> The user outlines the nucleus (or multiple nuclei) on the representative focal plane using Napari's native drawing tools.
-3. <strong>Volumetric Extrusion:</strong> ExQt automatically sweeps the 2D contour along the entire optical axis, generating a cylindrical 3D binary volume mask spanning all <span class="arithmatex">\(Z\)</span>-slices.</p>
-<p><em>(Napari preview screenshot can be placed here as <code>images/napari_roi.png</code>)</em></p>
-<hr />
-<h2 id="production-code-roi-handling-audit-persistence-batchpy">Production Code: ROI Handling &amp; Audit Persistence (<code>Batch.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py#L475-L506"><code>Batch.py:475–506</code></a> handling the interactive handoff, <span class="arithmatex">\(Z\)</span>-extrusion, and disk persistence:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># --- EXCERPT FROM Batch.py: process_batch_pair() ---</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># 1. Anisotropic Napari Layer Binding</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">if</span> <span class="n">send_layer_func</span><span class="p">:</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="c1"># In ExM, Z-step is typically larger than XY pixel size — pass scale so the preview is physically accurate</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">_roi_scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">z_step_nm</span> <span class="o">/</span> <span class="n">pixel_size_nm</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_3d</span> <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">_sig_kw</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;colormap&quot;</span><span class="p">:</span> <span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="s2">&quot;blending&quot;</span><span class="p">:</span> <span class="s2">&quot;additive&quot;</span><span class="p">}</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">_msk_kw</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;opacity&quot;</span><span class="p">:</span> <span class="mf">0.6</span><span class="p">,</span> <span class="s2">&quot;blending&quot;</span><span class="p">:</span> <span class="s2">&quot;additive&quot;</span><span class="p">}</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="k">if</span> <span class="n">_roi_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">_sig_kw</span><span class="p">[</span><span class="s2">&quot;scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_roi_scale</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">_msk_kw</span><span class="p">[</span><span class="s2">&quot;scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_roi_scale</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">send_layer_func</span><span class="p">({</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Signal (</span><span class="si">{</span><span class="n">tif_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="n">img_intensity</span><span class="p">,</span> <span class="s2">&quot;kwargs&quot;</span><span class="p">:</span> <span class="n">_sig_kw</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="p">})</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">send_layer_func</span><span class="p">({</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;labels&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Mask Condensates&quot;</span><span class="p">,</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="n">img_mask_process</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">),</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="s2">&quot;kwargs&quot;</span><span class="p">:</span> <span class="n">_msk_kw</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="p">})</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Waiting for user to draw ROI in Napari...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="n">extruded_mask</span> <span class="o">=</span> <span class="n">request_roi_func</span><span class="p">(</span><span class="n">img_intensity</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">is_3d</span><span class="p">)</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="c1"># 2. 3D Volumetric Extrusion</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="k">if</span> <span class="n">is_3d</span> <span class="ow">and</span> <span class="n">extruded_mask</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">mask_2d</span> <span class="o">=</span> <span class="n">extruded_mask</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">extruded_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">mask_2d</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:],</span> <span class="n">extruded_mask</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="n">roi_mask</span> <span class="o">=</span> <span class="n">extruded_mask</span> <span class="o">&gt;</span> <span class="mi">0</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="c1"># 3. Permanent Audit Persistence on Disk</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="n">roi_save_path</span> <span class="o">=</span> <span class="n">mask_path</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">tif_path</span><span class="o">.</span><span class="n">stem</span><span class="si">}</span><span class="s2">_ROI.tif&quot;</span><span class="p">)</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">roi_save_path</span><span class="p">),</span> <span class="n">extruded_mask</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">),</span> <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zlib&quot;</span><span class="p">)</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;      [ROI] Saved ROI mask -&gt; </span><span class="si">{</span><span class="n">roi_save_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;      [ROI] Warning: could not save ROI mask: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span></code></pre></div>
-<h3 id="key-technical-safeguards">Key Technical Safeguards:</h3>
+<h2 id="interactive-workflow">Interactive Workflow</h2>
 <ol>
-<li><strong>Aspect Ratio Preservation (<code>_roi_scale</code>)</strong>: Passing <code>scale=(z_step_nm / pixel_size_nm, 1, 1)</code> ensures that Napari does not render thin Z-slices as flattened disks, allowing accurate volumetric assessment of whether a condensate touches the nuclear envelope.</li>
-<li><strong>Audit Verification (<code>*_ROI.tif</code>)</strong>: Saving the extruded ROI mask alongside the raw data allows external auditors, supervisors, or peer reviewers to independently inspect the exact nuclear boundary used in every individual calculation.</li>
+<li><strong>Layer dispatch:</strong> ExQt shows the signal stack and the mask in Napari with scale <code>(z_step_nm / pixel_size_nm, 1, 1)</code>, so slices are displayed with their true spacing.</li>
+<li><strong>Drawing:</strong> draw one shape per nucleus on one or more Z-slices.</li>
+<li><strong>Conversion to a 3D ROI</strong> (<code>Batch._interpolate_or_extrude_roi</code>):</li>
+<li>shapes on different slices that overlap in XY belong to the same nucleus and are interpolated between that nucleus's own slices (signed distance fields); slices outside its range stay empty;</li>
+<li>a nucleus drawn on a single slice is extruded through the whole stack;</li>
+<li>every nucleus gets its own <code>cell_id</code>; shapes that touch on the same slice are rejected with a message so they can be fixed.</li>
+<li><strong>Nothing drawn:</strong> ExQt asks before using the whole field of view (<code>roi_source = empty_fallback_fov</code>).</li>
 </ol>
+<h2 id="implementation">Implementation</h2>
+<ul>
+<li><code>App.confirm_roi</code> converts the Napari shapes to labels and checks the grouping before the worker continues; <code>Batch._interpolate_or_extrude_roi</code> builds the 3D ROI.</li>
+<li>The ROI is saved in the run's output folder as <code>&lt;stem&gt;_ROI.tif</code> (one label per nucleus), and its SHA-256 is recorded in <code>*_metadata.json → files.input_files</code>, so every result can be traced to the exact ROI; <code>roi_source</code> in the CSV records how it was defined.</li>
+</ul>
 
 
 

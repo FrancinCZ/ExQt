@@ -994,10 +994,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-shape-vs-enrichment-fa-vs-k_part" class="md-nav__link">
+  <a href="#1-fa-vs-k_part" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Shape vs. Enrichment (FA vs. K_part)
+        1. FA vs. K_part
       
     </span>
   </a>
@@ -1005,10 +1005,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-size-vs-enrichment-volume-vs-k_part" class="md-nav__link">
+  <a href="#2-volume-vs-k_part" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Size vs. Enrichment (Volume vs. K_part)
+        2. Volume vs. K_part
       
     </span>
   </a>
@@ -1016,10 +1016,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-volume-vs-raw-intensity" class="md-nav__link">
+  <a href="#3-volume-vs-mean-intensity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Volume vs. Raw Intensity
+        3. Volume vs. mean intensity
       
     </span>
   </a>
@@ -1027,10 +1027,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-size-vs-shape-volume-vs-fa" class="md-nav__link">
+  <a href="#4-volume-vs-fa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Size vs. Shape (Volume vs. FA)
+        4. Volume vs. FA
       
     </span>
   </a>
@@ -1043,10 +1043,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-four-panel-figure-exporter-partitioning_plotspy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Four-Panel Figure Exporter (partitioning_plots.py)
+        Implementation
       
     </span>
   </a>
@@ -1111,10 +1111,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-shape-vs-enrichment-fa-vs-k_part" class="md-nav__link">
+  <a href="#1-fa-vs-k_part" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Shape vs. Enrichment (FA vs. K_part)
+        1. FA vs. K_part
       
     </span>
   </a>
@@ -1122,10 +1122,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-size-vs-enrichment-volume-vs-k_part" class="md-nav__link">
+  <a href="#2-volume-vs-k_part" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Size vs. Enrichment (Volume vs. K_part)
+        2. Volume vs. K_part
       
     </span>
   </a>
@@ -1133,10 +1133,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-volume-vs-raw-intensity" class="md-nav__link">
+  <a href="#3-volume-vs-mean-intensity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Volume vs. Raw Intensity
+        3. Volume vs. mean intensity
       
     </span>
   </a>
@@ -1144,10 +1144,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-size-vs-shape-volume-vs-fa" class="md-nav__link">
+  <a href="#4-volume-vs-fa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Size vs. Shape (Volume vs. FA)
+        4. Volume vs. FA
       
     </span>
   </a>
@@ -1160,10 +1160,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-four-panel-figure-exporter-partitioning_plotspy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Four-Panel Figure Exporter (partitioning_plots.py)
+        Implementation
       
     </span>
   </a>
@@ -1191,96 +1191,53 @@
 <p>After processing your images, ExQt automatically generates a four-panel summary figure (<code>partitioning_plots.py</code>) to help you explore your condensate data at a glance.</p>
 <hr />
 <h2 id="the-four-summary-plots">The Four Summary Plots</h2>
-<p>The generated dashboard contains four key plots:</p>
+<p>Only QC-passed (primary) objects are plotted, and K_part only where <code>K_valid</code>. Reference lines are working values from <code>reference_values.py</code> and are labelled as such.</p>
 <table>
 <thead>
 <tr>
 <th style="text-align: left;">Position</th>
-<th style="text-align: left;">What it plots</th>
-<th style="text-align: left;">Why it matters in plain terms</th>
+<th style="text-align: left;">Plot</th>
+<th style="text-align: left;">What it shows</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Top-Left</strong></td>
-<td style="text-align: left;"><strong>Shape vs. Enrichment</strong><br/>(FA vs. <span class="arithmatex">\(K_{\text{part}}\)</span>)</td>
-<td style="text-align: left;">Do denser droplets have different shapes? Checks if protein concentration relates to whether the condensate is round or elongated.</td>
+<td style="text-align: left;"><strong>Top-left</strong></td>
+<td style="text-align: left;">FA vs. <span class="arithmatex">\(K_{\text{part}}\)</span></td>
+<td style="text-align: left;">Whether shape and enrichment co-vary. Shading marks the FA class boundary and <span class="arithmatex">\(K &lt; 1.5\)</span> (both working values).</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Top-Right</strong></td>
-<td style="text-align: left;"><strong>Size vs. Enrichment</strong><br/>(Volume vs. <span class="arithmatex">\(K_{\text{part}}\)</span>)</td>
-<td style="text-align: left;"><strong>The classic droplet test:</strong> In a true liquid droplet, concentration should stay roughly constant no matter how big or small the droplet grows.</td>
+<td style="text-align: left;"><strong>Top-right</strong></td>
+<td style="text-align: left;">Volume vs. <span class="arithmatex">\(K_{\text{part}}\)</span></td>
+<td style="text-align: left;">Whether enrichment depends on object size.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Bottom-Left</strong></td>
-<td style="text-align: left;"><strong>Volume vs. Raw Brightness</strong><br/>(Volume vs. Mean Intensity)</td>
-<td style="text-align: left;"><strong>Sanity check:</strong> Verifies the camera signal across sizes to ensure measurements aren't biased by microscope settings.</td>
+<td style="text-align: left;"><strong>Bottom-left</strong></td>
+<td style="text-align: left;">Volume vs. mean intensity</td>
+<td style="text-align: left;">Raw brightness across sizes, before any ratio.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Bottom-Right</strong></td>
-<td style="text-align: left;"><strong>Size vs. Shape</strong><br/>(Volume vs. FA)</td>
-<td style="text-align: left;"><strong>Chromatin confinement:</strong> Small droplets are usually round (like tiny raindrops). Larger droplets often get squeezed and deformed by surrounding chromatin.</td>
+<td style="text-align: left;"><strong>Bottom-right</strong></td>
+<td style="text-align: left;">Volume vs. FA</td>
+<td style="text-align: left;">Whether shape depends on size; line at the PSF-like elongation working value.</td>
 </tr>
 </tbody>
 </table>
-<hr />
 <h2 id="how-to-read-each-plot">How to Read Each Plot</h2>
-<h3 id="1-shape-vs-enrichment-fa-vs-k_part">1. Shape vs. Enrichment (FA vs. K_part)</h3>
+<p>These are descriptive plots; none of them is by itself a test of a physical model.</p>
+<h3 id="1-fa-vs-k_part">1. FA vs. K_part</h3>
+<p>Shows whether more enriched objects tend to be rounder or more elongated. Both axes carry their own artefacts: FA depends on PSF elongation and segmentation (see the FA page), K_part on the nucleoplasm estimate and the detector offset.</p>
+<h3 id="2-volume-vs-k_part">2. Volume vs. K_part</h3>
+<p>A flat band means K_part does not depend on size in this data set. Small objects are affected by PSF blurring (their mean intensity mixes with the surroundings), which lowers K_part; a rise of K with size can therefore be optical.</p>
+<h3 id="3-volume-vs-mean-intensity">3. Volume vs. mean intensity</h3>
+<p>Raw brightness without normalisation. Useful to spot size-dependent dimming of small objects or saturation of large ones.</p>
+<h3 id="4-volume-vs-fa">4. Volume vs. FA</h3>
+<p>Small objects consist of few voxels and are dominated by the PSF shape, so their FA is less reliable; compare with the PSF-like elongation line and treat trends at small volumes with caution.</p>
+<h2 id="implementation">Implementation</h2>
 <ul>
-<li><strong>What is FA and <span class="arithmatex">\(K_{\text{part}}\)</span>?</strong> Fractional Anisotropy (<span class="arithmatex">\(\text{FA}\)</span>) measures elongation (0 = sphere, higher = stretched out), while <span class="arithmatex">\(K_{\text{part}}\)</span> measures protein enrichment inside the droplet relative to the nucleoplasm.</li>
-<li><strong>What to look for:</strong> If droplets behave like simple liquids, surface tension keeps them relatively round (<span class="arithmatex">\(\text{FA} &lt; 0.4\)</span>). If they form more rigid, elongated scaffolds (like nuclear speckles), you may see higher anisotropy values.</li>
+<li><code>partitioning_plots.export_partitioning_analysis</code> (PNG, 2-page PDF, <code>*_partitioning_summary.json</code> with an interpretation warning about PSF and Core-Enriched).</li>
+<li>The input must be the QC-annotated frame from <code>postprocessing._prepare_reporting_frames</code>; a raw CSV without <code>primary_qc_valid</code> is rejected.</li>
 </ul>
-<h3 id="2-size-vs-enrichment-volume-vs-k_part">2. Size vs. Enrichment (Volume vs. K_part)</h3>
-<ul>
-<li><strong>The core idea:</strong> Think of vinegar and oil. A large droplet of oil has the same concentration (<span class="arithmatex">\(K_{\text{part}}\)</span>) of oil molecules as a small droplet.</li>
-<li><strong>What to look for:</strong> In pure liquid-like condensates, data points form a flat, horizontal band across different volumes.</li>
-</ul>
-<h3 id="3-volume-vs-raw-intensity">3. Volume vs. Raw Intensity</h3>
-<ul>
-<li><strong>The core idea:</strong> This looks at raw camera brightness before calculating ratios.</li>
-<li><strong>What to look for:</strong> Ensures your signal is consistent across different sizes and not artificially dimming in smaller objects.</li>
-</ul>
-<h3 id="4-size-vs-shape-volume-vs-fa">4. Size vs. Shape (Volume vs. FA)</h3>
-<ul>
-<li><strong>The core idea:</strong> Inside the nucleus, condensates are embedded in a mesh of chromatin fibers.</li>
-<li><strong>What to look for:</strong> </li>
-<li><strong>Small condensates</strong> have enough surface tension to easily push chromatin aside and stay round (low FA).</li>
-<li><strong>Larger condensates</strong> cannot push chromatin away as easily, so they grow into gaps and become irregular or elongated (higher FA).</li>
-</ul>
-<hr />
-<h2 id="production-code-four-panel-figure-exporter-partitioning_plotspy">Production Code: Four-Panel Figure Exporter (<code>partitioning_plots.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/partitioning_plots.py"><code>partitioning_plots.py</code></a> that generates the four-panel figure:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM partitioning_plots.py: export_partitioning_report()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_partitioning_report</span><span class="p">(</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">output_png</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;Condensate Quantitative Analysis&quot;</span><span class="p">,</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">dpi</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generates a unified 2x2 multi-panel publication dashboard.&quot;&quot;&quot;</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">13</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="n">dpi</span><span class="p">)</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="c1">#1. Morphology vs. Partitioning (Top-Left)</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">plot_morphology_vs_partitioning</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="c1">#2. Size vs. Partitioning (Top-Right — Thermodynamic LLPS Test)</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">plot_size_vs_partitioning</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="c1">#3. Volume vs. Mean Fluorescence Intensity (Bottom-Left)</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">plot_volume_vs_intensity</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="c1">#4. Volume vs. 3D Shape Anisotropy (Bottom-Right — Chromatin Confinement)</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">plot_volume_vs_anisotropy</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">fig</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">fontweight</span><span class="o">=</span><span class="s2">&quot;bold&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">0.98</span><span class="p">)</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">fig</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">(</span><span class="n">rect</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.03</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">])</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">out_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_png</span><span class="p">)</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">fig</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">out_path</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="n">dpi</span><span class="p">,</span> <span class="n">bbox_inches</span><span class="o">=</span><span class="s2">&quot;tight&quot;</span><span class="p">)</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fig</span><span class="p">)</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="k">return</span> <span class="n">out_path</span>
-</span></code></pre></div>
 
 
 

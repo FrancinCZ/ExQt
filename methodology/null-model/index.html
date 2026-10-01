@@ -836,10 +836,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-synthetic-ellipsoid-null-generator-null_modelpy" class="md-nav__link">
+  <a href="#implementation-and-accuracy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Synthetic Ellipsoid Null Generator (null_model.py)
+        Implementation and Accuracy
       
     </span>
   </a>
@@ -1099,10 +1099,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-synthetic-ellipsoid-null-generator-null_modelpy" class="md-nav__link">
+  <a href="#implementation-and-accuracy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: Synthetic Ellipsoid Null Generator (null_model.py)
+        Implementation and Accuracy
       
     </span>
   </a>
@@ -1139,94 +1139,40 @@
 <h2 id="the-solution-a-synthetic-reference">The Solution: A Synthetic Reference</h2>
 <p>To solve this, ExQt creates a computer-generated "twin" for every condensate:</p>
 <ol>
-<li><strong>Measure the real condensate</strong> — get its 3D length, width, and height.</li>
-<li><strong>Build a synthetic smooth ellipsoid</strong> — with the exact same dimensions, but completely uniform inside.</li>
+<li><strong>Measure the real condensate</strong> — principal standard deviations <span class="arithmatex">\(\sigma_1 \le \sigma_2 \le \sigma_3\)</span> <strong>and</strong> the principal directions (eigenvectors of the voxel-coordinate covariance, in physical Z/Y/X nm).</li>
+<li><strong>Build a synthetic homogeneous ellipsoid</strong> — semi-axes <span class="arithmatex">\(a_i = \sqrt{5}\,\sigma_i\)</span>, oriented along the <strong>same eigenvectors</strong>, sampled on the <strong>same anisotropic grid</strong> (<code>sampling = (Z, Y, X)</code> nm), so its discretisation matches the object's.</li>
 <li><strong>Slice both into layers</strong> — using the same 3-layer method (Core, Middle, Shell).</li>
 <li><strong>Compare the difference:</strong></li>
 </ol>
 <div class="arithmatex">\[\Delta\text{FA}_{\text{excess}} = \Delta\text{FA}_{\text{measured}} - \Delta\text{FA}_{\text{null}}\]</div>
 <h3 id="what-does-the-result-mean">What Does the Result Mean?</h3>
+<p>The layers and their FA are computed from the <strong>mask geometry only</strong> (<code>mode_a_fa_type = geometric_shape</code>); intensity is not used. <span class="arithmatex">\(\Delta\text{FA}_{\text{excess}}\)</span> therefore compares the shape of the mask's inner and outer layers with those of a homogeneous ellipsoid that has the same principal axes. It says how far the mask shape departs from an ellipsoid, not how the protein is distributed inside.</p>
 <table>
 <thead>
 <tr>
 <th style="text-align: left;">Result</th>
-<th style="text-align: left;">Plain-language meaning</th>
-<th style="text-align: left;">Biological interpretation</th>
+<th style="text-align: left;">Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Positive</strong> (<span class="arithmatex">\(\Delta\text{FA}_{\text{excess}} &gt; 0\)</span>)</td>
-<td style="text-align: left;">The core is more stretched than geometry predicts.</td>
-<td style="text-align: left;"><strong>Real biological structure:</strong> e.g., an internal protein scaffold or fibrillar assembly.</td>
+<td style="text-align: left;"><strong>Near zero</strong></td>
+<td style="text-align: left;">The layer shapes are what an ellipsoid of the same size and orientation gives. On synthetic ellipsoids the spread is about ±0.004 (IQR), so smaller values cannot be distinguished from zero.</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Near Zero</strong> (<span class="arithmatex">\(\Delta\text{FA}_{\text{excess}} \approx 0\)</span>)</td>
-<td style="text-align: left;">The core elongation matches the fake ellipsoid.</td>
-<td style="text-align: left;"><strong>Pure geometry:</strong> The elongated core is just a natural consequence of the outer shape.</td>
+<td style="text-align: left;"><strong>Positive</strong></td>
+<td style="text-align: left;">The inner layers are more elongated than the ellipsoid predicts – the outer outline is less elongated or less ellipsoidal than the core region (e.g. irregular or lobed masks).</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Negative</strong> (<span class="arithmatex">\(\Delta\text{FA}_{\text{excess}} &lt; 0\)</span>)</td>
-<td style="text-align: left;">The core is rounder than the outer shape.</td>
-<td style="text-align: left;"><strong>Fluid core:</strong> A round liquid droplet enclosed inside an elongated interface.</td>
+<td style="text-align: left;"><strong>Negative</strong></td>
+<td style="text-align: left;">The inner layers are rounder than the ellipsoid predicts – e.g. an elongated outline around a rounder central region.</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="production-code-synthetic-ellipsoid-null-generator-null_modelpy">Production Code: Synthetic Ellipsoid Null Generator (<code>null_model.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/null_model.py"><code>null_model.py</code></a>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM null_model.py</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">_make_ellipsoid</span><span class="p">(</span><span class="n">semi_axes_voxels</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Constructs a binary 3D ellipsoid mask with given semi-axes (in voxels).&quot;&quot;&quot;</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">radii</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">semi_axes_voxels</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">half</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">radii</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span> <span class="o">+</span> <span class="mi">2</span>  <span class="c1">#2-voxel padding</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">z</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="o">-</span><span class="n">half</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">half</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="o">-</span><span class="n">half</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span><span class="n">half</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="o">-</span><span class="n">half</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span><span class="n">half</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="p">]</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">inside</span> <span class="o">=</span> <span class="p">(</span><span class="n">z</span> <span class="o">/</span> <span class="n">radii</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y</span> <span class="o">/</span> <span class="n">radii</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">radii</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">&lt;=</span> <span class="mf">1.0</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="k">return</span> <span class="n">inside</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="k">def</span><span class="w"> </span><span class="nf">null_model_delta_fa</span><span class="p">(</span><span class="n">principal_std_nm</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">sampling</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">min_core_voxels</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="sd">    Constructs a homogeneous ellipsoid matching the real object&#39;s principal standard deviations</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="sd">    and computes its expected geometric radial FA gradient.</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">principal_std_nm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">principal_std_nm</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">sampling</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">sampling</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">principal_std_nm</span><span class="p">))</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">principal_std_nm</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">):</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;null_valid&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="c1">#For a uniform solid ellipsoid with semi-axis R, standard deviation sigma = R / sqrt(5) therefore, semi-axis in voxels = sqrt(5) * sigma_nm / voxel_sampling_nm</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">semi_axes_voxels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">5.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">principal_std_nm</span> <span class="o">/</span> <span class="n">sampling</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">semi_axes_voxels</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">):</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;null_valid&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="c1">#1. Synthesize binary ellipsoid</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">synthetic_mask</span> <span class="o">=</span> <span class="n">_make_ellipsoid</span><span class="p">(</span><span class="n">semi_axes_voxels</span><span class="p">)</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="c1">#2. Partition using identical EDT-thirds algorithm</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">layers</span> <span class="o">=</span> <span class="n">split_core_middle_shell</span><span class="p">(</span><span class="n">synthetic_mask</span><span class="p">,</span> <span class="n">sampling</span><span class="o">=</span><span class="n">sampling</span><span class="p">,</span> <span class="n">min_core_voxels</span><span class="o">=</span><span class="n">min_core_voxels</span><span class="p">)</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">layers</span><span class="p">[</span><span class="s2">&quot;qc&quot;</span><span class="p">][</span><span class="s2">&quot;core_valid&quot;</span><span class="p">]:</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;null_valid&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="c1">#3. Compute FA across synthetic layers</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">fa_shell</span> <span class="o">=</span> <span class="n">shape_anisotropy</span><span class="p">(</span><span class="n">layers</span><span class="p">[</span><span class="s2">&quot;shell&quot;</span><span class="p">],</span> <span class="n">sampling</span><span class="o">=</span><span class="n">sampling</span><span class="p">)[</span><span class="s2">&quot;fractional_anisotropy&quot;</span><span class="p">]</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">fa_middle</span> <span class="o">=</span> <span class="n">shape_anisotropy</span><span class="p">(</span><span class="n">layers</span><span class="p">[</span><span class="s2">&quot;middle&quot;</span><span class="p">],</span> <span class="n">sampling</span><span class="o">=</span><span class="n">sampling</span><span class="p">)[</span><span class="s2">&quot;fractional_anisotropy&quot;</span><span class="p">]</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">fa_core</span> <span class="o">=</span> <span class="n">shape_anisotropy</span><span class="p">(</span><span class="n">layers</span><span class="p">[</span><span class="s2">&quot;core&quot;</span><span class="p">],</span> <span class="n">sampling</span><span class="o">=</span><span class="n">sampling</span><span class="p">)[</span><span class="s2">&quot;fractional_anisotropy&quot;</span><span class="p">]</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>        <span class="s2">&quot;null_FA_shell&quot;</span><span class="p">:</span> <span class="n">fa_shell</span><span class="p">,</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>        <span class="s2">&quot;null_FA_middle&quot;</span><span class="p">:</span> <span class="n">fa_middle</span><span class="p">,</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>        <span class="s2">&quot;null_FA_core&quot;</span><span class="p">:</span> <span class="n">fa_core</span><span class="p">,</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>        <span class="s2">&quot;null_delta_FA_core_shell&quot;</span><span class="p">:</span> <span class="n">fa_core</span> <span class="o">-</span> <span class="n">fa_shell</span><span class="p">,</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>        <span class="s2">&quot;null_valid&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>    <span class="p">}</span>
-</span></code></pre></div>
+<p>Non-ellipsoidal outlines (bent, pear- or bean-shaped masks), segmentation of the boundary and PSF elongation along Z all change the excess, so a non-zero value needs a check of the masks before any biological reading.</p>
+<h2 id="implementation-and-accuracy">Implementation and Accuracy</h2>
+<p>Implemented in <code>null_model.null_model_delta_fa(principal_std_nm, sampling, min_core_voxels, principal_axes=...)</code>, called from <code>rezim_a_metrics.compute_core_shell_metrics</code>. Output columns: <code>null_FA_object/shell/middle/core</code>, <code>null_delta_FA_core_shell</code>, <code>null_valid</code>, <code>null_invalid_reason</code> (<code>non_finite_principal_std</code>, <code>non_finite_principal_axes</code>, <code>too_few_voxels</code>, <code>layer_split_failed</code>, <code>invalid_layer_fa</code>, <code>object_anisotropy_unavailable</code>), and <code>principal_std_1_nm ≤ principal_std_2_nm ≤ principal_std_3_nm</code> (ranked, <strong>not</strong> Z/Y/X). Unexpected errors are not caught.</p>
+<p><strong>Accuracy.</strong> On 200 homogeneous, randomly rotated synthetic ellipsoids (semi-axes 100–400 nm, sampling 62.5 × 14.5 × 14.5 nm, true excess = 0) the model gives a median |ΔFA_excess| of 0.0035 (IQR −0.003 to +0.004), and the null model is valid for all of them. Excess values within about ±0.005 therefore cannot be distinguished from zero.</p>
 
 
 

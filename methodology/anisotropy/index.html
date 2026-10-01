@@ -769,10 +769,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-does-condensate-shape-change" class="md-nav__link">
+  <a href="#what-fa-does-and-does-not-tell-you" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why Does Condensate Shape Change?
+        What FA Does and Does Not Tell You
       
     </span>
   </a>
@@ -791,10 +791,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-3d-fa-engine-rezim_a_anisotropypy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: 3D FA Engine (rezim_a_anisotropy.py)
+        Implementation
       
     </span>
   </a>
@@ -1043,10 +1043,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-does-condensate-shape-change" class="md-nav__link">
+  <a href="#what-fa-does-and-does-not-tell-you" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why Does Condensate Shape Change?
+        What FA Does and Does Not Tell You
       
     </span>
   </a>
@@ -1065,10 +1065,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#production-code-3d-fa-engine-rezim_a_anisotropypy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Production Code: 3D FA Engine (rezim_a_anisotropy.py)
+        Implementation
       
     </span>
   </a>
@@ -1098,85 +1098,59 @@
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">FA Value</th>
+<th style="text-align: left;">FA value</th>
+<th style="text-align: center;">Prolate ellipsoid axis ratio (a:1:1)</th>
 <th style="text-align: left;">What the shape looks like</th>
-<th style="text-align: left;">Everyday analogy</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><strong>0.0</strong></td>
-<td style="text-align: left;">Completely spherical</td>
-<td style="text-align: left;">A round ball or bubble</td>
+<td style="text-align: center;">1.0</td>
+<td style="text-align: left;">Sphere</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>0.3 – 0.5</strong></td>
+<td style="text-align: left;"><strong>0.47</strong></td>
+<td style="text-align: center;">1.5</td>
 <td style="text-align: left;">Moderately elongated</td>
-<td style="text-align: left;">An egg or rugby ball</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>&gt; 0.7</strong></td>
-<td style="text-align: left;">Highly stretched</td>
-<td style="text-align: left;">A rod, tube, or filament</td>
+<td style="text-align: left;"><strong>0.71</strong></td>
+<td style="text-align: center;">2.0</td>
+<td style="text-align: left;">Clearly elongated</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>0.82</strong></td>
+<td style="text-align: center;">2.5</td>
+<td style="text-align: left;">Strongly elongated</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>→ 1</strong></td>
+<td style="text-align: center;">→ ∞</td>
+<td style="text-align: left;">Rod / filament</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="why-does-condensate-shape-change">Why Does Condensate Shape Change?</h2>
-<p>Inside the nucleus, condensates are not floating in empty space — they are surrounded by an elastic network of chromatin fibers:</p>
+<p>(Values for a homogeneous ellipsoid. FA is computed from the covariance eigenvalues, i.e. variances, so it is not proportional to the axis ratio and approaches 1 only slowly.)</p>
+<h2 id="what-fa-does-and-does-not-tell-you">What FA Does and Does Not Tell You</h2>
+<p>FA describes the geometry of the <strong>segmented mask</strong>. It does not by itself explain why an object has that shape. The measured value combines:</p>
 <ul>
-<li><strong>Small condensates:</strong> Surface tension easily overcomes the surrounding chromatin mesh, pulling small droplets into round spheres (low FA), much like tiny raindrops in air.</li>
-<li><strong>Larger condensates:</strong> As condensates grow larger, their rounding force becomes weaker relative to their size. The surrounding chromatin network resists expansion, squeezing the condensate into irregular or elongated shapes (higher FA).</li>
+<li>the shape of the structure itself;</li>
+<li><strong>optics</strong> – a confocal PSF is elongated along Z, so small objects look elongated even when round (see <code>fa_psf_elongation_limit</code> in <code>reference_values.py</code>, a working value not yet validated for the ExM gel);</li>
+<li><strong>segmentation</strong> – threshold and mask quality set where the boundary lies;</li>
+<li><strong>expansion</strong> – local gel inhomogeneity can distort shape;</li>
+<li><strong>discretisation</strong> – objects with few voxels have noisy eigenvalues.</li>
 </ul>
-<hr />
+<p>FA alone does not identify the cause of a shape; explanations such as mechanical constraint by the surrounding chromatin are hypotheses that FA does not test.</p>
 <h2 id="how-it-is-calculated">How It Is Calculated</h2>
-<p>ExQt computes the 3D spread of all voxels along the three principal axes (<span class="arithmatex">\(X, Y, Z\)</span>) using a covariance matrix:</p>
+<p>ExQt takes the physical coordinates of all mask voxels (voxel index × sampling in nm, order Z, Y, X), computes their covariance matrix and its eigenvalues <span class="arithmatex">\(\lambda_1 \le \lambda_2 \le \lambda_3\)</span> (variances along the object's own principal axes, not along X/Y/Z):</p>
 <div class="arithmatex">\[\text{FA} = \sqrt{\frac{3}{2}} \frac{\sqrt{(\lambda_1 - \bar{\lambda})^2 + (\lambda_2 - \bar{\lambda})^2 + (\lambda_3 - \bar{\lambda})^2}}{\sqrt{\lambda_1^2 + \lambda_2^2 + \lambda_3^2}}\]</div>
-<p>Where <span class="arithmatex">\(\lambda_1, \lambda_2, \lambda_3\)</span> represent the spread along the longest, middle, and shortest axis, and <span class="arithmatex">\(\bar{\lambda}\)</span> is their average. If all three axes are equal, the numerator becomes zero and <span class="arithmatex">\(\text{FA} = 0\)</span>.</p>
-<hr />
-<h2 id="production-code-3d-fa-engine-rezim_a_anisotropypy">Production Code: 3D FA Engine (<code>rezim_a_anisotropy.py</code>)</h2>
-<p>Below is the production implementation from <a href="file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/rezim_a_anisotropy.py"><code>rezim_a_anisotropy.py</code></a>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">#EXCERPT FROM rezim_a_anisotropy.py: shape_anisotropy()</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">shape_anisotropy</span><span class="p">(</span><span class="n">mask</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">sampling</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">min_voxels</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">binary_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">coordinates</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">binary_mask</span><span class="p">)</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">voxel_count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">coordinates</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="k">if</span> <span class="n">voxel_count</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Mask contains no foreground voxels.&quot;</span><span class="p">)</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="c1">#1. Scale voxel indices by physical pixel dimensions</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">scale</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">binary_mask</span><span class="o">.</span><span class="n">ndim</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span> <span class="k">if</span> <span class="n">sampling</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">sampling</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">physical_coordinates</span> <span class="o">=</span> <span class="n">coordinates</span> <span class="o">*</span> <span class="n">scale</span>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">centered</span> <span class="o">=</span> <span class="n">physical_coordinates</span> <span class="o">-</span> <span class="n">physical_coordinates</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="c1">#2. Covariance matrix &amp; eigenvalue decomposition</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">covariance</span> <span class="o">=</span> <span class="n">centered</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">centered</span> <span class="o">/</span> <span class="n">voxel_count</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigvalsh</span><span class="p">(</span><span class="n">covariance</span><span class="p">)</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">eigenvalues</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">eigenvalue_sum_of_squares</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">eigenvalues</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="k">if</span> <span class="n">eigenvalue_sum_of_squares</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">:</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>        <span class="n">fractional_anisotropy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        <span class="n">principal_std_nm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">binary_mask</span><span class="o">.</span><span class="n">ndim</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>        <span class="n">eigenvalue_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">eigenvalues</span><span class="p">))</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>        <span class="n">fractional_anisotropy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>            <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>                <span class="n">binary_mask</span><span class="o">.</span><span class="n">ndim</span> <span class="o">/</span> <span class="p">(</span><span class="n">binary_mask</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>                <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">eigenvalues</span> <span class="o">-</span> <span class="n">eigenvalue_mean</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>                <span class="o">/</span> <span class="n">eigenvalue_sum_of_squares</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>            <span class="p">)</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>        <span class="p">)</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>        <span class="n">principal_std_nm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">eigenvalues</span><span class="p">)</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>        <span class="s2">&quot;fractional_anisotropy&quot;</span><span class="p">:</span> <span class="n">fractional_anisotropy</span><span class="p">,</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>        <span class="s2">&quot;principal_std&quot;</span><span class="p">:</span> <span class="n">principal_std_nm</span><span class="p">,</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>        <span class="s2">&quot;voxel_count&quot;</span><span class="p">:</span> <span class="n">voxel_count</span><span class="p">,</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>        <span class="s2">&quot;anisotropy_valid&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">voxel_count</span> <span class="o">&gt;=</span> <span class="n">min_voxels</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">fractional_anisotropy</span><span class="p">)),</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="p">}</span>
-</span></code></pre></div>
+<p>If all three eigenvalues are equal, FA = 0. The physical sampling is essential: the same sphere measured in voxel units on a grid with a 4× coarser Z step gives FA ≈ 0.66.</p>
+<h2 id="implementation">Implementation</h2>
+<ul>
+<li>Code: <code>rezim_a_anisotropy.shape_anisotropy(mask, sampling, min_voxels)</code>; also returns <code>principal_std</code> (√λ, ascending) and <code>principal_axes</code> (eigenvectors).</li>
+<li>A layer FA is valid only with at least <code>min_voxels</code> voxels (<code>A_*_valid</code>).</li>
+</ul>
 
 
 
