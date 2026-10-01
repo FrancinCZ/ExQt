@@ -13,55 +13,25 @@ $$K_{\text{part}} = \frac{I_{\text{condensate}} - \text{offset}}{I_{\text{nucleo
 Where:
 - $I_{\text{condensate}}$: Average brightness inside the condensate.
 - $I_{\text{nucleoplasm}}$: Average brightness of the diffuse nucleoplasm (inside the nucleus, but outside any condensates).
-- $\text{offset}$: Dark camera baseline noise.
+- $\text{offset}$: Detector/camera offset in ADU, entered in **Settings → Detector offset (ADU)** (default `0` = no subtraction).
+
+### Which offset to use
+
+| Detector mode | Offset | How to set it |
+| :--- | :--- | :--- |
+| Photon counting (e.g. Leica HyD S/X/R in counting mode) | 0 ADU – photons are counted without an electronic offset | Keep 0, or press **From .lif…** to read the detector settings and record the .lif file as the source. |
+| Analog (PMT, analog HyD, camera) | Unknown from the file – Leica stores "Offset" there as an instrument setting, not in ADU | Acquire a dark frame (laser off, same detector settings) and enter its median. |
+
+The source of the value is saved per object in `K_offset_source` (`manual` or `lif_photon_counting`) and in `*_metadata.json → partitioning.offset_source` (file name, SHA-256 and detector settings).
 
 ---
 
-## Safety Checks
+## Rules Implemented in `Batch.process_condensates`
 
-To prevent bugs and skewed statistics, ExQt applies three automatic safety checks:
+1. **Explicit offset, never estimated from the image.** A low percentile of ROI pixels is not a camera offset: it follows the darkest thing inside the ROI and the noise level, so K would depend on ROI shape and noise, and a tight ROI inside the nucleus could inflate K several-fold. The applied value is stored per object in `K_offset_adu` with `K_offset_method = "explicit_setting"`, and in `*_metadata.json → partitioning`.
+2. **Nucleoplasm per nucleus.** $I_{\text{nucleoplasm}}$ is the mean of the nucleus ROI (`cell_id`) minus all segmented objects, restricted to the Z-range in which that nucleus has objects.
+3. **Alignment padding excluded.** Aligned stacks come with `<stem>_alignment_valid.tif` (written by `Tools → Align Z-stacks`). Voxels marked 0 (zero padding, shifted-in borders) never enter the nucleoplasm mean. Stacks aligned with an older ExQt have no such mask; a warning is printed and they should be re-aligned.
+4. **No K for Auto-ROI.** Without a nucleus outline the "nucleoplasm" would include gel and background, so `partition_coefficient = NaN`, `K_valid = False`, `K_invalid_reason = "auto_roi_no_nucleoplasm"`.
+5. **Non-positive denominator.** If $I_{\text{nucleoplasm}} - \text{offset} \le 0$, K is NaN with `K_invalid_reason = "negative_denominator"`; with no nucleoplasm voxels, `"no_nucleoplasm"`. K < 1 is **not** filtered out.
 
-1. **Dark offset inside the nucleus:** Camera baseline is measured strictly inside the nucleus, avoiding zero-padded image borders.
-2. **Division-by-zero protection:** If the nucleoplasm background is almost as dark as the camera offset ($I_{\text{nucleoplasm}} - \text{offset} \le 1.0$), division would explode to infinity. ExQt sets $K_{\text{part}} = \text{NaN}$ instead.
-3. **True condensation check:** A real condensate must be more concentrated than its surroundings ($K_{\text{part}} \ge 1.0$). If it is darker than the background, it is flagged as invalid (`K_valid = False`).
-
----
-
-## Production Code: Partitioning Engine (`Batch.py`)
-
-Below is the production implementation from [`Batch.py`](file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py):
-
-```python
-#EXCERPT FROM Batch.py: process_batch_pair()
-
-#1. Estimate dark camera offset from lowest 0.5% percentile INSIDE nuclear ROI
-roi_pixels = img_intensity[roi_mask] if np.any(roi_mask) else img_intensity.ravel()
-camera_offset = float(np.percentile(roi_pixels, 0.5)) if roi_pixels.size > 0 else 0.0
-
-#2. Extract nucleoplasm intensity excluding all segmented condensates
-nuc_pixels = img_intensity[roi_mask & (~(labeled_mask > 0))]
-nucleoplasm_mean = float(np.mean(nuc_pixels)) if nuc_pixels.size > 0 else float("nan")
-
-#3. Denominator-safe evaluation per segmented region
-denom = nucleoplasm_mean - camera_offset
-if np.isnan(nucleoplasm_mean) or denom <= 1.0:
-    k_val = float("nan")
-    k_valid = False
-    k_invalid_reason = "Nucleoplasm intensity <= camera offset + 1.0"
-else:
-    raw_k = (region.mean_intensity - camera_offset) / denom
-    if raw_k < 1.0:
-        k_val = float("nan")
-        k_valid = False
-        k_invalid_reason = "K < 1.0 (signal below nucleoplasm)"
-    else:
-        k_val = float(raw_k)
-        k_valid = True
-        k_invalid_reason = ""
-
-row["camera_offset"] = camera_offset
-row["nucleoplasm_mean_intensity"] = nucleoplasm_mean
-row["partition_coefficient"] = k_val
-row["K_valid"] = k_valid
-row["K_invalid_reason"] = k_invalid_reason
-```
+The numerator is clipped at 0 (`max(I_condensate - offset, 0)`).

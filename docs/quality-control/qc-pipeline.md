@@ -23,42 +23,34 @@ Everything detected by the mask inside the nuclear ROI. This includes noise spec
 ### 2. Size-Eligible Objects
 Objects that fall within your chosen volume range ($V_{\min}$ to $V_{\max}$). This quickly filters out sub-resolution noise (too small) and giant segmentation mergers (too large).
 
-### 3. Primary Condensates (`Result_Primary_Condensates.csv`)
+### 3. Primary Condensates (`<run>_Primary_Condensates.csv`)
 The clean, high-confidence dataset used for your final plots and statistics. An object only becomes a **Primary Condensate** if it passes all quality checks:
-- It does not touch the edges of the image.
-- It is fully inside the nucleus (does not intersect the nuclear boundary).
-- It has a continuous 3D structure across Z-slices.
-- It has enough voxels in the core for radial analysis ($\ge 20$ voxels).
+- It does not touch the edges of the image/stack or the alignment padding (`touches_image_edge`), in every mode.
+- It is not cut by the ROI boundary (`touches_roi_edge`), in every mode.
+- Its stack was not aligned with overall status `REVIEW` (`alignment_status`).
+- With Radial FA Profiling: continuous 3D structure across Z-slices, all layer FA valid and enough core voxels (`mode_a_primary_include`).
 
-Objects that fail any check are saved into `Result_Excluded_Condensates.csv` with the exact reason recorded, so nothing is secretly deleted.
+Objects that fail any check are saved into `<run>_QC_Excluded.csv` with the exact reason recorded, so nothing is secretly deleted.
 
 ---
 
-## Production Code: Classification Assignment (`postprocessing.py`)
+## Implementation
 
-Below is the production logic from [`postprocessing.py`](file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/postprocessing.py) defining primary classification and segregating outputs:
+The flags are computed per object in `Batch.process_condensates`; `postprocessing._prepare_reporting_frames` combines them:
 
-```python
-# --- EXCERPT FROM postprocessing.py: classify_and_filter_objects() ---
+`primary_qc_valid = size_eligible & fa_complete & mode_a_primary_include & alignment_ok & not_truncated`
 
-def filter_condensate_cohorts(df_raw: pd.DataFrame, min_vol: float, max_vol: float) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Segregates raw batch records into eligible, primary, and excluded cohorts.
-    """
-    # 1. Size-Eligible cohort
-    df_eligible = df_raw[df_raw["volume_bio_um3"].between(min_vol, max_vol)].copy()
-    
-    # 2. Primary cohort (must satisfy all internal Mode A quality checks)
-    is_primary = (
-        df_eligible["primary_qc_valid"].fillna(False).astype(bool)
-        & (~df_eligible["mode_a_object_touches_edge"].fillna(True).astype(bool))
-        & (~df_eligible["mode_a_object_touches_roi_edge"].fillna(True).astype(bool))
-        & (df_eligible["mode_a_z_topology_status"] == "pass")
-    )
-    df_primary = df_eligible[is_primary].copy()
-    
-    # 3. Excluded cohort (recorded with explicit audit trail)
-    df_excluded = df_raw[~df_raw.index.isin(df_primary.index)].copy()
-    
-    return df_eligible, df_primary, df_excluded
-```
+(`fa_complete` and `mode_a_primary_include` are always `True` when Radial FA Profiling is off; `alignment_ok` = `alignment_status != "REVIEW"`; `not_truncated` = neither `touches_image_edge` nor `touches_roi_edge`). The partitioning report (`partitioning_plots`) uses only `primary_qc_valid` objects and K only where `K_valid`.
+
+## Red Flags (warnings, nothing is removed)
+
+`postprocessing.detect_red_flags` reports two warning signs in the GUI log (`RED FLAG: …`), in `*_metadata.json → red_flags` and in the Excel Summary (`Red flags`):
+
+- more than 1000 objects in one nucleus (`filename`, `cell_id`) – `objects_per_nucleus`;
+- per-file median object size below 50 voxels (pixels in 2D) – `median_size_below_min`.
+
+Both usually mean over-segmentation or noise. Check the mask, `min_voxels` (default 5) and the expansion factor before interpreting any number from such a run.
+
+## Known Limitation: Size Selection of the Primary Set
+
+With Radial FA Profiling the primary set requires a valid core FA (`min_core_voxels`, default 20). The core holds only about 4 % of an object's volume, so in practice objects need roughly 500 or more voxels to qualify. The primary set therefore over-represents large objects, and statistics from it describe that subset, not all condensates. The Excel Summary row `Primary selection bias` (`postprocessing.primary_selection_summary`) reports the number and the median size of primary vs size-eligible excluded objects for every run.

@@ -43,32 +43,12 @@ As a consistency check, total nuclear condensate volume (sum across all detected
 
 ---
 
-## Production Code: Dual-Scale Implementation (`Batch.py`)
+## Implementation
 
-Below is the production implementation from [`Batch.py:621–635`](file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py#L621-L635):
+- `Batch.process_condensates` writes `volume_px`, `volume_gel_um3`, `volume_bio_um3`, `equivalent_diameter_um` and the calibration actually applied (`applied_pixel_size_nm`, `applied_z_step_nm`); the source of that calibration is in `*_metadata.json → applied_calibration_by_file`.
+- The expansion factor is entered with up to 3 decimals; a rounded ExF changes volumes by ExF³.
 
-```python
-#EXCERPT FROM Batch.py: process_batch_pair()
+## Known Limitations
 
-#Convert pixel counts into calibrated biological units while keeping raw counts for auditability
-row["applied_pixel_size_nm"] = float(pixel_size_nm)
-row["applied_z_step_nm"] = float(z_step_nm) if is_3d else float("nan")
-
-if is_3d:
-    voxel_volume_bio_um3 = ((eff_pixel_size_nm ** 2) * eff_z_step_nm) / 1e9
-    voxel_volume_gel_um3 = ((float(pixel_size_nm) ** 2) * float(z_step_nm)) / 1e9
-    
-    row["volume_px"] = region.area
-    row["volume_bio_um3"] = float(region.area * voxel_volume_bio_um3)
-    row["volume_gel_um3"] = float(region.area * voxel_volume_gel_um3)
-    row["shape_metric_bio"] = row["volume_bio_um3"]
-    row["equivalent_diameter_um"] = float((6.0 * row["volume_bio_um3"] / np.pi) ** (1.0 / 3.0))
-else:
-    pixel_area_bio_um2 = (eff_pixel_size_nm ** 2) / 1e6
-    pixel_area_gel_um2 = (float(pixel_size_nm) ** 2) / 1e6
-    
-    row["area_px"] = region.area
-    row["area_bio_um2"] = float(region.area * pixel_area_bio_um2)
-    row["area_gel_um2"] = float(region.area * pixel_area_gel_um2)
-    row["shape_metric_bio"] = row["area_bio_um2"]
-```
+- **Gel ExF vs nuclear ExF.** A single global ExF is applied. Nuclei can expand less than the gel (Pesce et al. 2019, *J. Biophotonics*: gel 5.0×, NPC radius 4.3×, intra-nuclear pore distances 3.8×). Use an ExF measured on nuclei where possible and report its uncertainty; volumes scale with ExF³. K_part and FA do not depend on a uniform ExF.
+- **Axial scaling (refractive-index mismatch).** A water-swollen gel (n ≈ 1.33) imaged with an oil objective (n = 1.515) has a true axial step of ≈ 0.85 × the nominal Z-step (Besseling et al. 2015, *J. Microsc.*). ExQt does not yet correct for this: objects appear ~18 % elongated in Z (a sphere gives FA ≈ 0.2) and volumes are overestimated. IF samples in mounting medium have a different factor, so FA and volumes are not directly comparable between IF and ExM without correction.

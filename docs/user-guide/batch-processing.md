@@ -1,6 +1,6 @@
 # High-Throughput Batch Processing Engine
 
-The ExQt batch processing engine (`Batch.py`) automates the feature extraction lifecycle across entire experimental directories containing dozens of 3D multi-gigabyte acquisitions without requiring human supervision.
+The batch analysis (`Batch.py`) processes every raw/mask pair in a folder one after another. With a manual ROI it pauses at each image so you can outline the nuclei; with Auto-ROI it runs without interaction.
 
 ---
 
@@ -12,11 +12,16 @@ ExQt matches raw fluorescent intensity images with their corresponding binary se
 Experiment_Folder/
 ├── cell01.tif              <── Raw 3D fluorescent intensity stack
 ├── cell01_Mask.tif         <── 3D binary segmentation mask (labels or binary)
-├── cell01_ROI.tif          <── [Auto-generated] Nuclear ROI mask saved by ExQt
 ├── cell02.tif
 ├── cell02_Mask.tif
-└── cell02_ROI.tif
+└── Result/                 <── Output folder of one run
+    ├── cell01_ROI.tif      <── ROI used in this run (one label per nucleus)
+    ├── cell02_ROI.tif
+    ├── Experiment_Folder_Output_Batch_3d.csv
+    └── Experiment_Folder_Output_Batch_3d_metadata.json
 ```
+
+Each run saves its ROIs in its own output folder, so a new run never overwrites the ROI of an earlier one; the input folder is not modified. Leftover `*_ROI.tif` files in the input folder are ignored.
 
 When a batch run is executed, ExQt scans the directory, matches each raw `.tif` with its paired `*_Mask.tif`, validates dimensions, and processes each pair sequentially.
 
@@ -40,61 +45,20 @@ For each matched pair, ExQt executes the following deterministic sequence:
 
 ---
 
-## Production Code: Batch Iteration & Metadata Serialization
+## Run Metadata (`*_Output_Batch_<mode>_metadata.json`)
 
-Below is the production logic from [`Batch.py`](file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/Batch.py) demonstrating automated discovery, progress tracking, and structured metadata persistence:
+Written by the analysis worker in `App.py` next to the CSV. Before comparing numbers between two runs, first check that `provenance` and `files.input_files` match.
 
-```python
-# --- EXCERPT FROM Batch.py: run_batch_processing() ---
+| Key | Content |
+| :--- | :--- |
+| `provenance.git_commit`, `git_dirty` | Code revision; `git_dirty = true` means the tracked code differed from that commit. |
+| `provenance.source_sha256` | SHA-256 of every analysis module – identifies the code even without git. |
+| `provenance.python`, `platform`, `packages` | Interpreter, OS and library versions (numpy, scipy, scikit-image, pandas, tifffile, …). |
+| `files.input_files` | Name, size and SHA-256 of each analysed TIFF, its mask and alignment sidecars (`_drift.csv`, `_alignment_valid.tif`). |
+| `files.analysed_files`, `alignment_review_files`, `excluded_files` | What entered the CSV, which stacks were alignment REVIEW, and every excluded file with its reason. |
+| `parameters` | Mode, ExF, `auto_roi`, raw noise floor, size range, GUI calibration, `calibration_source`, `applied_calibration_by_file`. |
+| `partitioning` | K offset method and value, Auto-ROI and padding policy. |
+| `classification` | Gradient test and significance level. |
+| `mode_a` | Radial FA Profiling settings and Z-topology policy. |
 
-def run_batch_processing(
-    image_dir: Path,
-    pixel_size_nm: float,
-    z_step_nm: float,
-    expansion_factor: float,
-    mode_a_enabled: bool = True,
-    progress_callback: Callable | None = None,
-) -> pd.DataFrame:
-    all_rows = []
-    metadata_log = {}
-
-    # 1. Discover and pair valid raw/mask files
-    raw_files = sorted(image_dir.glob("*.tif"))
-    raw_files = [f for f in raw_files if not f.name.endswith(("_Mask.tif", "_ROI.tif"))]
-
-    total_files = len(raw_files)
-    for idx, tif_path in enumerate(raw_files):
-        mask_path = tif_path.with_name(f"{tif_path.stem}_Mask.tif")
-        if not mask_path.exists():
-            print(f"Skipping {tif_path.name}: Mask not found ({mask_path.name})")
-            continue
-
-        if progress_callback:
-            progress_callback(int((idx / total_files) * 100), f"Processing {tif_path.name}")
-
-        # 2. Execute full feature extraction on current pair
-        df_pair, meta_pair = process_batch_pair(
-            tif_path=tif_path,
-            mask_path=mask_path,
-            pixel_size_nm=pixel_size_nm,
-            z_step_nm=z_step_nm,
-            expansion_factor=expansion_factor,
-            mode_a_enabled=mode_a_enabled,
-        )
-
-        all_rows.append(df_pair)
-        metadata_log[tif_path.name] = meta_pair
-
-    # 3. Concatenate into master dataset and persist run metadata
-    master_df = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
-    
-    # Save structured audit JSON
-    meta_path = image_dir / "Batch_Run_metadata.json"
-    meta_path.write_text(json.dumps(metadata_log, indent=2), encoding="utf-8")
-    
-    return master_df
-```
-
-### Key Technical Features:
-- **Resilient Matching**: File discovery explicitly ignores `_Mask.tif` and `_ROI.tif` to avoid processing masks as raw images.
-- **Auditable Metadata Log**: The runtime metadata (`Batch_Run_metadata.json`) saves the exact timestamp, git hash / script version, optical calibration, and hardware environment under which the data was acquired.
+The Excel `QC_Policy` sheet derives a fingerprint from the settings that change the meaning of the results (including `auto_roi`, K offset method and gradient test); `Merge existing runs` refuses to pool runs whose fingerprints differ. Offset value, calibration and code revision are shown but not part of the fingerprint, because they may legitimately differ between correct runs.

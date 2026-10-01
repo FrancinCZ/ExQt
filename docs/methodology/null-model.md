@@ -19,8 +19,8 @@ Imagine an elongated cucumber or a rugby ball. If you peel layers off the surfac
 
 To solve this, ExQt creates a computer-generated "twin" for every condensate:
 
-1. **Measure the real condensate** — get its 3D length, width, and height.
-2. **Build a synthetic smooth ellipsoid** — with the exact same dimensions, but completely uniform inside.
+1. **Measure the real condensate** — principal standard deviations $\sigma_1 \le \sigma_2 \le \sigma_3$ **and** the principal directions (eigenvectors of the voxel-coordinate covariance, in physical Z/Y/X nm).
+2. **Build a synthetic homogeneous ellipsoid** — semi-axes $a_i = \sqrt{5}\,\sigma_i$, oriented along the **same eigenvectors**, sampled on the **same anisotropic grid** (`sampling = (Z, Y, X)` nm), so its discretisation matches the object's.
 3. **Slice both into layers** — using the same 3-layer method (Core, Middle, Shell).
 4. **Compare the difference:**
 
@@ -28,68 +28,18 @@ $$\Delta\text{FA}_{\text{excess}} = \Delta\text{FA}_{\text{measured}} - \Delta\t
 
 ### What Does the Result Mean?
 
-| Result | Plain-language meaning | Biological interpretation |
-| :--- | :--- | :--- |
-| **Positive** ($\Delta\text{FA}_{\text{excess}} > 0$) | The core is more stretched than geometry predicts. | **Real biological structure:** e.g., an internal protein scaffold or fibrillar assembly. |
-| **Near Zero** ($\Delta\text{FA}_{\text{excess}} \approx 0$) | The core elongation matches the fake ellipsoid. | **Pure geometry:** The elongated core is just a natural consequence of the outer shape. |
-| **Negative** ($\Delta\text{FA}_{\text{excess}} < 0$) | The core is rounder than the outer shape. | **Fluid core:** A round liquid droplet enclosed inside an elongated interface. |
+The layers and their FA are computed from the **mask geometry only** (`mode_a_fa_type = geometric_shape`); intensity is not used. $\Delta\text{FA}_{\text{excess}}$ therefore compares the shape of the mask's inner and outer layers with those of a homogeneous ellipsoid that has the same principal axes. It says how far the mask shape departs from an ellipsoid, not how the protein is distributed inside.
 
----
+| Result | Meaning |
+| :--- | :--- |
+| **Near zero** | The layer shapes are what an ellipsoid of the same size and orientation gives. On synthetic ellipsoids the spread is about ±0.004 (IQR), so smaller values cannot be distinguished from zero. |
+| **Positive** | The inner layers are more elongated than the ellipsoid predicts – the outer outline is less elongated or less ellipsoidal than the core region (e.g. irregular or lobed masks). |
+| **Negative** | The inner layers are rounder than the ellipsoid predicts – e.g. an elongated outline around a rounder central region. |
 
-## Production Code: Synthetic Ellipsoid Null Generator (`null_model.py`)
+Non-ellipsoidal outlines (bent, pear- or bean-shaped masks), segmentation of the boundary and PSF elongation along Z all change the excess, so a non-zero value needs a check of the masks before any biological reading.
 
-Below is the production implementation from [`null_model.py`](file:///C:/Users/franc/Desktop/ExQt_Rezim_A_Final/null_model.py):
+## Implementation and Accuracy
 
-```python
-#EXCERPT FROM null_model.py
+Implemented in `null_model.null_model_delta_fa(principal_std_nm, sampling, min_core_voxels, principal_axes=...)`, called from `rezim_a_metrics.compute_core_shell_metrics`. Output columns: `null_FA_object/shell/middle/core`, `null_delta_FA_core_shell`, `null_valid`, `null_invalid_reason` (`non_finite_principal_std`, `non_finite_principal_axes`, `too_few_voxels`, `layer_split_failed`, `invalid_layer_fa`, `object_anisotropy_unavailable`), and `principal_std_1_nm ≤ principal_std_2_nm ≤ principal_std_3_nm` (ranked, **not** Z/Y/X). Unexpected errors are not caught.
 
-def _make_ellipsoid(semi_axes_voxels: np.ndarray) -> np.ndarray:
-    """Constructs a binary 3D ellipsoid mask with given semi-axes (in voxels)."""
-    radii = np.asarray(semi_axes_voxels, dtype=float)
-    half = np.ceil(radii).astype(int) + 2  #2-voxel padding
-    z, y, x = np.mgrid[
-        -half[0]:half[0] + 1,
-        -half[1]:half[1] + 1,
-        -half[2]:half[2] + 1
-    ]
-    inside = (z / radii[0]) ** 2 + (y / radii[1]) ** 2 + (x / radii[2]) ** 2 <= 1.0
-    return inside
-
-
-def null_model_delta_fa(principal_std_nm: np.ndarray, sampling: tuple, min_core_voxels: int = 20) -> dict:
-    """
-    Constructs a homogeneous ellipsoid matching the real object's principal standard deviations
-    and computes its expected geometric radial FA gradient.
-    """
-    principal_std_nm = np.asarray(principal_std_nm, dtype=float)
-    sampling = np.asarray(sampling, dtype=float)
-
-    if not np.all(np.isfinite(principal_std_nm)) or np.any(principal_std_nm <= 0):
-        return {"null_valid": False}
-
-    #For a uniform solid ellipsoid with semi-axis R, standard deviation sigma = R / sqrt(5) therefore, semi-axis in voxels = sqrt(5) * sigma_nm / voxel_sampling_nm
-    semi_axes_voxels = np.sqrt(5.0) * principal_std_nm / sampling
-    if np.any(semi_axes_voxels < 1.0):
-        return {"null_valid": False}
-
-    #1. Synthesize binary ellipsoid
-    synthetic_mask = _make_ellipsoid(semi_axes_voxels)
-
-    #2. Partition using identical EDT-thirds algorithm
-    layers = split_core_middle_shell(synthetic_mask, sampling=sampling, min_core_voxels=min_core_voxels)
-    if not layers["qc"]["core_valid"]:
-        return {"null_valid": False}
-
-    #3. Compute FA across synthetic layers
-    fa_shell = shape_anisotropy(layers["shell"], sampling=sampling)["fractional_anisotropy"]
-    fa_middle = shape_anisotropy(layers["middle"], sampling=sampling)["fractional_anisotropy"]
-    fa_core = shape_anisotropy(layers["core"], sampling=sampling)["fractional_anisotropy"]
-
-    return {
-        "null_FA_shell": fa_shell,
-        "null_FA_middle": fa_middle,
-        "null_FA_core": fa_core,
-        "null_delta_FA_core_shell": fa_core - fa_shell,
-        "null_valid": True,
-    }
-```
+**Accuracy.** On 200 homogeneous, randomly rotated synthetic ellipsoids (semi-axes 100–400 nm, sampling 62.5 × 14.5 × 14.5 nm, true excess = 0) the model gives a median |ΔFA_excess| of 0.0035 (IQR −0.003 to +0.004), and the null model is valid for all of them. Excess values within about ±0.005 therefore cannot be distinguished from zero.

@@ -1,6 +1,6 @@
 # ExQt: Expansion Microscopy Quantification Tool
 
-**ExQt** (*Expansion Microscopy Quantification Tool*) is an automated 3D image-analysis platform for the segmentation, biophysical quantification, and morphological profiling of biomolecular condensates in confocal and Expansion Microscopy (ExM).
+**ExQt** (*Expansion Microscopy Quantification Tool*) is a desktop application for measuring biomolecular condensates in 3D confocal and Expansion Microscopy (ExM) images. It does not segment images itself: it takes your existing segmentation masks (e.g. from Labkit or ilastik) and measures size, enrichment (K_part), shape (FA) and the core–shell profile of every object, with quality control and a full record of how each result was produced.
 
  **[📖 Read the Documentation](https://francincz.github.io/ExQt/)**
 
@@ -8,19 +8,23 @@
 
 ## Quick Installation
 
-ExQt requires **Python 3.10–3.14** on Windows, Linux, or macOS.
+ExQt needs **Python 3.10 or newer** (tested with Python 3.14) on Windows, Linux or macOS. Conda is not required.
 
 ```bash
-#1. Clone the repository
+# 1. Clone the repository
 git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
 
-#2. Install dependencies
+# 2. Install dependencies (a virtual environment is recommended)
 pip install -r requirements.txt
 
-#3. Launch the application
+# 3. Launch the application
 python App.py
 ```
+
+Alternatively, with Conda: `conda env create -f environment.yml`, then `conda activate exqt-env` and `python App.py`.
+
+To check an installation, run the test suite: `python -m pytest tests`.
 
 ---
 
@@ -35,27 +39,29 @@ My_Experiment/
 └── cell_01_Mask.tif     <-- Binary or labeled mask (from ilastik, Labkit, etc.)
 ```
 
-### Step 2: Set Calibration in the GUI
-1. Select your **Input Folder** and **Output Folder**.
-2. Enter your microscope calibration:
-   - **Pixel Size XY (nm):** e.g., `65.0`
-   - **Z-Step (nm):** e.g., `200.0`
-   - **Expansion Factor:** `1.0` for classical confocal, or your physical gel expansion factor for ExM.
-3. Set your **Size Filter** range (minimum and maximum biological volume in $\mu\text{m}^3$) to exclude single-pixel noise and giant clumps.
+### Step 2: Set Calibration
+1. Select your **Input folder** and **Output folder**.
+2. Click **Settings** in the menu bar and enter the microscope calibration (values before expansion correction):
+   - **Pixel Size XY (nm)**, e.g. `65.0`, and **Z-step (nm)**, e.g. `200.0` (ExQt offers the calibration stored in OME/ImageJ TIFFs);
+   - **Detector offset (ADU)**: `0` for photon-counting detectors; **From .lif…** reads it from a Leica file.
+3. In the main window set the **Expansion factor** (`1.0` for classical confocal) and the **Min size / Max size** range used for the primary set (**Preview sizes…** shows the distribution first).
 
-### Step 3: Define Nuclear ROI (Interactive Napari)
-Condensates must be analyzed inside the nucleus to obtain accurate background and partitioning measurements:
-- When prompted, draw the nuclear boundary in the integrated **Napari 3D viewer**.
-- ExQt automatically extrudes your 2D outline into a 3D cylindrical volume across all optical sections.
+### Step 3: Define the Nuclear ROI (Napari)
+K_part needs the nucleoplasm around the condensates, so the nucleus is outlined by hand:
+- When prompted, draw one shape per nucleus in the integrated **Napari** viewer, on one or more Z-slices.
+- Shapes of one nucleus on several slices are interpolated between them; a nucleus drawn on a single slice is extended through the whole stack.
+- With **Auto-ROI** the whole field of view is used and K_part is not computed.
 
 ### Step 4: Run & Inspect Results
-Click **Start Processing**. ExQt will analyze all matched pairs sequentially and generate outputs in your results folder:
+Click **Start analysis**. ExQt analyzes all matched pairs one by one and writes the results into the output folder:
 
-- **`Result_Primary_Condensates.csv`** — The clean, publication-ready dataset (passed all QC criteria).
-- **`Result_Excluded_Condensates.csv`** — Filtered-out objects with explicit rejection reasons.
-- **`_Output_Batch_3d.csv`** — Complete raw dataset with all 30+ physical and morphological parameters.
-- **`_Stats.xlsx`** — Formatted Excel workbook.
-- **`*_3d_partitioning_analysis.png`** — Automated 4-panel publication dashboard.
+- **`<run>_Primary_Condensates.csv`** — Objects that passed all QC criteria (the primary set).
+- **`<run>_QC_Excluded.csv`** — Size-eligible objects excluded by QC, with explicit rejection reasons.
+- **`<folder>_Output_Batch_3d.csv`** — All measured objects with every parameter (the source table).
+- **`<folder>_Output_Batch_3d_metadata.json`** — Settings, code version and input file hashes needed to reproduce the run.
+- **`<run>_Detailed_Stats.xlsx`** — Excel workbook with summary, primary and excluded objects.
+- **`<run>_partitioning_analysis.png`** and **`<run>_ExQt_Report.pdf`** — Four-panel summary figure and report.
+- **`<stem>_ROI.tif`** — The ROI used for each image.
 
 ---
 
@@ -90,14 +96,14 @@ ExQt is built in Python, integrating core scientific and bio-imaging libraries:
 - **[SciPy](https://scipy.org/):** Exact 3D Euclidean Distance Transform (`scipy.ndimage.distance_transform_edt`) for Core–Middle–Shell radial peeling, and subpixel n-dimensional image shifts.
 - **[NumPy](https://numpy.org/) & [pandas](https://pandas.pydata.org/):** Spatial covariance tensor decomposition (Fractional Anisotropy), geometric null model simulations, and high-throughput tabular data management.
 - **[tifffile](https://github.com/cgohlke/tifffile):** Robust reading and writing of multi-channel 3D OME-TIFF files while preserving microscope physical calibration tags.
-- **[matplotlib](https://matplotlib.org/) & [seaborn](https://seaborn.pydata.org/):** Automated publication-grade 4-panel figure generation (300 DPI) and interactive size preview histograms.
-- **[openpyxl](https://openpyxl.readthedocs.io/):** Formatted multi-sheet Excel workbook generation (`_Stats.xlsx`).
+- **[matplotlib](https://matplotlib.org/) & [seaborn](https://seaborn.pydata.org/):** Summary figures (300 DPI) and the interactive size preview histogram.
+- **[openpyxl](https://openpyxl.readthedocs.io/):** Multi-sheet Excel workbook (`_Detailed_Stats.xlsx`).
 
 ---
 
 ## Acknowledgments & Inspiration
 
-- **Multi-Channel Stack Aligner:** The stack alignment module (`stack_aligner.py`) is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the Suzuki Lab at the McArdle Laboratory for Cancer Research. It has been re-implemented in open-source Python with subpixel Fourier phase cross-correlation, Hanning window preconditioning, zero-loss canvas expansion, and automated quality control verification.
+- **Z-stack aligner:** The XY drift correction (`stack_aligner.py`) is inspired by and adapted from the MATLAB **[3D-Aligner](https://github.com/suzukilabmcardle/3D-Aligner)** developed by the Suzuki Lab at the McArdle Laboratory for Cancer Research. It has been re-implemented in Python with sub-pixel phase cross-correlation, Hanning-window preconditioning, canvas expansion (the added border is marked and excluded from statistics) and per-step quality checks.
 - **Expansion Microscopy Community:** Designed to support quantitative biophysical analysis of biomolecular condensates and nuclear assemblies across classical confocal and high-expansion microscopy (ExM).
 
 ---
