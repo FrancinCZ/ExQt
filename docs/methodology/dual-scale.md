@@ -28,18 +28,9 @@ $$D_{\text{eq}} = \left( \frac{6 \cdot \text{Vol}_{\text{bio}}}{\pi} \right)^{1/
 
 ---
 
-## Comparison Between Imaging Modalities
+## Comparing IF and ExM
 
-A common empirical observation when comparing classical IF to ExM is a shift in the median detected object volume: objects that appear as single large entities at diffraction-limited resolution can resolve into several smaller, discrete objects after expansion.
-
-This shift is consistent with two non-exclusive interpretations:
-
-1. **Sub-domain resolution** — ExM resolves constituent sub-compartments that were previously merged within the PSF envelope.
-2. **Structural artifacts** — differences in fixation, antibody penetration, or gel homogeneity across conditions may independently affect apparent object sizes.
-
-As a consistency check, total nuclear condensate volume (sum across all detected objects per nucleus) can be compared between modalities. Agreement between IF and ExM totals is consistent with — but does not prove — the sub-domain hypothesis; it primarily indicates that the segmentation and calibration are internally consistent across protocols.
-
-
+ExQt reports sizes on the same biological scale for both methods, so results can be placed side by side. The number and size of detected objects also depend on optical resolution, sample preparation and segmentation; ExQt does not separate these effects, so a difference between the methods is a measured result, not an explanation. Besides the per-object distributions, the total object volume per nucleus (sum over all objects with the same `cell_id`) can be compared.
 
 ---
 
@@ -50,5 +41,5 @@ As a consistency check, total nuclear condensate volume (sum across all detected
 
 ## Known Limitations
 
-- **Gel ExF vs nuclear ExF.** A single global ExF is applied. Nuclei can expand less than the gel (Pesce et al. 2019, *J. Biophotonics*: gel 5.0×, NPC radius 4.3×, intra-nuclear pore distances 3.8×). Use an ExF measured on nuclei where possible and report its uncertainty; volumes scale with ExF³. K_part and FA do not depend on a uniform ExF.
-- **Axial scaling (refractive-index mismatch).** A water-swollen gel (n ≈ 1.33) imaged with an oil objective (n = 1.515) has a true axial step of ≈ 0.85 × the nominal Z-step (Besseling et al. 2015, *J. Microsc.*). ExQt does not yet correct for this: objects appear ~18 % elongated in Z (a sphere gives FA ≈ 0.2) and volumes are overestimated. IF samples in mounting medium have a different factor, so FA and volumes are not directly comparable between IF and ExM without correction.
+- **One expansion factor for the whole image.** All lengths are divided by a single, uniform expansion factor. If the nucleus expands differently from the gel, biological sizes are off by that ratio and volumes by its cube. Measure the factor as close as possible to the analysed structures and report its uncertainty. A uniform factor does not change K_part or FA.
+- **Axial scale.** The Z-step entered in Settings is used as the true distance between slices. When the refractive index of the sample differs from that of the objective's immersion medium (for example a water-swollen gel imaged with an oil objective), the true axial spacing differs from the nominal Z-step, and ExQt does not correct for this. Objects then appear stretched or compressed along Z, which changes FA and volumes; samples imaged under different conditions (for example IF in mounting medium and ExM in a gel) can differ in this respect. If the axial correction factor for your set-up is known, enter the corrected Z-step in Settings.

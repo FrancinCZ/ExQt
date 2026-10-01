@@ -24,7 +24,7 @@ FA describes the geometry of the **segmented mask**. It does not by itself expla
 - **expansion** – local gel inhomogeneity can distort shape;
 - **discretisation** – objects with few voxels have noisy eigenvalues.
 
-FA alone does not identify the cause of a shape; explanations such as mechanical constraint by the surrounding chromatin are hypotheses that FA does not test.
+FA describes the shape of the mask only; it does not identify why an object has that shape.
 
 ## How It Is Calculated
 
