@@ -769,10 +769,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-fa-does-and-does-not-tell-you" class="md-nav__link">
+  <a href="#what-affects-fa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What FA Does and Does Not Tell You
+        What Affects FA
       
     </span>
   </a>
@@ -1043,10 +1043,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-fa-does-and-does-not-tell-you" class="md-nav__link">
+  <a href="#what-affects-fa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What FA Does and Does Not Tell You
+        What Affects FA
       
     </span>
   </a>
@@ -1093,55 +1093,45 @@
 
 
 <h1 id="3d-fractional-anisotropy-fa">3D Fractional Anisotropy (FA)</h1>
-<p><strong>How stretched out is a condensate?</strong></p>
-<p>Fractional Anisotropy (FA) is a single number between <strong>0</strong> and <strong>1</strong> that describes the 3D shape of an object:</p>
+<p>Fractional Anisotropy (FA) is a number between <strong>0</strong> and <strong>1</strong> that describes how elongated the 3D mask of an object is:</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">FA value</th>
-<th style="text-align: center;">Prolate ellipsoid axis ratio (a:1:1)</th>
-<th style="text-align: left;">What the shape looks like</th>
+<th style="text-align: left;">FA</th>
+<th style="text-align: center;">Axis ratio of a prolate ellipsoid (a:1:1)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>0.0</strong></td>
-<td style="text-align: center;">1.0</td>
-<td style="text-align: left;">Sphere</td>
+<td style="text-align: left;">0.0</td>
+<td style="text-align: center;">1.0 (sphere)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>0.47</strong></td>
+<td style="text-align: left;">0.47</td>
 <td style="text-align: center;">1.5</td>
-<td style="text-align: left;">Moderately elongated</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>0.71</strong></td>
+<td style="text-align: left;">0.71</td>
 <td style="text-align: center;">2.0</td>
-<td style="text-align: left;">Clearly elongated</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>0.82</strong></td>
+<td style="text-align: left;">0.82</td>
 <td style="text-align: center;">2.5</td>
-<td style="text-align: left;">Strongly elongated</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>→ 1</strong></td>
+<td style="text-align: left;">→ 1</td>
 <td style="text-align: center;">→ ∞</td>
-<td style="text-align: left;">Rod / filament</td>
 </tr>
 </tbody>
 </table>
-<p>(Values for a homogeneous ellipsoid. FA is computed from the covariance eigenvalues, i.e. variances, so it is not proportional to the axis ratio and approaches 1 only slowly.)</p>
-<h2 id="what-fa-does-and-does-not-tell-you">What FA Does and Does Not Tell You</h2>
-<p>FA describes the geometry of the <strong>segmented mask</strong>. It does not by itself explain why an object has that shape. The measured value combines:</p>
+<h2 id="what-affects-fa">What Affects FA</h2>
+<p>FA describes the segmented mask, not the cause of its shape. Besides the structure itself it is affected by:</p>
 <ul>
-<li>the shape of the structure itself;</li>
-<li><strong>optics</strong> – a confocal PSF is elongated along Z, so small objects look elongated even when round (see <code>fa_psf_elongation_limit</code> in <code>reference_values.py</code>, a working value not yet validated for the ExM gel);</li>
-<li><strong>segmentation</strong> – threshold and mask quality set where the boundary lies;</li>
-<li><strong>expansion</strong> – local gel inhomogeneity can distort shape;</li>
-<li><strong>discretisation</strong> – objects with few voxels have noisy eigenvalues.</li>
+<li><strong>optics</strong> – the confocal PSF is elongated along Z, so small objects appear elongated;</li>
+<li><strong>segmentation</strong> – where the mask boundary lies;</li>
+<li><strong>expansion and axial scale</strong> – non-uniform expansion or an incorrect Z-step change the shape;</li>
+<li><strong>discretisation</strong> – objects with few voxels give noisy values.</li>
 </ul>
-<p>FA describes the shape of the mask only; it does not identify why an object has that shape.</p>
 <h2 id="how-it-is-calculated">How It Is Calculated</h2>
 <p>ExQt takes the physical coordinates of all mask voxels (voxel index × sampling in nm, order Z, Y, X), computes their covariance matrix and its eigenvalues <span class="arithmatex">\(\lambda_1 \le \lambda_2 \le \lambda_3\)</span> (variances along the object's own principal axes, not along X/Y/Z):</p>
 <div class="arithmatex">\[\text{FA} = \sqrt{\frac{3}{2}} \frac{\sqrt{(\lambda_1 - \bar{\lambda})^2 + (\lambda_2 - \bar{\lambda})^2 + (\lambda_3 - \bar{\lambda})^2}}{\sqrt{\lambda_1^2 + \lambda_2^2 + \lambda_3^2}}\]</div>

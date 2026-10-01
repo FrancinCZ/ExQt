@@ -426,10 +426,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-exqt" class="md-nav__link">
+  <a href="#what-exqt-measures" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why ExQt?
+        What ExQt Measures
       
     </span>
   </a>
@@ -1038,10 +1038,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-exqt" class="md-nav__link">
+  <a href="#what-exqt-measures" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why ExQt?
+        What ExQt Measures
       
     </span>
   </a>
@@ -1088,18 +1088,18 @@
 
 
 <h1 id="exqt-expansion-microscopy-quantification-tool">ExQt: Expansion Microscopy Quantification Tool</h1>
-<p><strong>ExQt</strong> (<em>Expansion Microscopy Quantification Tool</em>) is an open-source desktop application for measuring biomolecular condensates in 3D images. It works on existing segmentation masks (it does not segment images itself) and measures size, enrichment, shape and the core–shell profile of every object.</p>
-<p>It is designed to work across both <strong>classical confocal immunofluorescence (IF)</strong> and <strong>Expansion Microscopy (ExM)</strong>, providing a unified, auditable pipeline to measure the size, shape, enrichment and internal intensity profile of condensates in the cell nucleus.</p>
+<p><strong>ExQt</strong> (<em>Expansion Microscopy Quantification Tool</em>) is an open-source desktop application for measuring objects in 3D fluorescence images of the cell nucleus, from confocal immunofluorescence (IF) or Expansion Microscopy (ExM). It works on existing segmentation masks; it does not segment images itself.</p>
 <hr />
-<h2 id="why-exqt">Why ExQt?</h2>
-<p>In diffraction-limited confocal microscopy, structures closer than the Abbe resolution limit can overlap and appear as a single object. Expansion Microscopy addresses this by physically magnifying the specimen in a swellable polymer hydrogel, allowing standard confocal hardware to resolve finer structural detail.</p>
-<p>Analyzing ExM data introduces specific computational requirements:</p>
+<h2 id="what-exqt-measures">What ExQt Measures</h2>
+<p>For every object in the mask:</p>
 <ul>
-<li><strong>True 3D processing</strong> — maintaining connectivity across anisotropic voxel grids (<span class="arithmatex">\(\Delta z &gt; \Delta x, \Delta y\)</span>).</li>
-<li><strong>Dual-scale reporting</strong> — preserving both the physical hydrogel scale (<span class="arithmatex">\(V_{\text{gel}}\)</span>) and the estimated biological pre-expansion scale (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3\)</span>).</li>
-<li><strong>Internal profiling</strong> — quantifying concentration gradients across concentric layers (Core–Middle–Shell), rather than treating condensates as uniform blobs.</li>
-<li><strong>Shape analysis</strong> — comparing the FA of inner and outer layers with a homogeneous-ellipsoid null model of the same shape.</li>
+<li><strong>Size</strong> in the image (gel) scale and, divided by the expansion factor, in the estimated pre-expansion scale (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3\)</span>).</li>
+<li><strong>Enrichment</strong> <span class="arithmatex">\(K_{\text{part}}\)</span>: mean intensity of the object relative to the surrounding nucleoplasm.</li>
+<li><strong>Shape</strong>: 3D Fractional Anisotropy (FA) of the mask.</li>
+<li><strong>Layers</strong> (optional): FA and mean intensity of three concentric layers, and the FA difference compared with a homogeneous ellipsoid of the same shape.</li>
+<li><strong>Quality-control flags</strong> and a record of the settings, code version and input files of each run.</li>
 </ul>
+<p>All lengths use the physical voxel size, so the coarser Z sampling of confocal stacks is taken into account.</p>
 <hr />
 <h2 id="pipeline">Pipeline</h2>
 <p><code>Batch.process_condensates</code> processes one raw/mask TIFF pair; the GUI worker in <code>App.py</code> runs it for every file and writes the CSV and <code>*_metadata.json</code>.</p>
@@ -1107,9 +1107,10 @@
 <li>Load the stack and mask; select the signal channel; alignment QC (<code>Batch.validate_alignment_qc</code>).</li>
 <li>ROI: Auto-ROI (whole field of view) or manual nucleus ROI, interpolated per nucleus (<code>Batch._interpolate_or_extrude_roi</code>).</li>
 <li>Connected components of the mask inside the ROI; raw noise floor <code>min_voxels</code>.</li>
-<li>Per object: gel and biological volume (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}}/\text{ExF}^3\)</span>), <span class="arithmatex">\(K_{\text{part}}\)</span> with an explicit detector offset, edge/ROI-edge flags, optional Radial FA Profiling with the geometric null model.</li>
+<li>Per object: volumes, <span class="arithmatex">\(K_{\text{part}}\)</span>, edge flags and, optionally, layer metrics with the ellipsoid reference.</li>
 <li>Reports: primary set by <code>postprocessing._prepare_reporting_frames</code>, Excel, plots.</li>
 </ol>
+<hr />
 <h2 id="installation">Installation</h2>
 <p>ExQt needs <strong>Python 3.10 or newer</strong> (tested with Python 3.14) and runs on Windows, Linux and macOS. Open a terminal (Command Prompt on Windows) and run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/FrancinCZ/ExQt.git
@@ -1119,7 +1120,6 @@
 </span></code></pre></div>
 <p>Without Git: on GitHub click <strong>Code → Download ZIP</strong>, unzip it, open a terminal in the unzipped folder and run the last two commands.</p>
 <p>With Conda instead of pip: <code>conda env create -f environment.yml</code>, then <code>conda activate exqt-env</code> and <code>python App.py</code>.</p>
-<hr />
 
 
 

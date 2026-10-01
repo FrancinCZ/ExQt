@@ -1111,12 +1111,12 @@
 </ul>
 <hr />
 <h2 id="methodological-background-inspiration">Methodological Background &amp; Inspiration</h2>
-<p>The multi-channel 3D stack alignment strategy in <code>stack_aligner.py</code> is inspired by and adapted from the MATLAB <strong><a href="https://github.com/suzukilabmcardle/3D-Aligner">3D-Aligner</a></strong> developed by the <strong>Suzuki Lab at the McArdle Laboratory for Cancer Research</strong> (<a href="https://github.com/suzukilabmcardle/3D-Aligner">suzukilabmcardle/3D-Aligner</a>).</p>
-<p>In ExQt, the core concepts were re-engineered and implemented natively in Python using <code>skimage.registration.phase_cross_correlation</code> and <code>scipy.ndimage</code>, augmented with:
+<p>The alignment approach in <code>stack_aligner.py</code> is adapted from the MATLAB <strong><a href="https://github.com/suzukilabmcardle/3D-Aligner">3D-Aligner</a></strong> developed by the <strong>Suzuki Lab at the McArdle Laboratory for Cancer Research</strong> (<a href="https://github.com/suzukilabmcardle/3D-Aligner">suzukilabmcardle/3D-Aligner</a>).</p>
+<p>In ExQt it is implemented in Python with <code>skimage.registration.phase_cross_correlation</code> and <code>scipy.ndimage</code>, and adds:
 1. <strong>Reference channel suggestion</strong>: <strong>Auto-detect</strong> ranks channels by the correlation between neighbouring slices (<code>ChannelDetectionWorker</code>).
 2. <strong>Spectral Leakage Suppression</strong>: 2D Hanning window preconditioning to reduce Fourier border discontinuities.
 3. <strong>Canvas Expansion (<code>expand_canvas=True</code>)</strong>: The canvas grows by the accumulated drift so no signal is cropped; the zero padding is recorded in <code>&lt;stem&gt;_alignment_valid.tif</code> and excluded from statistics.
-4. <strong>Synchronized Mask Alignment</strong>: Rigid transformation validation and synchronized translation applied automatically to corresponding binary/labeled <code>*_Mask.tif</code> stacks.</p>
+4. <strong>Mask alignment</strong>: masks are shifted with the same translations as the image.</p>
 
 
 

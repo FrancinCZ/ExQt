@@ -1115,20 +1115,19 @@
 
 
 <h1 id="dual-scale-resolution-volume-normalization">Dual-Scale Resolution &amp; Volume Normalization</h1>
-<p>In Expansion Microscopy (ExM), biological specimens are physically magnified within a swellable hydrogel polymer network. Consequently, two distinct spatial frames of reference exist simultaneously:</p>
+<p>In Expansion Microscopy the sample is physically expanded, so ExQt reports every size twice:</p>
 <ol>
-<li><strong>Hydrogel Space (Physical Measurement Frame):</strong> The physical coordinates recorded by the microscope camera post-expansion.</li>
-<li><strong>Biological Space (Pre-Expansion Reference Frame):</strong> The estimated native cellular scale prior to hydrogel anchoring and swelling.</li>
+<li><strong>Gel scale:</strong> as measured in the image.</li>
+<li><strong>Biological scale:</strong> the gel scale divided by the expansion factor – an estimate of the size before expansion.</li>
 </ol>
-<p>To avoid reporting ambiguity, ExQt natively preserves and exports both scales for every detected object.</p>
 <hr />
 <h2 id="mathematical-formulation">Mathematical Formulation</h2>
-<p>Let <span class="arithmatex">\(\Delta x, \Delta y\)</span> denote the lateral pixel dimensions (in nm) and <span class="arithmatex">\(\Delta z\)</span> the axial optical section spacing (in nm) recorded by the microscope. For an isotropic linear expansion factor <span class="arithmatex">\(\text{ExF}\)</span>, the effective biological sampling increments are:</p>
+<p>With pixel size <span class="arithmatex">\(\Delta x, \Delta y\)</span> and slice spacing <span class="arithmatex">\(\Delta z\)</span> (nm) and a uniform linear expansion factor <span class="arithmatex">\(\text{ExF}\)</span>:</p>
 <div class="arithmatex">\[\Delta x_{\text{bio}} = \frac{\Delta x}{\text{ExF}}, \quad \Delta y_{\text{bio}} = \frac{\Delta y}{\text{ExF}}, \quad \Delta z_{\text{bio}} = \frac{\Delta z}{\text{ExF}}\]</div>
-<p>For a segmented 3D condensate comprising <span class="arithmatex">\(N_{\text{voxels}}\)</span>:</p>
+<p>For an object of <span class="arithmatex">\(N_{\text{voxels}}\)</span>:</p>
 <div class="arithmatex">\[\text{Vol}_{\text{gel}} = N_{\text{voxels}} \times \frac{\Delta x \cdot \Delta y \cdot \Delta z}{10^9} \quad [\mu\text{m}^3]\]</div>
 <div class="arithmatex">\[\text{Vol}_{\text{bio}} = N_{\text{voxels}} \times \frac{\Delta x_{\text{bio}} \cdot \Delta y_{\text{bio}} \cdot \Delta z_{\text{bio}}}{10^9} = \frac{\text{Vol}_{\text{gel}}}{\text{ExF}^3} \quad [\mu\text{m}^3]\]</div>
-<p>The equivalent spherical diameter (<span class="arithmatex">\(D_{\text{eq}}\)</span>) in biological space is:</p>
+<p>Equivalent sphere diameter:</p>
 <div class="arithmatex">\[D_{\text{eq}} = \left( \frac{6 \cdot \text{Vol}_{\text{bio}}}{\pi} \right)^{1/3} \quad [\mu\text{m}]\]</div>
 <hr />
 <h2 id="comparing-if-and-exm">Comparing IF and ExM</h2>

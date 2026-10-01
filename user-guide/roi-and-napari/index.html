@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#nuclear-roi-napari-3d-preview" class="md-skip">
+        <a href="#nuclear-roi-napari" class="md-skip">
           Skip to content
         </a>
       
@@ -540,21 +540,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-dual-role-of-the-nuclear-roi" class="md-nav__link">
+  <a href="#drawing-the-roi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Dual Role of the Nuclear ROI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#interactive-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Interactive Workflow
+        Drawing the ROI
       
     </span>
   </a>
@@ -1043,21 +1032,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-dual-role-of-the-nuclear-roi" class="md-nav__link">
+  <a href="#drawing-the-roi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Dual Role of the Nuclear ROI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#interactive-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Interactive Workflow
+        Drawing the ROI
       
     </span>
   </a>
@@ -1092,31 +1070,28 @@
 
 
 
-<h1 id="nuclear-roi-napari-3d-preview">Nuclear ROI &amp; Napari 3D Preview</h1>
-<p>Accurate spatial delineation of the cell nucleus is the fundamental prerequisite for quantitative condensate biophysics. Biomolecular condensates must be evaluated exclusively within the nucleoplasm; extracellular fluorescence or cytoplasmic background must be excluded to prevent systematic bias in partition coefficient (<span class="arithmatex">\(K_{\text{part}}\)</span>) calculations.</p>
-<hr />
-<h2 id="the-dual-role-of-the-nuclear-roi">The Dual Role of the Nuclear ROI</h2>
+<h1 id="nuclear-roi-napari">Nuclear ROI &amp; Napari</h1>
+<p>The ROI defines which part of the image belongs to each nucleus:</p>
 <ol>
-<li><strong>Denying False Positives:</strong> Delineates the nuclear boundary so that cytoplasmic granules, membrane debris, or nonspecific antibody precipitates outside the nucleus are rejected before feature extraction.</li>
-<li><strong>Establishing the Nucleoplasmic Baseline:</strong> The mean fluorescence intensity of the surrounding nucleoplasm (<span class="arithmatex">\(I_{\text{nuc}}\)</span>) serves as the reference denominator in calculating the partition coefficient:
-   $<span class="arithmatex">\(K_{\text{part}} = \frac{I_{\text{condensate}} - \text{offset}}{I_{\text{nuc}} - \text{offset}}\)</span>$
-   Pixels outside the nucleus (gel, background, alignment padding) lower <span class="arithmatex">\(I_{\text{nuc}}\)</span> and therefore raise <span class="arithmatex">\(K_{\text{part}}\)</span>. On synthetic data an ROI reaching 10 px (of a 30 px nucleus radius) into the gel raised K from 5.0 to 8.7. Alignment padding is excluded automatically; the ROI outline is the user's responsibility. With Auto-ROI no nucleoplasm is defined and K is not reported.</li>
+<li><strong>Objects outside the ROI are not analysed.</strong></li>
+<li><strong>Nucleoplasm:</strong> the ROI without the segmented objects gives <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span> for <span class="arithmatex">\(K_{\text{part}}\)</span>. Pixels outside the nucleus inside the ROI lower this value and raise <span class="arithmatex">\(K_{\text{part}}\)</span>, so draw the ROI along the nuclear boundary. Alignment padding is excluded automatically. With Auto-ROI no nucleoplasm is defined and <span class="arithmatex">\(K_{\text{part}}\)</span> is not reported.</li>
 </ol>
 <hr />
-<h2 id="interactive-workflow">Interactive Workflow</h2>
+<h2 id="drawing-the-roi">Drawing the ROI</h2>
 <ol>
-<li><strong>Layer dispatch:</strong> ExQt shows the signal stack and the mask in Napari with scale <code>(z_step_nm / pixel_size_nm, 1, 1)</code>, so slices are displayed with their true spacing.</li>
-<li><strong>Drawing:</strong> draw one shape per nucleus on one or more Z-slices.</li>
-<li><strong>Conversion to a 3D ROI</strong> (<code>Batch._interpolate_or_extrude_roi</code>):</li>
-<li>shapes on different slices that overlap in XY belong to the same nucleus and are interpolated between that nucleus's own slices (signed distance fields); slices outside its range stay empty;</li>
-<li>a nucleus drawn on a single slice is extruded through the whole stack;</li>
-<li>every nucleus gets its own <code>cell_id</code>; shapes that touch on the same slice are rejected with a message so they can be fixed.</li>
-<li><strong>Nothing drawn:</strong> ExQt asks before using the whole field of view (<code>roi_source = empty_fallback_fov</code>).</li>
+<li>ExQt shows the signal stack and the mask in Napari with the true slice spacing.</li>
+<li>Draw one shape per nucleus on one or more Z-slices and click <strong>Confirm ROI and Continue</strong>.</li>
+<li>ExQt converts the shapes to a 3D ROI (<code>Batch._interpolate_or_extrude_roi</code>):</li>
+<li>shapes on different slices that overlap in XY belong to the same nucleus and are interpolated between its slices; slices outside that range are not included;</li>
+<li>a nucleus drawn on a single slice is extended through the whole stack;</li>
+<li>each nucleus gets its own <code>cell_id</code>; shapes that touch on the same slice are rejected with a message so they can be fixed.</li>
+<li>If nothing is drawn, ExQt asks before using the whole field of view (<code>roi_source = empty_fallback_fov</code>).</li>
 </ol>
+<hr />
 <h2 id="implementation">Implementation</h2>
 <ul>
-<li><code>App.confirm_roi</code> converts the Napari shapes to labels and checks the grouping before the worker continues; <code>Batch._interpolate_or_extrude_roi</code> builds the 3D ROI.</li>
-<li>The ROI is saved in the run's output folder as <code>&lt;stem&gt;_ROI.tif</code> (one label per nucleus), and its SHA-256 is recorded in <code>*_metadata.json → files.input_files</code>, so every result can be traced to the exact ROI; <code>roi_source</code> in the CSV records how it was defined.</li>
+<li><code>App.confirm_roi</code> converts the Napari shapes to labels and checks them; <code>Batch._interpolate_or_extrude_roi</code> builds the 3D ROI.</li>
+<li>The ROI is saved in the run's output folder as <code>&lt;stem&gt;_ROI.tif</code> (one label per nucleus); its SHA-256 is recorded in <code>*_metadata.json → files.input_files</code>, and <code>roi_source</code> in the CSV records how it was defined.</li>
 </ul>
 
 

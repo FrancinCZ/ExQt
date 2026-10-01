@@ -990,56 +990,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How to Read Each Plot">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-fa-vs-k_part" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. FA vs. K_part
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-volume-vs-k_part" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Volume vs. K_part
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-volume-vs-mean-intensity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Volume vs. mean intensity
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-volume-vs-fa" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Volume vs. FA
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -1107,56 +1057,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How to Read Each Plot">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-fa-vs-k_part" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. FA vs. K_part
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-volume-vs-k_part" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Volume vs. K_part
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-volume-vs-mean-intensity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Volume vs. mean intensity
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-volume-vs-fa" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Volume vs. FA
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -1188,7 +1088,7 @@
 
 
 <h1 id="reports-visualizations">Reports &amp; Visualizations</h1>
-<p>After processing your images, ExQt automatically generates a four-panel summary figure (<code>partitioning_plots.py</code>) to help you explore your condensate data at a glance.</p>
+<p>When reports are enabled, ExQt saves a four-panel summary figure and a PDF report for the primary objects.</p>
 <hr />
 <h2 id="the-four-summary-plots">The Four Summary Plots</h2>
 <p>Only QC-passed (primary) objects are plotted, and K_part only where <code>K_valid</code>. Reference lines are working values from <code>reference_values.py</code> and are labelled as such.</p>
@@ -1204,35 +1104,32 @@
 <tr>
 <td style="text-align: left;"><strong>Top-left</strong></td>
 <td style="text-align: left;">FA vs. <span class="arithmatex">\(K_{\text{part}}\)</span></td>
-<td style="text-align: left;">Whether shape and enrichment co-vary. Shading marks the FA class boundary and <span class="arithmatex">\(K &lt; 1.5\)</span> (both working values).</td>
+<td style="text-align: left;">Shading at the FA class boundary and <span class="arithmatex">\(K = 1.5\)</span> (working values).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Top-right</strong></td>
 <td style="text-align: left;">Volume vs. <span class="arithmatex">\(K_{\text{part}}\)</span></td>
-<td style="text-align: left;">Whether enrichment depends on object size.</td>
+<td style="text-align: left;"></td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Bottom-left</strong></td>
 <td style="text-align: left;">Volume vs. mean intensity</td>
-<td style="text-align: left;">Raw brightness across sizes, before any ratio.</td>
+<td style="text-align: left;">Intensity before any ratio.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Bottom-right</strong></td>
 <td style="text-align: left;">Volume vs. FA</td>
-<td style="text-align: left;">Whether shape depends on size; line at the PSF-like elongation working value.</td>
+<td style="text-align: left;">Line at the PSF-like elongation (working value).</td>
 </tr>
 </tbody>
 </table>
 <h2 id="how-to-read-each-plot">How to Read Each Plot</h2>
-<p>These are descriptive plots; none of them is by itself a test of a physical model.</p>
-<h3 id="1-fa-vs-k_part">1. FA vs. K_part</h3>
-<p>Shows whether more enriched objects tend to be rounder or more elongated. Both axes carry their own artefacts: FA depends on PSF elongation and segmentation (see the FA page), K_part on the nucleoplasm estimate and the detector offset.</p>
-<h3 id="2-volume-vs-k_part">2. Volume vs. K_part</h3>
-<p>A flat band means K_part does not depend on size in this data set. Small objects are affected by PSF blurring (their mean intensity mixes with the surroundings), which lowers K_part; a rise of K with size can therefore be optical.</p>
-<h3 id="3-volume-vs-mean-intensity">3. Volume vs. mean intensity</h3>
-<p>Raw brightness without normalisation. Useful to spot size-dependent dimming of small objects or saturation of large ones.</p>
-<h3 id="4-volume-vs-fa">4. Volume vs. FA</h3>
-<p>Small objects consist of few voxels and are dominated by the PSF shape, so their FA is less reliable; compare with the PSF-like elongation line and treat trends at small volumes with caution.</p>
+<p>The plots are descriptive; none of them tests a physical model. Keep in mind:</p>
+<ul>
+<li>FA depends on optical blur along Z and on segmentation (see the FA page).</li>
+<li><span class="arithmatex">\(K_{\text{part}}\)</span> depends on the nucleoplasm estimate and the detector offset (see the K_part page).</li>
+<li>Small objects consist of few voxels and are blurred, which affects both FA and <span class="arithmatex">\(K_{\text{part}}\)</span>; trends at small volumes can therefore be optical.</li>
+</ul>
 <h2 id="implementation">Implementation</h2>
 <ul>
 <li><code>partitioning_plots.export_partitioning_analysis</code> (PNG, 2-page PDF, <code>*_partitioning_summary.json</code> with an interpretation warning about PSF and Core-Enriched).</li>

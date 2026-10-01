@@ -914,22 +914,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#catalog-of-rejection-criteria" class="md-nav__link">
+  <a href="#rejection-criteria" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Catalog of Rejection Criteria
+        Rejection Criteria
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Catalog of Rejection Criteria">
+    <nav class="md-nav" aria-label="Rejection Criteria">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-touches_image_edge-field-of-view-truncation" class="md-nav__link">
+  <a href="#1-touches_image_edge-image-edge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. touches_image_edge (Field-of-View Truncation)
+        1. touches_image_edge (Image Edge)
       
     </span>
   </a>
@@ -937,10 +937,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-touches_roi_edge-nuclear-envelope-crossing" class="md-nav__link">
+  <a href="#2-touches_roi_edge-roi-edge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. touches_roi_edge (Nuclear Envelope Crossing)
+        2. touches_roi_edge (ROI Edge)
       
     </span>
   </a>
@@ -948,10 +948,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-z_topology_split-z_topology_review-axial-fragmentation" class="md-nav__link">
+  <a href="#3-z_topology_review-z_topology_fail-split-along-z" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. z_topology_split / z_topology_review (Axial Fragmentation)
+        3. z_topology_review / z_topology_fail (Split Along Z)
       
     </span>
   </a>
@@ -959,10 +959,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-core_below_min_voxels-insufficient-core-volume" class="md-nav__link">
+  <a href="#4-core_below_min_voxels-small-core" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. core_below_min_voxels (Insufficient Core Volume)
+        4. core_below_min_voxels (Small Core)
       
     </span>
   </a>
@@ -970,10 +970,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#5-empty_layer_name-zero-voxel-layer" class="md-nav__link">
+  <a href="#5-empty_layer_name-empty-layer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. empty_layer_{name} (Zero-Voxel Layer)
+        5. empty_layer_{name} (Empty Layer)
       
     </span>
   </a>
@@ -1093,22 +1093,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#catalog-of-rejection-criteria" class="md-nav__link">
+  <a href="#rejection-criteria" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Catalog of Rejection Criteria
+        Rejection Criteria
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Catalog of Rejection Criteria">
+    <nav class="md-nav" aria-label="Rejection Criteria">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-touches_image_edge-field-of-view-truncation" class="md-nav__link">
+  <a href="#1-touches_image_edge-image-edge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. touches_image_edge (Field-of-View Truncation)
+        1. touches_image_edge (Image Edge)
       
     </span>
   </a>
@@ -1116,10 +1116,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-touches_roi_edge-nuclear-envelope-crossing" class="md-nav__link">
+  <a href="#2-touches_roi_edge-roi-edge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. touches_roi_edge (Nuclear Envelope Crossing)
+        2. touches_roi_edge (ROI Edge)
       
     </span>
   </a>
@@ -1127,10 +1127,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-z_topology_split-z_topology_review-axial-fragmentation" class="md-nav__link">
+  <a href="#3-z_topology_review-z_topology_fail-split-along-z" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. z_topology_split / z_topology_review (Axial Fragmentation)
+        3. z_topology_review / z_topology_fail (Split Along Z)
       
     </span>
   </a>
@@ -1138,10 +1138,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-core_below_min_voxels-insufficient-core-volume" class="md-nav__link">
+  <a href="#4-core_below_min_voxels-small-core" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. core_below_min_voxels (Insufficient Core Volume)
+        4. core_below_min_voxels (Small Core)
       
     </span>
   </a>
@@ -1149,10 +1149,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#5-empty_layer_name-zero-voxel-layer" class="md-nav__link">
+  <a href="#5-empty_layer_name-empty-layer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. empty_layer_{name} (Zero-Voxel Layer)
+        5. empty_layer_{name} (Empty Layer)
       
     </span>
   </a>
@@ -1193,40 +1193,39 @@
 
 
 <h1 id="quality-control-exclusion-rules">Quality Control Exclusion Rules</h1>
-<p>Every object rejected from the primary benchmark population is assigned an explicit, machine-readable exclusion code in <code>_QC_Excluded.csv</code>. This prevents "black box" filtering and provides complete traceability for academic audit.</p>
+<p>Every size-eligible object that is not primary has a machine-readable reason in <code>&lt;run&gt;_QC_Excluded.csv</code>.</p>
 <hr />
-<h2 id="catalog-of-rejection-criteria">Catalog of Rejection Criteria</h2>
-<h3 id="1-touches_image_edge-field-of-view-truncation">1. <code>touches_image_edge</code> (Field-of-View Truncation)</h3>
+<h2 id="rejection-criteria">Rejection Criteria</h2>
+<h3 id="1-touches_image_edge-image-edge">1. <code>touches_image_edge</code> (Image Edge)</h3>
 <ul>
-<li><strong>Criterion:</strong> The object bounding box reaches <span class="arithmatex">\(Z = 0\)</span>, <span class="arithmatex">\(Z = Z_{\max}\)</span>, <span class="arithmatex">\(Y = 0\)</span>, <span class="arithmatex">\(Y = Y_{\max}\)</span>, <span class="arithmatex">\(X = 0\)</span>, or <span class="arithmatex">\(X = X_{\max}\)</span>, <strong>or</strong> (aligned stacks) the object touches alignment padding marked 0 in <code>&lt;stem&gt;_alignment_valid.tif</code>, i.e. the original field-of-view border moved inside the array by <code>expand_canvas</code>.</li>
-<li><strong>Scope:</strong> computed for every object in every mode (column <code>touches_image_edge</code>); Mode A keeps the copy <code>mode_a_object_touches_edge</code>.</li>
-<li><strong>Physical Rationale:</strong> An object bisected by the camera field of view has an artificially reduced volume and distorted Fractional Anisotropy.</li>
+<li><strong>Criterion:</strong> the object reaches the first or last position in Z, Y or X, or (aligned stacks) touches the alignment padding marked 0 in <code>&lt;stem&gt;_alignment_valid.tif</code>.</li>
+<li><strong>Reason:</strong> the object may continue outside the image, so its volume and shape are incomplete.</li>
 </ul>
-<h3 id="2-touches_roi_edge-nuclear-envelope-crossing">2. <code>touches_roi_edge</code> (Nuclear Envelope Crossing)</h3>
+<h3 id="2-touches_roi_edge-roi-edge">2. <code>touches_roi_edge</code> (ROI Edge)</h3>
 <ul>
-<li><strong>Criterion:</strong> Object voxels are adjacent to voxels outside the ROI, i.e. the ROI cut the object (column <code>touches_roi_edge</code>, all modes; never set when the ROI is the whole field of view).</li>
-<li><strong>Physical Rationale:</strong> Nuclear speckles reside inside the nucleoplasm. Condensates overlapping the nuclear envelope risk cytoplasmic signal leakage and nucleoplasmic baseline contamination.</li>
+<li><strong>Criterion:</strong> object voxels are adjacent to voxels outside the ROI (never set when the ROI is the whole field of view).</li>
+<li><strong>Reason:</strong> the ROI cut the object, so its volume, shape and intensity are incomplete.</li>
 </ul>
-<h3 id="3-z_topology_split-z_topology_review-axial-fragmentation">3. <code>z_topology_split</code> / <code>z_topology_review</code> (Axial Fragmentation)</h3>
+<h3 id="3-z_topology_review-z_topology_fail-split-along-z">3. <code>z_topology_review</code> / <code>z_topology_fail</code> (Split Along Z)</h3>
 <ul>
-<li><strong>Criterion:</strong> When stepping through optical <span class="arithmatex">\(Z\)</span>-slices, the object splits into multiple discrete disconnected components.</li>
-<li><strong>Physical Rationale:</strong> While a true biological condensate may have an irregular shape, frequent topological splitting across axial slices often indicates that two distinct neighboring structures were improperly merged into a single mask during thresholding.</li>
+<li><strong>Criterion:</strong> on a substantial fraction of its Z-slices the object consists of several separate parts.</li>
+<li><strong>Reason:</strong> the mask may join separate structures, so its shape metrics would not describe a single object.</li>
 </ul>
-<h3 id="4-core_below_min_voxels-insufficient-core-volume">4. <code>core_below_min_voxels</code> (Insufficient Core Volume)</h3>
+<h3 id="4-core_below_min_voxels-small-core">4. <code>core_below_min_voxels</code> (Small Core)</h3>
 <ul>
-<li><strong>Criterion:</strong> The innermost layer (Core: <span class="arithmatex">\(d_{\text{norm}} &gt; 2/3\)</span>) contains fewer than <code>min_core_voxels</code> voxels (default 20).</li>
-<li><strong>Physical Rationale:</strong> Calculating a <span class="arithmatex">\(3\times3\)</span> covariance matrix and eigenvalue decomposition on fewer than 20 voxels is statistically underpowered and yields noisy, unreliable Fractional Anisotropy estimates.</li>
+<li><strong>Criterion:</strong> the core layer has fewer than <code>min_core_voxels</code> voxels (default 20).</li>
+<li><strong>Reason:</strong> FA from very few voxels is noisy.</li>
 </ul>
-<h3 id="5-empty_layer_name-zero-voxel-layer">5. <code>empty_layer_{name}</code> (Zero-Voxel Layer)</h3>
+<h3 id="5-empty_layer_name-empty-layer">5. <code>empty_layer_{name}</code> (Empty Layer)</h3>
 <ul>
-<li><strong>Criterion:</strong> A concentric shell contains zero foreground voxels.</li>
-<li><strong>Physical Rationale:</strong> Occurs when an object is extremely flat or thin, preventing the distance transform from forming intermediate layers.</li>
+<li><strong>Criterion:</strong> a layer contains no voxels.</li>
+<li><strong>Reason:</strong> occurs for very thin or flat objects; layer metrics cannot be computed.</li>
 </ul>
 <hr />
 <h2 id="implementation">Implementation</h2>
 <ul>
-<li>Flags are computed in <code>Batch.process_condensates</code>; Z-topology in <code>Batch._assess_z_split_topology</code> (policy <code>substantial_component_fraction_v1</code>, thresholds recorded in <code>*_metadata.json → mode_a</code>).</li>
-<li>The primary set is decided in <code>postprocessing._prepare_reporting_frames</code> (see the QC pipeline page).</li>
+<li>Flags: <code>Batch.process_condensates</code>; Z-topology: <code>Batch._assess_z_split_topology</code> (thresholds recorded in <code>*_metadata.json → mode_a</code>).</li>
+<li>Primary set: <code>postprocessing._prepare_reporting_frames</code> (see the QC pipeline page).</li>
 </ul>
 
 

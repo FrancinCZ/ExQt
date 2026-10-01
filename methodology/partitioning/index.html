@@ -741,10 +741,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#rules-implemented-in-batchprocess_condensates" class="md-nav__link">
+  <a href="#when-k_part-is-not-reported" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Rules Implemented in Batch.process_condensates
+        When K_part Is Not Reported
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#things-that-change-k_part" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Things That Change K_part
       
     </span>
   </a>
@@ -1077,10 +1088,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#rules-implemented-in-batchprocess_condensates" class="md-nav__link">
+  <a href="#when-k_part-is-not-reported" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Rules Implemented in Batch.process_condensates
+        When K_part Is Not Reported
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#things-that-change-k_part" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Things That Change K_part
       
     </span>
   </a>
@@ -1105,15 +1127,15 @@
 
 
 <h1 id="partition-coefficient-k_part">Partition Coefficient (K_part)</h1>
-<p><strong>How concentrated is the protein inside the condensate?</strong></p>
-<p>The partition coefficient (<span class="arithmatex">\(K_{\text{part}}\)</span>) tells you how many times more concentrated (brighter) the target protein is inside the droplet compared to the surrounding nucleoplasm.</p>
+<p><span class="arithmatex">\(K_{\text{part}}\)</span> is the ratio of the mean offset-corrected intensity inside an object to that of the surrounding nucleoplasm.</p>
 <hr />
 <h2 id="how-it-is-calculated">How It Is Calculated</h2>
-<div class="arithmatex">\[K_{\text{part}} = \frac{I_{\text{condensate}} - \text{offset}}{I_{\text{nucleoplasm}} - \text{offset}}\]</div>
-<p>Where:
-- <span class="arithmatex">\(I_{\text{condensate}}\)</span>: Average brightness inside the condensate.
-- <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span>: Average brightness of the diffuse nucleoplasm (inside the nucleus, but outside any condensates).
-- <span class="arithmatex">\(\text{offset}\)</span>: Detector/camera offset in ADU, entered in <strong>Settings → Detector offset (ADU)</strong> (default <code>0</code> = no subtraction).</p>
+<div class="arithmatex">\[K_{\text{part}} = \frac{\max(I_{\text{object}} - \text{offset},\ 0)}{I_{\text{nucleoplasm}} - \text{offset}}\]</div>
+<ul>
+<li><span class="arithmatex">\(I_{\text{object}}\)</span>: mean intensity inside the object mask.</li>
+<li><span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span>: mean intensity of the nucleus ROI (<code>cell_id</code>) without any segmented objects, in the Z-range where that nucleus has objects; alignment padding is excluded.</li>
+<li><span class="arithmatex">\(\text{offset}\)</span>: detector offset in ADU from <strong>Settings → Detector offset (ADU)</strong> (default <code>0</code> = no subtraction). It is never estimated from the image.</li>
+</ul>
 <h3 id="which-offset-to-use">Which offset to use</h3>
 <table>
 <thead>
@@ -1125,28 +1147,32 @@
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;">Photon counting (e.g. Leica HyD S/X/R in counting mode)</td>
-<td style="text-align: left;">0 ADU – photons are counted without an electronic offset</td>
-<td style="text-align: left;">Keep 0, or press <strong>From .lif…</strong> to read the detector settings and record the .lif file as the source.</td>
+<td style="text-align: left;">Photon counting</td>
+<td style="text-align: left;">0 ADU</td>
+<td style="text-align: left;">Keep 0, or press <strong>From .lif…</strong> to read the detector settings from a Leica .lif file and record it as the source.</td>
 </tr>
 <tr>
-<td style="text-align: left;">Analog (PMT, analog HyD, camera)</td>
-<td style="text-align: left;">Unknown from the file – Leica stores "Offset" there as an instrument setting, not in ADU</td>
+<td style="text-align: left;">Analog (PMT, camera)</td>
+<td style="text-align: left;">Not available from the file</td>
 <td style="text-align: left;">Acquire a dark frame (laser off, same detector settings) and enter its median.</td>
 </tr>
 </tbody>
 </table>
-<p>The source of the value is saved per object in <code>K_offset_source</code> (<code>manual</code> or <code>lif_photon_counting</code>) and in <code>*_metadata.json → partitioning.offset_source</code> (file name, SHA-256 and detector settings).</p>
+<p>The value and its source are saved per object (<code>K_offset_adu</code>, <code>K_offset_source</code>) and in <code>*_metadata.json → partitioning</code>.</p>
 <hr />
-<h2 id="rules-implemented-in-batchprocess_condensates">Rules Implemented in <code>Batch.process_condensates</code></h2>
-<ol>
-<li><strong>Explicit offset, never estimated from the image.</strong> A low percentile of ROI pixels is not a camera offset: it follows the darkest thing inside the ROI and the noise level, so K would depend on ROI shape and noise, and a tight ROI inside the nucleus could inflate K several-fold. The applied value is stored per object in <code>K_offset_adu</code> with <code>K_offset_method = "explicit_setting"</code>, and in <code>*_metadata.json → partitioning</code>.</li>
-<li><strong>Nucleoplasm per nucleus.</strong> <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span> is the mean of the nucleus ROI (<code>cell_id</code>) minus all segmented objects, restricted to the Z-range in which that nucleus has objects.</li>
-<li><strong>Alignment padding excluded.</strong> Aligned stacks come with <code>&lt;stem&gt;_alignment_valid.tif</code> (written by <code>Tools → Align Z-stacks</code>). Voxels marked 0 (zero padding, shifted-in borders) never enter the nucleoplasm mean. Stacks aligned with an older ExQt have no such mask; a warning is printed and they should be re-aligned.</li>
-<li><strong>No K for Auto-ROI.</strong> Without a nucleus outline the "nucleoplasm" would include gel and background, so <code>partition_coefficient = NaN</code>, <code>K_valid = False</code>, <code>K_invalid_reason = "auto_roi_no_nucleoplasm"</code>.</li>
-<li><strong>Non-positive denominator.</strong> If <span class="arithmatex">\(I_{\text{nucleoplasm}} - \text{offset} \le 0\)</span>, K is NaN with <code>K_invalid_reason = "negative_denominator"</code>; with no nucleoplasm voxels, <code>"no_nucleoplasm"</code>. K &lt; 1 is <strong>not</strong> filtered out.</li>
-</ol>
-<p>The numerator is clipped at 0 (<code>max(I_condensate - offset, 0)</code>).</p>
+<h2 id="when-k_part-is-not-reported">When K_part Is Not Reported</h2>
+<ul>
+<li><strong>Auto-ROI:</strong> there is no nucleus outline, so no nucleoplasm is defined (<code>K_invalid_reason = "auto_roi_no_nucleoplasm"</code>).</li>
+<li><strong>No nucleoplasm voxels</strong> (<code>"no_nucleoplasm"</code>) or <span class="arithmatex">\(I_{\text{nucleoplasm}} - \text{offset} \le 0\)</span> (<code>"negative_denominator"</code>).</li>
+</ul>
+<p>Values below 1 are reported, not filtered out.</p>
+<hr />
+<h2 id="things-that-change-k_part">Things That Change K_part</h2>
+<ul>
+<li>Pixels outside the nucleus inside the ROI lower <span class="arithmatex">\(I_{\text{nucleoplasm}}\)</span> and raise <span class="arithmatex">\(K_{\text{part}}\)</span>; draw the ROI along the nuclear boundary.</li>
+<li>Blurring mixes the intensity of small objects with their surroundings.</li>
+<li>Intensity is used as measured; a ratio of intensities is not necessarily a ratio of concentrations.</li>
+</ul>
 
 
 

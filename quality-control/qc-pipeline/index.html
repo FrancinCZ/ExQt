@@ -886,22 +886,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-three-tiers" class="md-nav__link">
+  <a href="#the-three-groups" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Three Tiers
+        The Three Groups
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The Three Tiers">
+    <nav class="md-nav" aria-label="The Three Groups">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-raw-detections-_output_batch_3dcsv" class="md-nav__link">
+  <a href="#1-all-objects-folder_output_batch_3dcsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Raw Detections (_Output_Batch_3d.csv)
+        1. All Objects (&lt;folder&gt;_Output_Batch_3d.csv)
       
     </span>
   </a>
@@ -920,10 +920,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-primary-condensates-run_primary_condensatescsv" class="md-nav__link">
+  <a href="#3-primary-objects-run_primary_condensatescsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Primary Condensates (&lt;run&gt;_Primary_Condensates.csv)
+        3. Primary Objects (&lt;run&gt;_Primary_Condensates.csv)
       
     </span>
   </a>
@@ -947,10 +947,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#red-flags-warnings-nothing-is-removed" class="md-nav__link">
+  <a href="#warnings-nothing-is-removed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Red Flags (warnings, nothing is removed)
+        Warnings (nothing is removed)
       
     </span>
   </a>
@@ -958,10 +958,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#known-limitation-size-selection-of-the-primary-set" class="md-nav__link">
+  <a href="#known-limitation-size-selection" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Known Limitation: Size Selection of the Primary Set
+        Known Limitation: Size Selection
       
     </span>
   </a>
@@ -1093,22 +1093,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-three-tiers" class="md-nav__link">
+  <a href="#the-three-groups" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Three Tiers
+        The Three Groups
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="The Three Tiers">
+    <nav class="md-nav" aria-label="The Three Groups">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-raw-detections-_output_batch_3dcsv" class="md-nav__link">
+  <a href="#1-all-objects-folder_output_batch_3dcsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Raw Detections (_Output_Batch_3d.csv)
+        1. All Objects (&lt;folder&gt;_Output_Batch_3d.csv)
       
     </span>
   </a>
@@ -1127,10 +1127,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-primary-condensates-run_primary_condensatescsv" class="md-nav__link">
+  <a href="#3-primary-objects-run_primary_condensatescsv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Primary Condensates (&lt;run&gt;_Primary_Condensates.csv)
+        3. Primary Objects (&lt;run&gt;_Primary_Condensates.csv)
       
     </span>
   </a>
@@ -1154,10 +1154,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#red-flags-warnings-nothing-is-removed" class="md-nav__link">
+  <a href="#warnings-nothing-is-removed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Red Flags (warnings, nothing is removed)
+        Warnings (nothing is removed)
       
     </span>
   </a>
@@ -1165,10 +1165,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#known-limitation-size-selection-of-the-primary-set" class="md-nav__link">
+  <a href="#known-limitation-size-selection" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Known Limitation: Size Selection of the Primary Set
+        Known Limitation: Size Selection
       
     </span>
   </a>
@@ -1193,41 +1193,44 @@
 
 
 <h1 id="quality-control-pipeline">Quality Control Pipeline</h1>
-<p>Not every detected blob is a clean, measurable condensate. Raw segmentations often include camera noise specks, cut-off objects touching the edges of the image, or artifacts.</p>
-<p>To make sure your final analysis is clean and trustworthy, ExQt sorts objects into three tiers:</p>
+<p>ExQt sorts the objects of a run into three groups:</p>
 <pre class="mermaid"><code>graph TD
-    A["1. Raw Detections (All objects in mask)"] --&gt; B["Size Filter (Drop noise &amp; huge clumps)"]
-    B --&gt; C["2. Size-Eligible Objects"]
-    C --&gt; D["Shape &amp; Edge Checks"]
-    D --&gt;|Passes All Checks| E["3. Primary Condensates (Clean Publication Data)"]
-    D --&gt;|Fails Any Check| F["Excluded Objects (Saved with reason)"]</code></pre>
+    A["1. All objects in the mask"] --&gt; B["Size range"]
+    B --&gt; C["2. Size-eligible objects"]
+    C --&gt; D["QC checks"]
+    D --&gt;|Passes all checks| E["3. Primary objects"]
+    D --&gt;|Fails a check| F["Excluded objects (with reason)"]</code></pre>
 <hr />
-<h2 id="the-three-tiers">The Three Tiers</h2>
-<h3 id="1-raw-detections-_output_batch_3dcsv">1. Raw Detections (<code>_Output_Batch_3d.csv</code>)</h3>
-<p>Everything detected by the mask inside the nuclear ROI. This includes noise specks, cut-off blobs at the edge of the image, and multi-object clumps.</p>
+<h2 id="the-three-groups">The Three Groups</h2>
+<h3 id="1-all-objects-folder_output_batch_3dcsv">1. All Objects (<code>&lt;folder&gt;_Output_Batch_3d.csv</code>)</h3>
+<p>Every connected component of the mask inside the ROI that is larger than the noise filter.</p>
 <h3 id="2-size-eligible-objects">2. Size-Eligible Objects</h3>
-<p>Objects that fall within your chosen volume range (<span class="arithmatex">\(V_{\min}\)</span> to <span class="arithmatex">\(V_{\max}\)</span>). This quickly filters out sub-resolution noise (too small) and giant segmentation mergers (too large).</p>
-<h3 id="3-primary-condensates-run_primary_condensatescsv">3. Primary Condensates (<code>&lt;run&gt;_Primary_Condensates.csv</code>)</h3>
-<p>The clean, high-confidence dataset used for your final plots and statistics. An object only becomes a <strong>Primary Condensate</strong> if it passes all quality checks:
-- It does not touch the edges of the image/stack or the alignment padding (<code>touches_image_edge</code>), in every mode.
-- It is not cut by the ROI boundary (<code>touches_roi_edge</code>), in every mode.
-- Its stack was not aligned with overall status <code>REVIEW</code> (<code>alignment_status</code>).
-- With Radial FA Profiling: continuous 3D structure across Z-slices, all layer FA valid and enough core voxels (<code>mode_a_primary_include</code>).</p>
-<p>Objects that fail any check are saved into <code>&lt;run&gt;_QC_Excluded.csv</code> with the exact reason recorded, so nothing is secretly deleted.</p>
+<p>Objects within the chosen size range (Min size – Max size).</p>
+<h3 id="3-primary-objects-run_primary_condensatescsv">3. Primary Objects (<code>&lt;run&gt;_Primary_Condensates.csv</code>)</h3>
+<p>The objects used for the summary statistics and plots. An object is primary if it is size-eligible and:</p>
+<ul>
+<li>does not touch the edge of the image/stack or the alignment padding (<code>touches_image_edge</code>);</li>
+<li>is not cut by the ROI boundary (<code>touches_roi_edge</code>);</li>
+<li>does not come from a stack whose alignment status is <code>REVIEW</code> (<code>alignment_status</code>);</li>
+<li>with Radial FA Profiling: passes the Z-topology check, has all layer FA valid and enough core voxels (<code>mode_a_primary_include</code>).</li>
+</ul>
+<p>Size-eligible objects that fail a check are saved in <code>&lt;run&gt;_QC_Excluded.csv</code> with the reason.</p>
 <hr />
 <h2 id="implementation">Implementation</h2>
-<p>The flags are computed per object in <code>Batch.process_condensates</code>; <code>postprocessing._prepare_reporting_frames</code> combines them:</p>
+<p>The flags are computed per object in <code>Batch.process_condensates</code> and combined in <code>postprocessing._prepare_reporting_frames</code>:</p>
 <p><code>primary_qc_valid = size_eligible &amp; fa_complete &amp; mode_a_primary_include &amp; alignment_ok &amp; not_truncated</code></p>
-<p>(<code>fa_complete</code> and <code>mode_a_primary_include</code> are always <code>True</code> when Radial FA Profiling is off; <code>alignment_ok</code> = <code>alignment_status != "REVIEW"</code>; <code>not_truncated</code> = neither <code>touches_image_edge</code> nor <code>touches_roi_edge</code>). The partitioning report (<code>partitioning_plots</code>) uses only <code>primary_qc_valid</code> objects and K only where <code>K_valid</code>.</p>
-<h2 id="red-flags-warnings-nothing-is-removed">Red Flags (warnings, nothing is removed)</h2>
-<p><code>postprocessing.detect_red_flags</code> reports two warning signs in the GUI log (<code>RED FLAG: …</code>), in <code>*_metadata.json → red_flags</code> and in the Excel Summary (<code>Red flags</code>):</p>
+<p>(<code>fa_complete</code> and <code>mode_a_primary_include</code> are always <code>True</code> when Radial FA Profiling is off.)</p>
+<hr />
+<h2 id="warnings-nothing-is-removed">Warnings (nothing is removed)</h2>
+<p>ExQt writes a warning to the log (<code>RED FLAG: …</code>), to <code>*_metadata.json → red_flags</code> and to the Excel Summary when:</p>
 <ul>
-<li>more than 1000 objects in one nucleus (<code>filename</code>, <code>cell_id</code>) – <code>objects_per_nucleus</code>;</li>
-<li>per-file median object size below 50 voxels (pixels in 2D) – <code>median_size_below_min</code>.</li>
+<li>one nucleus contains more than 1000 objects (<code>objects_per_nucleus</code>);</li>
+<li>the median object size in a file is below 50 voxels (pixels in 2D) (<code>median_size_below_min</code>).</li>
 </ul>
-<p>Both usually mean over-segmentation or noise. Check the mask, <code>min_voxels</code> (default 5) and the expansion factor before interpreting any number from such a run.</p>
-<h2 id="known-limitation-size-selection-of-the-primary-set">Known Limitation: Size Selection of the Primary Set</h2>
-<p>With Radial FA Profiling the primary set requires a valid core FA (<code>min_core_voxels</code>, default 20). The core holds only about 4 % of an object's volume, so in practice objects need roughly 500 or more voxels to qualify. The primary set therefore over-represents large objects, and statistics from it describe that subset, not all condensates. The Excel Summary row <code>Primary selection bias</code> (<code>postprocessing.primary_selection_summary</code>) reports the number and the median size of primary vs size-eligible excluded objects for every run.</p>
+<p>Both can indicate over-segmentation or noise; check the mask, <code>min_voxels</code> and the expansion factor.</p>
+<hr />
+<h2 id="known-limitation-size-selection">Known Limitation: Size Selection</h2>
+<p>With Radial FA Profiling the primary set requires a valid core FA (<code>min_core_voxels</code>, default 20). The core holds only about 4 % of an object's volume, so in practice objects need roughly 500 voxels or more. Statistics of the primary set describe these larger objects, not all objects. The Excel Summary row <code>Primary selection bias</code> reports the number and median size of primary and excluded objects for each run.</p>
 
 
 

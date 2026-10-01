@@ -979,10 +979,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-mode-a-radial-profiling-concentration-gradients" class="md-nav__link">
+  <a href="#4-mode-a-radial-profiling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Mode A: Radial Profiling &amp; Concentration Gradients
+        4. Mode A: Radial Profiling
       
     </span>
   </a>
@@ -1106,10 +1106,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-mode-a-radial-profiling-concentration-gradients" class="md-nav__link">
+  <a href="#4-mode-a-radial-profiling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Mode A: Radial Profiling &amp; Concentration Gradients
+        4. Mode A: Radial Profiling
       
     </span>
   </a>
@@ -1241,7 +1241,7 @@
 <td style="text-align: left;"><code>volume_bio_um3</code></td>
 <td style="text-align: center;"><span class="arithmatex">\(\mu\text{m}^3\)</span></td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Pre-expansion biological volume: <span class="arithmatex">\(\text{Vol}_{\text{gel}} / \text{ExF}^3\)</span>.</td>
+<td style="text-align: left;">Estimated pre-expansion volume: <span class="arithmatex">\(\text{Vol}_{\text{gel}} / \text{ExF}^3\)</span>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>equivalent_diameter_um</code></td>
@@ -1321,7 +1321,7 @@
 <td style="text-align: left;"><code>partition_coefficient</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Concentration ratio: <span class="arithmatex">\(\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})\)</span>. NaN when <code>K_valid</code> is <code>False</code>.</td>
+<td style="text-align: left;">Intensity ratio: <span class="arithmatex">\(\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})\)</span>. NaN when <code>K_valid</code> is <code>False</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>K_valid</code></td>
@@ -1338,7 +1338,7 @@
 </tbody>
 </table>
 <hr />
-<h2 id="4-mode-a-radial-profiling-concentration-gradients">4. Mode A: Radial Profiling &amp; Concentration Gradients</h2>
+<h2 id="4-mode-a-radial-profiling">4. Mode A: Radial Profiling</h2>
 <table>
 <thead>
 <tr>
@@ -1371,7 +1371,7 @@
 <td style="text-align: left;"><code>Delta_intensity_core_shell</code></td>
 <td style="text-align: center;">ADU</td>
 <td style="text-align: center;"><code>float</code></td>
-<td style="text-align: left;">Radial concentration difference: <span class="arithmatex">\(I_{\text{core}} - I_{\text{shell}}\)</span>.</td>
+<td style="text-align: left;">Mean intensity difference: <span class="arithmatex">\(I_{\text{core}} - I_{\text{shell}}\)</span>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>condensate_class</code></td>
@@ -1543,7 +1543,7 @@
 <td style="text-align: left;"><code>primary_qc_valid</code></td>
 <td style="text-align: center;">-</td>
 <td style="text-align: center;"><code>boolean</code></td>
-<td style="text-align: left;"><code>True</code> if object passes all criteria to join the primary benchmark cohort.</td>
+<td style="text-align: left;"><code>True</code> if the object is in the primary set (see Quality Control).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>mode_a_qc_reason</code></td>

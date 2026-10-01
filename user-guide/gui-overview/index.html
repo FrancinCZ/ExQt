@@ -1271,46 +1271,44 @@
 
 
 <h1 id="graphical-user-interface-gui-overview">Graphical User Interface (GUI) Overview</h1>
-<p>The ExQt interface (<code>app.py</code> or <code>App.py</code>) gives you complete control over your analysis, microscope calibrations, and visual inspection.</p>
+<p>The ExQt window (<code>App.py</code>) contains the analysis settings on the left and a Napari viewer on the right.</p>
 <p>The window is divided into two main sections:
-- <strong>Left Panel:</strong> All settings, calibration fields, size filters, and execution buttons.
-- <strong>Right Panel:</strong> Integrated <a href="https://napari.org/">Napari</a> 3D interactive viewer for inspecting optical stacks and drawing nuclear boundaries.</p>
+- <strong>Left panel:</strong> input and output folders, analysis options, size range and buttons.
+- <strong>Right panel:</strong> <a href="https://napari.org/">Napari</a> viewer for inspecting stacks and drawing nuclear ROIs.</p>
 <hr />
 <h2 id="the-left-control-panel">The Left Control Panel</h2>
 <h3 id="1-data-selection">1. Data Selection</h3>
 <ul>
-<li><strong>Input folder (<code>Browse</code>):</strong> Select the folder containing your raw multi-channel <code>.tif</code> stacks and their corresponding segmentation masks (<code>*_Mask.tif</code>).</li>
-<li><strong>Output folder (<code>Browse...</code>):</strong> Choose where results (<code>.csv</code>, <code>.xlsx</code>, figures) should be saved.</li>
+<li><strong>Input folder (<code>Browse</code>):</strong> folder with the raw <code>.tif</code> stacks and their masks (<code>*_Mask.tif</code>).</li>
+<li><strong>Output folder (<code>Browse...</code>):</strong> where results are saved.</li>
 <li><strong>Save next to input:</strong> When checked, results are written into the input folder instead of a separate output folder.</li>
 </ul>
 <h3 id="2-processing-configuration">2. Processing Configuration</h3>
 <ul>
 <li><strong>Process mode:</strong></li>
-<li><strong><code>3d</code> (Default):</strong> Full volumetric analysis across all optical Z-sections. Required for 3D shape anisotropy and radial core–shell profiling.</li>
-<li><strong><code>2d</code>:</strong> Maximum Intensity Projection (MIP) analysis.</li>
-<li><strong><code>single_slice</code>:</strong> Automatically selects and analyzes only the single sharpest in-focus plane.</li>
-<li><strong>Expansion Factor:</strong> Enter the linear physical expansion factor of your hydrogel (e.g., <code>1.0</code> for classical unexpanded confocal; ≈ <code>8</code> for our Magnify protocol imaged in distilled water – Magnify expands 3–4.5× in 1× PBS, 5–7× in 1:50 PBS and 8–11× in water, so always record the imaging medium). Prefer an ExF measured on nuclei over the macroscopic gel ExF, because nuclei can expand less than the gel. ExQt uses this to calculate true biological volumes (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}} / \text{ExF}^3\)</span>).</li>
-<li><strong>Show Napari preview:</strong> Keeps the 3D viewer active and synchronized with each processed image.</li>
-<li><strong>Auto-ROI:</strong> When checked, treats the entire field of view as a single cell/nucleus (convenient for single-nucleus crops or high-throughput screens). When unchecked, ExQt pauses to let you outline the nucleus manually. With Auto-ROI, <span class="arithmatex">\(K_{\text{part}}\)</span> is not computed (NaN, <code>auto_roi_no_nucleoplasm</code>), because there is no nucleus outline to define the nucleoplasm.</li>
-<li><strong>Review each image:</strong> An optional quality check — pauses after each image to let you visually approve the segmentation mask before moving to the next file.</li>
+<li><strong><code>3d</code> (default):</strong> analysis of the whole stack; required for FA and layer profiling.</li>
+<li><strong><code>2d</code>:</strong> analysis of the maximum intensity projection.</li>
+<li><strong><code>single_slice</code>:</strong> analysis of the sharpest slice only.</li>
+<li><strong>Expansion factor:</strong> linear expansion factor (<code>1.0</code> for unexpanded samples). It depends on the protocol and the imaging medium; use a value measured for your samples. ExQt uses it for the estimated pre-expansion sizes (<span class="arithmatex">\(V_{\text{bio}} = V_{\text{gel}} / \text{ExF}^3\)</span>).</li>
+<li><strong>Show Napari preview:</strong> shows each processed image in the viewer.</li>
+<li><strong>Auto-ROI:</strong> uses the whole field of view instead of a drawn nucleus ROI. <span class="arithmatex">\(K_{\text{part}}\)</span> is then not computed, because no nucleoplasm is defined. When unchecked, ExQt pauses for you to outline the nuclei.</li>
+<li><strong>Review each image:</strong> pauses after each image so you can approve or discard it.</li>
 </ul>
 <h3 id="3-size-filtering-interactive-preview">3. Size Filtering &amp; Interactive Preview</h3>
 <ul>
-<li><strong>Min size / Max size</strong> (µm³ in 3D, µm² in 2D; the unit is shown in the field): Sets the physical size boundaries for <strong>Primary Condensates</strong>. Objects smaller than Min (e.g., single-pixel noise) or larger than Max (e.g., giant unresolved clumps) are separated into the excluded dataset.</li>
-<li><strong>Preview sizes... (Button):</strong> Opens an interactive histogram of your data <em>before</em> running the full batch. You can drag vertical sliders on the graph to visually pick the optimal Min and Max size cutoffs for your population.</li>
+<li><strong>Min size / Max size</strong> (µm³ in 3D, µm² in 2D): size range of the primary objects; objects outside it are not used in the primary statistics.</li>
+<li><strong>Preview sizes...:</strong> histogram of object sizes before the analysis; the range can be set by dragging.</li>
 </ul>
 <h3 id="4-action-buttons">4. Action Buttons</h3>
 <ul>
-<li><strong>Start analysis (Blue button):</strong> Starts the analysis of all paired files in the input folder.</li>
-<li><strong>Confirm ROI and Continue (Green button):</strong> Appears when manual ROI drawing is active. Click this once you have drawn the nuclear boundary in Napari to proceed with feature extraction. Draw one shape per nucleus on one or more Z-slices. Shapes on different slices that overlap in XY are treated as the same nucleus and interpolated between its own slices (slices outside that range are excluded); a nucleus drawn on a single slice is extruded through the whole stack. Each nucleus gets its own <code>cell_id</code>. Shapes that overlap or touch on the same slice cannot be separated and are rejected with a message, so you can fix them. If nothing is drawn, ExQt asks before using the whole field of view (<code>roi_source = empty_fallback_fov</code>).</li>
-<li><strong>Approve &amp; Next Image (Orange button):</strong> Appears during Review Mode to approve the current segmentation and move to the next image.</li>
-<li><strong>Stop and Discard This Image (Red button):</strong> Discards the currently displayed image and safely stops the batch (all previously approved images remain saved).</li>
+<li><strong>Start analysis:</strong> analyses all paired files in the input folder.</li>
+<li><strong>Confirm ROI and Continue:</strong> confirms the drawn ROI (see <em>Nuclear ROI &amp; Napari</em>).</li>
+<li><strong>Approve &amp; Next Image:</strong> in review mode, keeps the current image and continues.</li>
+<li><strong>Stop and Discard This Image:</strong> discards the current image and stops; images approved earlier are saved.</li>
 </ul>
 <hr />
 <h2 id="where-to-set-pixel-size-and-z-step-settings">Where to Set Pixel Size and Z-Step (Settings)</h2>
-<p>Microscope calibration parameters are accessed via the top menu bar:</p>
-<p><strong>Navigation:</strong> click <code>Settings</code> in the top menu bar; the settings window opens directly.</p>
-<p>The <strong>Settings</strong> window contains the optical calibration and all analysis options:</p>
+<p>Click <strong>Settings</strong> in the top menu bar:</p>
 <table>
 <thead>
 <tr>
@@ -1323,47 +1321,47 @@
 <tr>
 <td style="text-align: left;"><strong>Pixel Size XY (nm)</strong></td>
 <td style="text-align: center;"><code>58.0</code></td>
-<td style="text-align: left;">Physical lateral pixel size recorded by the camera (unscaled).</td>
+<td style="text-align: left;">Pixel size of the image, before expansion correction.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Z-step (nm)</strong></td>
 <td style="text-align: center;"><code>250.0</code></td>
-<td style="text-align: left;">Axial optical distance between adjacent slices in the stack (3D mode only).</td>
+<td style="text-align: left;">Distance between slices (3D only).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Signal Channel</strong></td>
 <td style="text-align: center;"><code>1</code></td>
-<td style="text-align: left;">0-based channel index for the fluorescent condensate signal (e.g., green channel).</td>
+<td style="text-align: left;">0-based index of the measured channel.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>DAPI Channel</strong></td>
 <td style="text-align: center;"><code>0</code></td>
-<td style="text-align: left;">0-based channel index for the nuclear counterstain (e.g., blue DAPI channel).</td>
+<td style="text-align: left;">0-based index of the nuclear stain channel.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Detector offset (ADU)</strong></td>
 <td style="text-align: center;"><code>0.0</code></td>
-<td style="text-align: left;">Detector/camera offset subtracted from condensate and nucleoplasm intensity for <span class="arithmatex">\(K_{\text{part}}\)</span>. From acquisition settings or a dark frame; <code>0</code> = no subtraction. Never estimated from the image. <strong>From .lif…</strong> reads a Leica .lif file: if every active detector is in photon-counting mode the offset is set to 0 and the file is recorded as its source.</td>
+<td style="text-align: left;">Subtracted from intensities for <span class="arithmatex">\(K_{\text{part}}\)</span>; <code>0</code> = no subtraction. <strong>From .lif…</strong> reads it from a Leica .lif file (photon counting → 0).</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Noise filter (voxels)</strong></td>
 <td style="text-align: center;"><code>5</code></td>
-<td style="text-align: left;">Early connected-component threshold to discard tiny single-pixel camera shot noise before calibration.</td>
+<td style="text-align: left;">Objects with fewer voxels are discarded before any measurement.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Enable Radial FA Profiling (3D)</strong></td>
-<td style="text-align: center;">Checked</td>
-<td style="text-align: left;">Enables Mode A: concentric layer peeling (Core–Middle–Shell) and the Geometric Null Model.</td>
+<td style="text-align: center;">Off</td>
+<td style="text-align: left;">Layer metrics (Core–Middle–Shell) and the geometric null model.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Min. voxels per layer</strong></td>
 <td style="text-align: center;"><code>20</code></td>
-<td style="text-align: left;">Minimum number of voxels required in the core shell for valid Fractional Anisotropy calculation.</td>
+<td style="text-align: left;">Minimum voxels for a valid layer FA and for the core.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Require Z-topology PASS</strong></td>
 <td style="text-align: center;">Checked</td>
-<td style="text-align: left;">Flags condensates that split into multiple fragments across Z-slices, excluding them from primary benchmarks.</td>
+<td style="text-align: left;">Objects split along Z are not primary.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Dark mode</strong></td>
@@ -1382,15 +1380,15 @@
 <hr />
 <h2 id="top-menu-tools">Top Menu: Tools</h2>
 <h3 id="1-tools-align-z-stacks">1. <code>Tools</code> → <code>Align Z-stacks...</code></h3>
-<p>Opens the <strong>Z-stack aligner</strong> dialog to correct lateral (XY) drift between consecutive Z-slices (e.g. stage or thermal drift) before running condensate analysis. It does not correct chromatic aberration between channels:
-- <strong>Reference channel:</strong> Choose the channel with the most continuous signal (or click <strong>Auto-detect...</strong> to let ExQt test inter-slice correlation automatically).
-- <strong>Max step per Z-plane (px):</strong> Maximum allowed shift between adjacent slices (default 8.0 px).
-- <strong>Expand canvas:</strong> Enlarges the field of view by the cumulative drift so no edge voxels are clipped; the added zero border is recorded in <code>&lt;stem&gt;_alignment_valid.tif</code> and excluded from statistics.
-- <strong>Align masks:</strong> Shifts matching <code>*_Mask.tif</code> files with the exact same translation vectors.</p>
+<p>Corrects lateral (XY) drift between consecutive Z-slices and writes aligned copies to a new folder (see <em>Stack Aligner</em>):
+- <strong>Reference channel:</strong> channel used to estimate the drift (<strong>Auto-detect...</strong> suggests one).
+- <strong>Max step per Z-plane (px):</strong> largest allowed shift between neighbouring slices (default 8 px).
+- <strong>Expand canvas:</strong> enlarges the image so nothing is cropped; the added border is excluded from statistics.
+- <strong>Align masks:</strong> shifts the masks with the same translations.</p>
 <h3 id="2-tools-merge-existing-runs">2. <code>Tools</code> → <code>Merge existing runs...</code></h3>
-<p>If you ran multiple batches across different days or folders, this tool scans the directory tree and merges all compatible output CSVs into a single unified Excel spreadsheet (<code>Merged_Stats.xlsx</code>) and comparison figure (<code>Merged_Stats.png</code>).</p>
+<p>Merges compatible run CSVs from a folder tree into one Excel file (<code>Merged_Stats.xlsx</code>) and figure (<code>Merged_Stats.png</code>); runs with different QC settings are not merged.</p>
 <h2 id="top-menu-settings">Top Menu: Settings</h2>
-<p>One click opens the Settings window described above (calibration, channels, detector offset, Radial FA Profiling and dark mode).</p>
+<p>Opens the Settings window described above.</p>
 
 
 

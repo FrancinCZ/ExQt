@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#geometric-null-model-separating-shape-from-biology" class="md-skip">
+        <a href="#geometric-null-model" class="md-skip">
           Skip to content
         </a>
       
@@ -797,10 +797,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-problem-the-cucumber-effect" class="md-nav__link">
+  <a href="#how-it-is-calculated" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Problem: The "Cucumber Effect"
+        How It Is Calculated
       
     </span>
   </a>
@@ -808,38 +808,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-solution-a-synthetic-reference" class="md-nav__link">
+  <a href="#what-the-result-describes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Solution: A Synthetic Reference
+        What the Result Describes
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="The Solution: A Synthetic Reference">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-does-the-result-mean" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Does the Result Mean?
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#implementation-and-accuracy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Implementation and Accuracy
+        Implementation
       
     </span>
   </a>
@@ -1060,10 +1043,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-problem-the-cucumber-effect" class="md-nav__link">
+  <a href="#how-it-is-calculated" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Problem: The "Cucumber Effect"
+        How It Is Calculated
       
     </span>
   </a>
@@ -1071,38 +1054,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-solution-a-synthetic-reference" class="md-nav__link">
+  <a href="#what-the-result-describes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Solution: A Synthetic Reference
+        What the Result Describes
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="The Solution: A Synthetic Reference">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-does-the-result-mean" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Does the Result Mean?
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#implementation-and-accuracy" class="md-nav__link">
+  <a href="#implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Implementation and Accuracy
+        Implementation
       
     </span>
   </a>
@@ -1126,53 +1092,46 @@
 
 
 
-<h1 id="geometric-null-model-separating-shape-from-biology">Geometric Null Model: Separating Shape from Biology</h1>
-<p>When you peel layers off an elongated object, a curious geometric effect happens: <strong>the inside naturally looks more stretched out than the outside</strong>, even if the object is completely uniform.</p>
-<p>ExQt includes a <strong>Geometric Null Model</strong> (<code>null_model.py</code>) to prevent mistaking this natural geometric effect for real biological structure.</p>
+<h1 id="geometric-null-model">Geometric Null Model</h1>
+<p>Layers defined by the distance from the surface have different shapes even in a homogeneous object: in an elongated ellipsoid the inner layers are more elongated than the outer ones, so <span class="arithmatex">\(\Delta\text{FA}_{\text{core-shell}}\)</span> is positive without any internal structure. The null model gives this geometric expectation for each object, so the measured value can be compared with it.</p>
 <hr />
-<h2 id="the-problem-the-cucumber-effect">The Problem: The "Cucumber Effect"</h2>
-<p>Imagine an elongated cucumber or a rugby ball. If you peel layers off the surface toward the center:
-1. The innermost core that remains is naturally skinnier and more elongated than the outer shell.
-2. Even in a completely solid, uniform object with no internal structure, the core will have a higher shape anisotropy than the surface (<span class="arithmatex">\(\text{FA}_{\text{core}} &gt; \text{FA}_{\text{shell}}\)</span>).
-3. If you didn't account for this, you might falsely claim that every elongated condensate has a special "internal scaffold".</p>
-<hr />
-<h2 id="the-solution-a-synthetic-reference">The Solution: A Synthetic Reference</h2>
-<p>To solve this, ExQt creates a computer-generated "twin" for every condensate:</p>
+<h2 id="how-it-is-calculated">How It Is Calculated</h2>
 <ol>
-<li><strong>Measure the real condensate</strong> — principal standard deviations <span class="arithmatex">\(\sigma_1 \le \sigma_2 \le \sigma_3\)</span> <strong>and</strong> the principal directions (eigenvectors of the voxel-coordinate covariance, in physical Z/Y/X nm).</li>
-<li><strong>Build a synthetic homogeneous ellipsoid</strong> — semi-axes <span class="arithmatex">\(a_i = \sqrt{5}\,\sigma_i\)</span>, oriented along the <strong>same eigenvectors</strong>, sampled on the <strong>same anisotropic grid</strong> (<code>sampling = (Z, Y, X)</code> nm), so its discretisation matches the object's.</li>
-<li><strong>Slice both into layers</strong> — using the same 3-layer method (Core, Middle, Shell).</li>
-<li><strong>Compare the difference:</strong></li>
+<li>From the object's voxel coordinates (physical Z/Y/X nm): principal standard deviations <span class="arithmatex">\(\sigma_1 \le \sigma_2 \le \sigma_3\)</span> and the principal directions (eigenvectors).</li>
+<li>A homogeneous ellipsoid with semi-axes <span class="arithmatex">\(a_i = \sqrt{5}\,\sigma_i\)</span>, oriented along the same eigenvectors and sampled on the same anisotropic grid as the object.</li>
+<li>The ellipsoid is split into layers with the same method as the object, and its layer FA are computed.</li>
 </ol>
 <div class="arithmatex">\[\Delta\text{FA}_{\text{excess}} = \Delta\text{FA}_{\text{measured}} - \Delta\text{FA}_{\text{null}}\]</div>
-<h3 id="what-does-the-result-mean">What Does the Result Mean?</h3>
-<p>The layers and their FA are computed from the <strong>mask geometry only</strong> (<code>mode_a_fa_type = geometric_shape</code>); intensity is not used. <span class="arithmatex">\(\Delta\text{FA}_{\text{excess}}\)</span> therefore compares the shape of the mask's inner and outer layers with those of a homogeneous ellipsoid that has the same principal axes. It says how far the mask shape departs from an ellipsoid, not how the protein is distributed inside.</p>
+<hr />
+<h2 id="what-the-result-describes">What the Result Describes</h2>
+<p>Layers and their FA are computed from the <strong>mask geometry only</strong>; intensity is not used. <span class="arithmatex">\(\Delta\text{FA}_{\text{excess}}\)</span> therefore describes how the layer shapes of the mask differ from those of an ellipsoid with the same principal axes.</p>
 <table>
 <thead>
 <tr>
 <th style="text-align: left;">Result</th>
-<th style="text-align: left;">Meaning</th>
+<th style="text-align: left;">Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;"><strong>Near zero</strong></td>
-<td style="text-align: left;">The layer shapes are what an ellipsoid of the same size and orientation gives. On synthetic ellipsoids the spread is about ±0.004 (IQR), so smaller values cannot be distinguished from zero.</td>
+<td style="text-align: left;">Layer shapes as expected for the ellipsoid.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Positive</strong></td>
-<td style="text-align: left;">The inner layers are more elongated than the ellipsoid predicts – the outer outline is less elongated or less ellipsoidal than the core region (e.g. irregular or lobed masks).</td>
+<td style="text-align: left;">Inner layers more elongated than for the ellipsoid.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>Negative</strong></td>
-<td style="text-align: left;">The inner layers are rounder than the ellipsoid predicts – e.g. an elongated outline around a rounder central region.</td>
+<td style="text-align: left;">Inner layers rounder than for the ellipsoid.</td>
 </tr>
 </tbody>
 </table>
-<p>Non-ellipsoidal outlines (bent, pear- or bean-shaped masks), segmentation of the boundary and PSF elongation along Z all change the excess, so a non-zero value needs a check of the masks before any biological reading.</p>
-<h2 id="implementation-and-accuracy">Implementation and Accuracy</h2>
-<p>Implemented in <code>null_model.null_model_delta_fa(principal_std_nm, sampling, min_core_voxels, principal_axes=...)</code>, called from <code>rezim_a_metrics.compute_core_shell_metrics</code>. Output columns: <code>null_FA_object/shell/middle/core</code>, <code>null_delta_FA_core_shell</code>, <code>null_valid</code>, <code>null_invalid_reason</code> (<code>non_finite_principal_std</code>, <code>non_finite_principal_axes</code>, <code>too_few_voxels</code>, <code>layer_split_failed</code>, <code>invalid_layer_fa</code>, <code>object_anisotropy_unavailable</code>), and <code>principal_std_1_nm ≤ principal_std_2_nm ≤ principal_std_3_nm</code> (ranked, <strong>not</strong> Z/Y/X). Unexpected errors are not caught.</p>
-<p><strong>Accuracy.</strong> On 200 homogeneous, randomly rotated synthetic ellipsoids (semi-axes 100–400 nm, sampling 62.5 × 14.5 × 14.5 nm, true excess = 0) the model gives a median |ΔFA_excess| of 0.0035 (IQR −0.003 to +0.004), and the null model is valid for all of them. Excess values within about ±0.005 therefore cannot be distinguished from zero.</p>
+<p>The value depends on the outline of the mask, on segmentation and on the optical blur along Z. ExQt does not determine the cause of a non-zero value.</p>
+<p>On 200 homogeneous, randomly rotated synthetic ellipsoids (semi-axes 100–400 nm, sampling 62.5 × 14.5 × 14.5 nm, true excess = 0) the median |<span class="arithmatex">\(\Delta\text{FA}_{\text{excess}}\)</span>| is 0.0035 (IQR −0.003 to +0.004); values within about ±0.005 cannot be distinguished from zero.</p>
+<hr />
+<h2 id="implementation">Implementation</h2>
+<p><code>null_model.null_model_delta_fa</code>, called from <code>rezim_a_metrics.compute_core_shell_metrics</code>. Output columns: <code>null_FA_object/shell/middle/core</code>, <code>null_delta_FA_core_shell</code>, <code>delta_FA_excess</code>, <code>null_valid</code>, <code>null_invalid_reason</code>, and <code>principal_std_1_nm ≤ principal_std_2_nm ≤ principal_std_3_nm</code> (ranked, not Z/Y/X).</p>
 
 
 

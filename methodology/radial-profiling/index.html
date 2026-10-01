@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#radial-profiling-mode-a-coreshell-architecture" class="md-skip">
+        <a href="#radial-profiling-mode-a" class="md-skip">
           Skip to content
         </a>
       
@@ -1092,8 +1092,8 @@
 
 
 
-<h1 id="radial-profiling-mode-a-coreshell-architecture">Radial Profiling (Mode A: Core–Shell Architecture)</h1>
-<p>Mode A (Radial FA Profiling) divides each 3D object into three concentric layers – <strong>Core</strong>, <strong>Middle</strong> and <strong>Shell</strong> – and reports the shape (FA) and mean intensity of each layer, so the inner and outer parts of an object can be compared.</p>
+<h1 id="radial-profiling-mode-a">Radial Profiling (Mode A)</h1>
+<p>Mode A divides each 3D object into three concentric layers – <strong>Core</strong>, <strong>Middle</strong> and <strong>Shell</strong> – and reports the FA and the mean intensity of each layer.</p>
 <hr />
 <h2 id="the-three-layers">The Three Layers</h2>
 <p>Every voxel gets its distance to the object surface from an anisotropic Euclidean distance transform (<code>sampling = (Z, Y, X)</code> nm), normalised by the maximum distance <span class="arithmatex">\(d_{\max}\)</span>:</p>
@@ -1123,19 +1123,20 @@
 </tr>
 </tbody>
 </table>
-<p>Because the core is only about 4 % of the volume, an object needs roughly 500 voxels or more for the core to reach <code>min_core_voxels</code> (default 20). This is why the primary set over-represents large objects (see <em>Known Limitation</em> in the QC pipeline page).</p>
+<p>Because the core holds only about 4 % of the volume, an object needs roughly 500 voxels or more for the core to reach <code>min_core_voxels</code> (default 20); the primary set therefore contains mainly larger objects.</p>
+<hr />
 <h2 id="intensity-difference-between-layers">Intensity Difference Between Layers</h2>
-<p>For each layer ExQt reports the mean intensity (<span class="arithmatex">\(I_{\text{core}}\)</span>, <span class="arithmatex">\(I_{\text{middle}}\)</span>, <span class="arithmatex">\(I_{\text{shell}}\)</span>) and the difference <span class="arithmatex">\(\Delta I_{\text{core-shell}} = I_{\text{core}} - I_{\text{shell}}\)</span>.</p>
-<p>The class (<code>condensate_class</code>) uses a two-sided Welch t-test of core vs shell voxel intensities at α = 0.01 (<code>gradient_p_core_shell</code>, <code>gradient_significant</code>):</p>
+<p>ExQt reports the mean intensity of each layer and <span class="arithmatex">\(\Delta I_{\text{core-shell}} = I_{\text{core}} - I_{\text{shell}}\)</span>. The class (<code>condensate_class</code>) uses a two-sided Welch t-test of core vs shell voxel intensities at α = 0.01:</p>
 <ul>
 <li>significant and <span class="arithmatex">\(\Delta I &gt; 0\)</span> → <em>Core-Enriched</em>; significant and <span class="arithmatex">\(\Delta I &lt; 0\)</span> → <em>Shell-Enriched</em>;</li>
 <li>not significant → <em>No Significant Gradient</em>; objects that failed QC → <em>Unclassified (QC)</em>.</li>
 </ul>
-<p>How to read it: a significant difference only says that the centre and the rim of the mask differ in brightness. Blurring by the PSF makes the centre of even a perfectly homogeneous object brighter than its rim, so <em>Core-Enriched</em> is expected without any internal structure. Antibody penetration, self-quenching or segmentation that includes blurred edge voxels can also shift the difference. The test assumes voxel noise is independent (true for photon noise, not after deconvolution or smoothing).</p>
+<p>A significant result means only that the central and outer voxels of the mask differ in mean intensity; it does not identify the cause. Optical blurring alone makes the centre of a homogeneous object brighter than its rim, so <em>Core-Enriched</em> also occurs without internal structure. The test assumes independent noise in each voxel.</p>
+<hr />
 <h2 id="implementation">Implementation</h2>
 <ul>
-<li>Layers: <code>rezim_a_core_shell.split_core_middle_shell(mask, min_core_voxels, sampling)</code> (scheme <code>edt_over_max_thirds_v1</code>).</li>
-<li>Metrics and class: <code>rezim_a_metrics.compute_core_shell_metrics</code>, <code>rezim_a_metrics.classify_particle</code>; the FA class boundary comes from <code>reference_values.py</code>.</li>
+<li>Layers: <code>rezim_a_core_shell.split_core_middle_shell</code> (scheme <code>edt_over_max_thirds_v1</code>).</li>
+<li>Metrics and class: <code>rezim_a_metrics.compute_core_shell_metrics</code>, <code>rezim_a_metrics.classify_particle</code>; the FA class boundary is a working value in <code>reference_values.py</code>.</li>
 </ul>
 
 
