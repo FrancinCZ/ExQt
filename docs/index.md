@@ -32,16 +32,17 @@ Analyzing ExM data introduces specific computational requirements:
 
 ## Installation
 
-### Prerequisites
-- Python 3.10–3.14
-- Windows, Linux, or macOS
+ExQt needs **Python 3.10 or newer** (tested with Python 3.14) and runs on Windows, Linux and macOS. Open a terminal (Command Prompt on Windows) and run:
 
-### Setup
 ```bash
 git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
-pip install -r requirements.txt
-python app.py
+python -m pip install -r requirements.txt
+python App.py
 ```
+
+Without Git: on GitHub click **Code → Download ZIP**, unzip it, open a terminal in the unzipped folder and run the last two commands.
+
+With Conda instead of pip: `conda env create -f environment.yml`, then `conda activate exqt-env` and `python App.py`.
 
 ---

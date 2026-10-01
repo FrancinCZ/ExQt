@@ -8,23 +8,18 @@
 
 ## Quick Installation
 
-ExQt needs **Python 3.10 or newer** (tested with Python 3.14) on Windows, Linux or macOS. Conda is not required.
+ExQt needs **Python 3.10 or newer** (tested with Python 3.14) and runs on Windows, Linux and macOS. Open a terminal (Command Prompt on Windows) and run:
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/FrancinCZ/ExQt.git
 cd ExQt
-
-# 2. Install dependencies (a virtual environment is recommended)
-pip install -r requirements.txt
-
-# 3. Launch the application
+python -m pip install -r requirements.txt
 python App.py
 ```
 
-Alternatively, with Conda: `conda env create -f environment.yml`, then `conda activate exqt-env` and `python App.py`.
+Without Git: on GitHub click **Code → Download ZIP**, unzip it, open a terminal in the unzipped folder and run the last two commands.
 
-To check an installation, run the test suite: `python -m pytest tests`.
+With Conda instead of pip: `conda env create -f environment.yml`, then `conda activate exqt-env` and `python App.py`.
 
 ---
 
