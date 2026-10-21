@@ -134,6 +134,18 @@ def _touches_image_edge(region, image_shape, valid_voxels=None):
     return valid_voxels is not None and _touches_roi_edge(region, valid_voxels)
 
 
+#True when a 3D region reaches only the first/last Z slice: not the XY border and not alignment padding.
+def _touches_z_edge_only(region, image_shape, valid_voxels=None):
+    if region.image.ndim != 3:
+        return False
+    bbox_min = region.bbox[:3]
+    bbox_max = region.bbox[3:]
+    at_z = bbox_min[0] == 0 or bbox_max[0] == image_shape[0]
+    at_xy = any(start == 0 or end == size for start, end, size in zip(bbox_min[1:], bbox_max[1:], image_shape[1:]))
+    in_padding = valid_voxels is not None and _touches_roi_edge(region, valid_voxels)
+    return bool(at_z and not at_xy and not in_padding)
+
+
 def _touches_roi_edge(region, roi_mask):
     roi = np.asarray(roi_mask, dtype=bool)
     if roi.ndim != region.image.ndim:
@@ -536,6 +548,7 @@ def process_condensates(
     detector_offset_adu=0.0,
     detector_offset_source="manual",
     roi_output_dir=None,
+    allow_z_edge=False,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
@@ -815,6 +828,11 @@ def process_condensates(
         touches_roi_edge = _touches_roi_edge(region, roi_mask)
         row["touches_image_edge"] = touches_edge
         row["touches_roi_edge"] = touches_roi_edge
+        #Optional policy for stacks that do not cover the nucleus in Z: objects cut only by the
+        #first/last slice may stay primary (K_part usable; size and FA of these are underestimated).
+        z_edge_only = _touches_z_edge_only(region, labeled_mask.shape, valid_voxels)
+        row["touches_z_edge_only"] = z_edge_only
+        row["z_edge_allowed"] = bool(allow_z_edge)
 
         row["applied_pixel_size_nm"] = float(pixel_size_nm)
         row["applied_z_step_nm"] = float(z_step_nm) if is_3d else float("nan")
@@ -847,7 +865,7 @@ def process_condensates(
             max_slice_components = topology["raw_max_components_per_slice"]
 
             qc_reasons = []
-            if touches_edge:
+            if touches_edge and not (allow_z_edge and z_edge_only):
                 qc_reasons.append("touches_image_edge")
             if touches_roi_edge:
                 qc_reasons.append("touches_roi_edge")
