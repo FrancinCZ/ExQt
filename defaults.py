@@ -13,6 +13,11 @@ DEFAULT_SETTINGS = {
     "raw_min_voxels": 5,
     "plot_min_size": 0.0001,
     "plot_max_size": 2.0,
+    #Fixed K_part axis of the standard plots (log scale); working values, not derived from data.
+    "plot_k_min": 0.5,
+    "plot_k_max": 50.0,
+    #QC: keep objects cut only by the first/last Z slice (stacks not covering the nucleus); off by default.
+    "qc_allow_z_edge": False,
     "mode_a_enabled": False,
     "mode_a_min_core_voxels": 20,
     "mode_a_exclude_split_slices": True,

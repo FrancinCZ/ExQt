@@ -21,7 +21,7 @@ import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
                                 QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
                                 QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
-                                QMessageBox, QProgressBar, QSplitter)
+                                QMessageBox, QProgressBar, QSplitter, QTableWidget, QTableWidgetItem, QHeaderView)
 from PySide6.QtGui import QAction
 import qdarktheme
 from PySide6.QtCore import QSettings, QThread, Signal, Qt
@@ -34,6 +34,7 @@ from matplotlib.figure import Figure
 from postprocessing import (
     QCPolicyMismatchError,
     _prepare_reporting_frames,
+    compare_run_groups,
     detect_red_flags,
     generate_excel_stats,
     generate_plots,
@@ -49,6 +50,9 @@ from calibration_policy import (
     validate_calibration,
 )
 from size_preview import collect_size_preview
+from roi_tools import (
+    live_shape_numbers, load_saved_roi, roi_coverage_warnings, roi_instructions, shape_nucleus_ids,
+)
 
 
 REPORT_DEFAULTS = {
@@ -120,6 +124,7 @@ class AnalysisWorker(QThread):
         self.review_event = threading.Event()
         self.user_roi_data = None
         self.user_roi_source = "manual"
+        self.saved_roi_path = None
         self.abort_requested = False
 
     #Pause the worker until the GUI returns a painted ROI mask.
@@ -127,7 +132,7 @@ class AnalysisWorker(QThread):
         # Reset first so an ROI from the previous image can never be returned for this one.
         self.user_roi_data = None
         self.user_roi_source = "manual"
-        self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d})
+        self.request_roi_signal.emit({"shape": img_shape, "is_3d": is_3d, "saved_roi_path": self.saved_roi_path})
         self.roi_event.wait()
         self.roi_event.clear()
         if self.abort_requested:
@@ -176,6 +181,9 @@ class AnalysisWorker(QThread):
                         f"Processing: {raw_tif.name} (XY={calibration['pixel_size_nm']:g} nm, "
                         f"Z={calibration['z_step_nm']:g} nm, source={calibration['source']})"
                     )
+                    #An ROI saved by an earlier run into this output folder is offered for reuse.
+                    saved_roi = roi_output_path(raw_tif, mask_file, output_folder)
+                    self.saved_roi_path = str(saved_roi) if saved_roi.is_file() else None
                     df_file = process_condensates(
                         tif_path=raw_tif, mask_path=mask_file, mode=p["mode"],
                         expansion_factor=p["expansion_factor"],
@@ -190,6 +198,7 @@ class AnalysisWorker(QThread):
                         detector_offset_adu=p.get("detector_offset_adu", DEFAULT_SETTINGS["adv_detector_offset"]),
                         detector_offset_source=p.get("detector_offset_source", {}).get("method", "manual"),
                         roi_output_dir=output_folder,
+                        allow_z_edge=p.get("allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"]),
                     )
                     #Abort is honoured regardless of review: the current image is never kept.
                     if self.abort_requested:
@@ -318,6 +327,7 @@ class AnalysisWorker(QThread):
             "parameters": {
                 "mode": p["mode"],
                 "auto_roi": p.get("auto_roi"),
+                "allow_z_edge": bool(p.get("allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])),
                 "expansion_factor": p["expansion_factor"],
                 "min_voxels": p.get("min_voxels", DEFAULT_SETTINGS["raw_min_voxels"]),
                 "pixel_size_nm": uniform_xy,
@@ -682,6 +692,78 @@ class ReportOptionsDialog(QDialog):
         super().accept()
 
 
+class CompareRunsDialog(QDialog):
+    """Choose folders to compare side by side; each folder is one group (e.g. ExM and IF)."""
+
+    def __init__(self, parent=None, start_folder=""):
+        super().__init__(parent)
+        self.setWindowTitle("Compare runs")
+        self.setMinimumWidth(640)
+        self.start_folder = start_folder
+
+        layout = QVBoxLayout(self)
+        note = QLabel(
+            "Add one folder per group, e.g. all ExM results and all IF results. Every ExQt run found in a "
+            "folder (also in subfolders) belongs to its group. The groups are drawn side by side; they are "
+            "not merged, so expansion factor and size range may differ between them.\n"
+            "Runs inside one group must share the same QC settings. The group name is editable."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Group name", "Folder"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        layout.addWidget(self.table)
+
+        row_buttons = QHBoxLayout()
+        self.btn_add = QPushButton("Add folder...")
+        self.btn_remove = QPushButton("Remove selected")
+        self.btn_add.clicked.connect(self.choose_folder)
+        self.btn_remove.clicked.connect(self.remove_selected)
+        row_buttons.addWidget(self.btn_add)
+        row_buttons.addWidget(self.btn_remove)
+        row_buttons.addStretch()
+        layout.addLayout(row_buttons)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Compare")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self._update_ok()
+
+    def choose_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose a folder with ExQt results", self.start_folder)
+        if folder:
+            self.add_folder(folder)
+            self.start_folder = str(Path(folder).parent)
+
+    def add_folder(self, folder, name=None):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(name or Path(folder).name))
+        path_item = QTableWidgetItem(str(folder))
+        path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
+        self.table.setItem(row, 1, path_item)
+        self._update_ok()
+
+    def remove_selected(self):
+        for row in sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True):
+            self.table.removeRow(row)
+        self._update_ok()
+
+    def _update_ok(self):
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(self.table.rowCount() >= 2)
+
+    def groups(self):
+        return [
+            (self.table.item(row, 0).text().strip(), self.table.item(row, 1).text())
+            for row in range(self.table.rowCount())
+        ]
+
+
 class SizePreviewDialog(QDialog):
     #Explore the pre-ROI mask-size distribution and publish chosen report bounds.
     range_set = Signal(float, float)
@@ -983,6 +1065,15 @@ class AdvancedSettingsDialog(QDialog):
         )
         form.addRow("", self.mode_a_exclude_split_check)
 
+        self.allow_z_edge_check = QCheckBox("Keep objects cut by the first/last Z slice")
+        self.allow_z_edge_check.setToolTip(
+            "For stacks that do not cover the whole nucleus in Z. Objects touching only the first or last "
+            "slice stay in the primary analysis (K_part usable; their size and FA are underestimated). "
+            "Objects at the XY border, alignment padding or ROI boundary are still excluded. Recorded in the CSV "
+            "(z_edge_allowed) and in the QC policy, so runs with and without it are not merged."
+        )
+        form.addRow("QC:", self.allow_z_edge_check)
+
         self.dark_mode_check = QCheckBox("Dark mode")
         form.addRow("Appearance:", self.dark_mode_check)
 
@@ -1008,6 +1099,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_enabled_check.setEnabled(is_3d)
         self.mode_a_min_core_spin.setEnabled(is_3d)
         self.mode_a_exclude_split_check.setEnabled(is_3d)
+        self.allow_z_edge_check.setEnabled(is_3d)
         tooltip = "" if is_3d else "Z-step is only used in 3D mode and is ignored for the current Process mode."
         self.z_step_spin.setToolTip(tooltip)
         if not is_3d:
@@ -1025,6 +1117,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_enabled_check.setChecked(_safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])))
         self.mode_a_min_core_spin.setValue(int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])))
         self.mode_a_exclude_split_check.setChecked(_safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])))
+        self.allow_z_edge_check.setChecked(_safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])))
 
     def accept(self):
         self.settings.setValue("adv_pixel_size", self.pixel_size_spin.value())
@@ -1042,6 +1135,7 @@ class AdvancedSettingsDialog(QDialog):
         self.settings.setValue("mode_a_enabled", self.mode_a_enabled_check.isChecked())
         self.settings.setValue("mode_a_min_core_voxels", self.mode_a_min_core_spin.value())
         self.settings.setValue("mode_a_exclude_split_slices", self.mode_a_exclude_split_check.isChecked())
+        self.settings.setValue("qc_allow_z_edge", self.allow_z_edge_check.isChecked())
         super().accept()
 
     #Read the detector offset from a Leica .lif header; only photon counting sets a value.
@@ -1187,6 +1281,26 @@ class ExQt(QMainWindow):
         self.btn_run = QPushButton("Start analysis")
         self.btn_run.setStyleSheet("background-color: #2a82da; color: white; padding: 10px; font-weight: bold;")
         self.left_panel_layout.addWidget(self.btn_run)
+
+        #Shown only while drawing an ROI: instructions with a shape counter, preview and reuse.
+        self.roi_help_label = QLabel()
+        self.roi_help_label.setTextFormat(Qt.RichText)
+        self.roi_help_label.setWordWrap(True)
+        self.roi_help_label.setStyleSheet("border: 1px solid #2a82da; border-radius: 4px; padding: 6px;")
+        self.roi_help_label.hide()
+        self.left_panel_layout.addWidget(self.roi_help_label)
+
+        self.btn_preview_roi = QPushButton("Preview ROI")
+        self.btn_preview_roi.setToolTip("Show the final per-nucleus ROI and number each shape with its nucleus.")
+        self.btn_preview_roi.hide()
+        self.btn_preview_roi.clicked.connect(self.preview_roi)
+        self.left_panel_layout.addWidget(self.btn_preview_roi)
+
+        self.btn_use_saved_roi = QPushButton("Use saved ROI")
+        self.btn_use_saved_roi.setToolTip("Use the ROI saved for this image by a previous run instead of drawing.")
+        self.btn_use_saved_roi.hide()
+        self.btn_use_saved_roi.clicked.connect(self.use_saved_roi)
+        self.left_panel_layout.addWidget(self.btn_use_saved_roi)
 
         self.btn_confirm_roi = QPushButton("Confirm ROI and Continue")
         self.btn_confirm_roi.setStyleSheet("background-color: #28a745; color: white; padding: 10px; font-weight: bold;")
@@ -1486,6 +1600,13 @@ class ExQt(QMainWindow):
         tools_menu.addAction(self.merge_runs_action)
         self.merge_runs_action.triggered.connect(self.merge_existing_runs)
 
+        self.compare_runs_action = QAction("Compare runs...", self)
+        self.compare_runs_action.setToolTip(
+            "Draw groups of runs side by side (e.g. ExM vs IF) without merging them."
+        )
+        tools_menu.addAction(self.compare_runs_action)
+        self.compare_runs_action.triggered.connect(self.compare_runs)
+
         # A top-level action (no sub-menu): one click opens the settings window.
         self.settings_action = QAction("Settings", self)
         menu_bar.addAction(self.settings_action)
@@ -1546,8 +1667,42 @@ class ExQt(QMainWindow):
                 f"Primary objects: {result['primary_count']}\n"
                 f"QC-excluded objects: {result['excluded_count']}\n\n"
                 f"Workbook:\n{result['excel']}\n\n"
-                f"Merged graph:\n{result['plot']}"
+                f"Merged graph:\n{result['plot']}\n\n"
+                f"Conditions side by side:\n{result.get('comparison_plot') or 'no primary objects'}"
             ),
+        )
+
+    def compare_runs(self):
+        dialog = CompareRunsDialog(self, self.output_path_edit.text() or self.folder_input.text())
+        if dialog.exec() != QDialog.Accepted:
+            return
+        groups = dialog.groups()
+        default_name = "_vs_".join(name for name, _ in groups) + ".png"
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save comparison graph",
+            str(Path(groups[0][1]).parent / default_name),
+            "PNG image (*.png)",
+        )
+        if not output_path:
+            return
+        try:
+            result = compare_run_groups(groups, output_path)
+        except QCPolicyMismatchError as exc:
+            QMessageBox.critical(self, "Runs in a group differ", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Comparison failed", str(exc))
+            return
+        lines = [f"{row['group']}: {row['nuclei']} nuclei, {row['objects']} objects ({row['runs']} runs)"
+                 for row in result["groups"]]
+        differences = "\n".join(result["differences"]) or "none"
+        QMessageBox.information(
+            self,
+            "Comparison completed",
+            "\n".join(lines)
+            + f"\n\nSettings that differ between groups (shown on the graph):\n{differences}"
+            + f"\n\nGraph:\n{result['plot']}\n\nTable:\n{result['excel']}",
         )
 
     def choose_output_folder(self):
@@ -1807,6 +1962,8 @@ class ExQt(QMainWindow):
         )
         if self.auto_roi_check.isChecked():
             calibration_text += "\nAuto-ROI: K_part is not computed (no nucleus outline)."
+        if self.mode_combo.currentText() == "3d" and _safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])):
+            calibration_text += "\nQC: objects cut by the first/last Z slice are KEPT (size/FA of these underestimated)."
         if _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])):
             calibration_text += (
                 "\n\nRadial FA Profiling min. voxels per layer: "
@@ -1851,6 +2008,7 @@ class ExQt(QMainWindow):
             "mode_a_min_core_voxels": int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])),
             "mode_a_exclude_split_slices": _safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])),
             **{key: DEFAULT_SETTINGS[key] for key in MODE_A_KEYS if key.startswith("mode_a_z_split_")},
+            "allow_z_edge": _safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])),
         }
 
         self.btn_run.setEnabled(False)
@@ -1911,29 +2069,157 @@ class ExQt(QMainWindow):
         first_layer = next(iter(self.viewer.layers), None)
         layer_scale = getattr(first_layer, "scale", None) if first_layer is not None else None
 
-        for name in ("Draw ROI", "Paint ROI"):
+        for name in ("Draw ROI", "Paint ROI", "ROI preview"):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(name)
 
         kwargs = {
             "name": "Draw ROI",
             "ndim": ndim,
-            "opacity": 0.5,
-            "face_color": "cyan",
+            #Translucent fill instead of layer opacity, so the nucleus numbers stay fully visible.
+            "opacity": 1.0,
+            "face_color": [0.0, 1.0, 1.0, 0.3],
             "edge_color": "blue",
             "edge_width": 2,
+            #Each shape shows the nucleus (cell_id) it will get; "!" marks shapes that touch.
+            "features": {"nucleus": np.array([], dtype=object)},
+            "text": {"string": "{nucleus}", "size": 20, "color": "yellow"},
         }
         if layer_scale is not None:
             kwargs["scale"] = layer_scale
 
         shapes_layer = self.viewer.add_shapes(**kwargs)
+        try:
+            shapes_layer.feature_defaults = {"nucleus": "?"}
+        except Exception:
+            pass
         shapes_layer.mode = "add_ellipse"
+        shapes_layer.events.data.connect(self._roi_shapes_changed)
 
+        self._saved_roi = load_saved_roi(info.get("saved_roi_path"), shape)
+        self._roi_warnings = []
         self.btn_run.hide()
+        self.roi_help_label.show()
+        self.btn_preview_roi.show()
+        self.btn_use_saved_roi.setVisible(self._saved_roi is not None)
         self.btn_confirm_roi.show()
         self.btn_stop_review.show()
+        self._update_roi_help()
         if hasattr(self, "status_label"):
-            self.status_label.setText("Draw one shape per nucleus on 1 or more Z-slices (overlapping shapes on different slices = same nucleus, interpolated; outside its slices = 0; one slice = whole Z). Shapes must not touch on the same slice. Click 'Confirm ROI'...")
+            self.status_label.setText("Draw the nuclei, then Preview ROI and Confirm ROI.")
+
+    def _update_roi_help(self, summary=""):
+        info = getattr(self, "_current_roi_info", {})
+        n_shapes = len(self.viewer.layers["Draw ROI"].data) if "Draw ROI" in self.viewer.layers else 0
+        text = roi_instructions(bool(info.get("is_3d")), n_shapes, getattr(self, "_saved_roi", None) is not None)
+        if summary:
+            text += f"<p><b>{summary}</b></p>"
+        for warning in getattr(self, "_roi_warnings", []):
+            text += f"<p style='color:#d9534f'>{warning}</p>"
+        self.roi_help_label.setText(text)
+
+    #Any edit invalidates the preview; in 2D the shape number is already the final cell_id.
+    def _roi_shapes_changed(self, event=None):
+        #Recompute only when an edit is finished (added/removed/changed), not on every drag step.
+        action = str(getattr(event, "action", "") or "").lower()
+        if action.endswith("ing"):
+            return
+        if "Draw ROI" not in self.viewer.layers:
+            return
+        layer = self.viewer.layers["Draw ROI"]
+        n_shapes = len(layer.data)
+        shape = getattr(self, "_current_roi_info", {}).get("shape")
+        summary = ""
+        if shape is not None:
+            numbers, error = live_shape_numbers(layer.data, layer.shape_type, shape)
+            if len(layer.features) == n_shapes:
+                layer.features = {"nucleus": np.array(numbers, dtype=object)}
+                layer.refresh_text()
+            n_nuclei = len({n for n in numbers if n not in ("?", "!")})
+            summary = error or (f"{n_nuclei} {'nucleus' if n_nuclei == 1 else 'nuclei'}." if n_shapes else "")
+        if "ROI preview" in self.viewer.layers:
+            self.viewer.layers.remove("ROI preview")
+        self._roi_warnings = []
+        self._update_roi_help(summary)
+
+    def _drawn_roi_labels(self, shape):
+        layer = self.viewer.layers["Draw ROI"]
+        if hasattr(layer, "to_labels"):
+            return layer.to_labels(labels_shape=shape)
+        masks = layer.to_masks(mask_shape=shape)
+        return np.sum(masks, axis=0, dtype=int) if masks.ndim > len(shape) else masks.astype(int)
+
+    #Show the final per-nucleus ROI, number the shapes and warn about slices without objects.
+    def preview_roi(self):
+        info = getattr(self, "_current_roi_info", {})
+        shape = info.get("shape")
+        if shape is None or "Draw ROI" not in self.viewer.layers:
+            return
+        layer = self.viewer.layers["Draw ROI"]
+        drawn = self._drawn_roi_labels(shape)
+        if drawn.max() == 0:
+            self._update_roi_help("Nothing drawn yet.")
+            return
+        cells = drawn
+        if info.get("is_3d") and drawn.ndim == 3:
+            try:
+                cells = _interpolate_or_extrude_roi(drawn)
+            except ValueError as error:
+                QMessageBox.warning(self, "ROI cannot be used", f"{error}\n\nFix the drawn shapes and preview again.")
+                return
+        numbers = shape_nucleus_ids(drawn, cells, len(layer.data))
+        layer.features = {"nucleus": np.array(["?" if n is None else str(n) for n in numbers], dtype=object)}
+        layer.refresh_text()
+        if "ROI preview" in self.viewer.layers:
+            self.viewer.layers.remove("ROI preview")
+        preview_kwargs = {"name": "ROI preview", "opacity": 0.35}
+        if getattr(layer, "scale", None) is not None:
+            preview_kwargs["scale"] = layer.scale
+        self.viewer.add_labels(np.asarray(cells, dtype=np.int32), **preview_kwargs)
+        self.viewer.layers.selection.active = layer
+        mask_layer = self.viewer.layers["Mask Condensates"] if "Mask Condensates" in self.viewer.layers else None
+        self._roi_warnings = (
+            roi_coverage_warnings(cells, mask_layer.data)
+            if mask_layer is not None and np.shape(mask_layer.data) == np.shape(cells) else []
+        )
+        n_nuclei = len([v for v in np.unique(cells) if v > 0])
+        self._update_roi_help(f"Preview: {n_nuclei} {'nucleus' if n_nuclei == 1 else 'nuclei'}.")
+
+    def _hide_roi_controls(self):
+        for name in ("ROI preview",):
+            if name in self.viewer.layers:
+                self.viewer.layers.remove(name)
+        self.roi_help_label.hide()
+        self.btn_preview_roi.hide()
+        self.btn_use_saved_roi.hide()
+
+    #Reuse the ROI saved by an earlier run for this image (no drawing).
+    def use_saved_roi(self):
+        if getattr(self, "_saved_roi", None) is None:
+            return
+        #The worker rebuilds nuclei from the ROI; reuse only if that reproduces it exactly.
+        saved = self._saved_roi
+        if saved.ndim == 3:
+            try:
+                rebuilt = _interpolate_or_extrude_roi(saved)
+            except ValueError:
+                rebuilt = None
+            if rebuilt is None or not np.array_equal(rebuilt, saved):
+                QMessageBox.warning(self, "Saved ROI cannot be reused",
+                                    "The saved ROI cannot be rebuilt into the same nuclei. Please draw the ROI.")
+                self.btn_use_saved_roi.hide()
+                return
+        if "Draw ROI" in self.viewer.layers:
+            self.viewer.layers.remove("Draw ROI")
+        self._hide_roi_controls()
+        self.worker.user_roi_data = self._saved_roi
+        self.worker.user_roi_source = "saved_roi"
+        self.btn_confirm_roi.hide()
+        self.btn_stop_review.hide()
+        self.btn_run.show()
+        if hasattr(self, "status_label"):
+            self.status_label.setText("Saved ROI used. Processing...")
+        self.worker.roi_event.set()
 
     def confirm_roi(self):
         info = getattr(self, "_current_roi_info", {})
@@ -1943,12 +2229,8 @@ class ExQt(QMainWindow):
         roi_layer_name = None
         if "Draw ROI" in self.viewer.layers:
             roi_layer_name = "Draw ROI"
-            layer = self.viewer.layers["Draw ROI"]
-            if hasattr(layer, "to_labels") and shape is not None:
-                mask_data = layer.to_labels(labels_shape=shape)
-            elif hasattr(layer, "to_masks") and shape is not None:
-                masks = layer.to_masks(mask_shape=shape)
-                mask_data = np.sum(masks, axis=0, dtype=int) if masks.ndim > len(shape) else masks.astype(int)
+            if shape is not None:
+                mask_data = self._drawn_roi_labels(shape)
         elif "Paint ROI" in self.viewer.layers:
             roi_layer_name = "Paint ROI"
             mask_data = self.viewer.layers["Paint ROI"].data
@@ -1963,6 +2245,7 @@ class ExQt(QMainWindow):
                 return
         if roi_layer_name is not None:
             self.viewer.layers.remove(roi_layer_name)
+        self._hide_roi_controls()
 
         roi_source = "manual"
         if mask_data is None or mask_data.max() == 0:
@@ -2017,6 +2300,9 @@ class ExQt(QMainWindow):
         self.btn_next_image.hide()
         self.btn_stop_review.hide()
         self.btn_confirm_roi.hide() 
+        self.roi_help_label.hide()
+        self.btn_preview_roi.hide()
+        self.btn_use_saved_roi.hide()
         self.btn_run.show()  
         self.viewer.layers.clear()  
         if hasattr(self, "status_label"):

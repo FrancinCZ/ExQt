@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import hashlib
 import json
+import textwrap
 from pathlib import Path
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -169,6 +170,9 @@ def _qc_policy_entries(metadata, df, min_size, max_size):
         ("classification", "fa_globular_boundary", _metadata_value(
             metadata, "reference_values.fa_globular_boundary.value"
         ), True, "A_object boundary between Globular and Elongated classes (working value)."),
+        ("analysis", "allow_z_edge", str(_metadata_value(
+            metadata, "parameters.allow_z_edge", _single_column_value(df, "z_edge_allowed", False)
+        )).strip().lower() in {"true", "1"}, True, "Objects cut only by the first/last Z slice kept in primary (size/FA underestimated)."),
         ("analysis", "mode", _metadata_value(metadata, "parameters.mode", _single_column_value(df, "mode")), True,
         "Analysis dimensionality."),
         ("analysis", "expansion_factor", _metadata_value(metadata, "parameters.expansion_factor"), True,
@@ -295,7 +299,12 @@ def _prepare_reporting_frames(df, min_size, max_size):
     not_truncated = pd.Series(True, index=report_df.index)
     for column in ("touches_image_edge", "touches_roi_edge"):
         if column in report_df.columns:
-            not_truncated &= ~_as_bool_series(report_df[column])
+            truncated = _as_bool_series(report_df[column])
+            # Recorded opt-in: objects cut only by the first/last Z slice may stay primary.
+            if column == "touches_image_edge" and {"z_edge_allowed", "touches_z_edge_only"}.issubset(report_df.columns):
+                truncated &= ~(_as_bool_series(report_df["z_edge_allowed"])
+                               & _as_bool_series(report_df["touches_z_edge_only"]))
+            not_truncated &= ~truncated
     report_df["not_truncated"] = not_truncated
 
     primary_mask = size_eligible & complete_fa & primary_requested & alignment_ok & not_truncated
@@ -827,6 +836,22 @@ def _compact_run_labels(run_ids):
     return labels
 
 
+#Round axis limits and evenly spaced ticks at multiples of 1/2/2.5/5 x 10^n, so labels read 0.00, 0.10, ...
+def _nice_axis(low, high, max_ticks=6):
+    span = max(float(high) - float(low), 1e-12)
+    raw_step = span / max(max_ticks - 1, 1)
+    magnitude = 10 ** np.floor(np.log10(raw_step))
+    step = next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= raw_step - 1e-12)
+    nice_low = np.floor(float(low) / step + 1e-9) * step
+    nice_high = np.ceil(float(high) / step - 1e-9) * step
+    ticks = np.round(np.arange(nice_low, nice_high + step / 2, step), 10)
+    return float(ticks[0]), float(ticks[-1]), ticks.tolist()
+
+
+def _count_text(n, singular, plural):
+    return f"{n} {singular if n == 1 else plural}"
+
+
 def _generate_merge_plot(output_path, run_stats, primary):
     plot_path = Path(output_path).with_suffix(".png")
     run_ids = run_stats["run_id"].astype(str).tolist()
@@ -856,19 +881,25 @@ def _generate_merge_plot(output_path, run_stats, primary):
     panels = [(80, 135, 850, 580), (950, 135, 1720, 580),
             (80, 665, 850, 1110), (950, 665, 1720, 1110)]
 
-    def frame(panel, heading, y_min, y_max, y_label, x_labels):
+    def frame(panel, heading, y_min, y_max, y_label, x_labels, ticks=None):
         left, top, right, bottom = panel
         draw.text((left, top - 35), heading, fill="#222222", font=panel_font)
         plot = (left + 90, top + 20, right - 25, bottom - 75)
         x0, y0, x1, y1 = plot
         draw.rectangle(plot, outline="#777777", width=2)
-        for fraction in np.linspace(0, 1, 6):
-            y = int(y1 - fraction * (y1 - y0))
-            value = y_min + fraction * (y_max - y_min)
+        ticks = ticks if ticks is not None else _nice_axis(y_min, y_max)[2]
+        for value in ticks:
+            y = int(y1 - (value - y_min) / (y_max - y_min) * (y1 - y0))
             draw.line((x0, y, x1, y), fill="#E1E1E1", width=1)
             draw.text((x0 - 10, y), f"{value:.2f}", fill="#444444", font=small_font, anchor="rm")
-        draw.text((left + 12, (top + bottom) / 2), y_label, fill="#333333", font=small_font, anchor="mm")
-        positions = np.linspace(x0 + 30, x1 - 30, max(len(x_labels), 1))
+        #Vertical axis label, left of the tick numbers so the two never overlap.
+        label_box = draw.textbbox((0, 0), y_label, font=small_font)
+        label_image = Image.new("RGBA", (label_box[2] - label_box[0] + 4, label_box[3] - label_box[1] + 4), (255, 255, 255, 0))
+        ImageDraw.Draw(label_image).text((2 - label_box[0], 2 - label_box[1]), y_label, fill="#333333", font=small_font)
+        label_image = label_image.rotate(90, expand=True)
+        image.paste(label_image, (left + 2, int((y0 + y1) / 2 - label_image.height / 2)), label_image)
+        margin = 60 if len(x_labels) > 1 else 30
+        positions = np.linspace(x0 + margin, x1 - margin, max(len(x_labels), 1))
         for x, label in zip(positions, x_labels):
             draw.text((int(x), y1 + 15), label, fill="#333333", font=small_font, anchor="ma")
         return plot, positions
@@ -905,10 +936,11 @@ def _generate_merge_plot(output_path, run_stats, primary):
     finite_delta = delta[np.isfinite(delta)]
     delta_low = min(-0.05, float(finite_delta.min()) - 0.03) if len(finite_delta) else -0.1
     delta_high = max(0.05, float(finite_delta.max()) + 0.03) if len(finite_delta) else 0.1
+    delta_low, delta_high, delta_ticks = _nice_axis(delta_low, delta_high)
     short_labels = [f"R{index + 1}" for index in range(len(run_ids))]
     plot, x_positions = frame(
         panels[1], "B) Per-run median Delta A", delta_low, delta_high,
-        "Median core - shell", short_labels,
+        "Median core - shell", short_labels, delta_ticks,
     )
     zero_y = y_position(0, (delta_low, delta_high), plot)
     if zero_y is not None:
@@ -940,9 +972,10 @@ def _generate_merge_plot(output_path, run_stats, primary):
     finite_object = object_delta[np.isfinite(object_delta)] if len(primary) else pd.Series(dtype=float)
     object_low = min(-0.05, float(finite_object.min()) - 0.03) if len(finite_object) else -0.1
     object_high = max(0.05, float(finite_object.max()) + 0.03) if len(finite_object) else 0.1
+    object_low, object_high, object_ticks = _nice_axis(object_low, object_high)
     plot, x_positions = frame(
         panels[3], "D) QC-valid objects by run (descriptive)", object_low, object_high,
-        "Object core - shell", short_labels,
+        "Object core - shell", short_labels, object_ticks,
     )
     zero_y = y_position(0, (object_low, object_high), plot)
     if zero_y is not None:
@@ -1009,6 +1042,8 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
             "excluded": excluded,
             "report": report_df,
             "size_col": size_col,
+            "min_size": min_size,
+            "max_size": max_size,
         })
 
     comparison = _merge_policy_comparison(runs)
@@ -1055,12 +1090,14 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
             "qc_fingerprint": run["fingerprint"],
         })
     run_stats = pd.DataFrame(run_rows)
+    nuclei = nucleus_summary(merged_primary) if len(merged_primary) else pd.DataFrame()
 
     output_path = Path(output_path) if output_path else root / "Merged_Stats.xlsx"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         run_stats.to_excel(writer, sheet_name="Per_Run_Stats", index=False)
         merged_primary.to_excel(writer, sheet_name="Merged_Primary", index=False)
+        nuclei.to_excel(writer, sheet_name="Per_Nucleus", index=False)
         merged_excluded.to_excel(writer, sheet_name="Merged_QC_Excluded", index=False)
         comparison.to_excel(writer, sheet_name="QC_Policy_Comparison", index=False)
         if include_raw:
@@ -1083,10 +1120,17 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
             _style_table_sheet(writer.sheets["Merged_Raw_Audit"], "mode_a_z_topology_status")
 
     plot_path = _generate_merge_plot(output_path, run_stats, merged_primary)
+    comparison_plot = None
+    if len(merged_primary):
+        comparison_plot = Path(output_path).with_name(f"{Path(output_path).stem}_Conditions.png")
+        fig = build_condition_comparison_figure(merged_primary, float(runs[0]["min_size"]), float(runs[0]["max_size"]))
+        fig.savefig(comparison_plot, dpi=300)
+        plt.close(fig)
 
     return {
         "excel": output_path,
         "plot": plot_path,
+        "comparison_plot": comparison_plot,
         "run_count": len(runs),
         "primary_count": len(merged_primary),
         "excluded_count": len(merged_excluded),
@@ -1096,159 +1140,382 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
     }
 
 
-def generate_plots(csv_filename, min_size=DEFAULT_SETTINGS["plot_min_size"], max_size=DEFAULT_SETTINGS["plot_max_size"]):
-    sns.set_theme(style="ticks", palette="muted")
-    plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
+STANDARD_COLOR = "#2b5c8f"
+STANDARD_BASELINE_COLOR = "#d62728"
 
+
+#QC-passed objects for the standard plots, with K_part masked where K_valid is False.
+def standard_plot_frame(df, min_size, max_size):
+    report_df = _prepare_reporting_frames(df, min_size, max_size)[3]
+    plot_df = report_df.loc[report_df["primary_qc_valid"]].copy()
+    plot_df["size_plot"] = pd.to_numeric(plot_df[_size_column(plot_df)], errors="coerce")
+    if "partition_coefficient" in plot_df.columns:
+        plot_df["partition_coefficient"] = pd.to_numeric(plot_df["partition_coefficient"], errors="coerce")
+        if "K_valid" in plot_df.columns:
+            plot_df.loc[~_as_bool_series(plot_df["K_valid"]), "partition_coefficient"] = np.nan
+    plot_df["nucleus_label"] = _nucleus_labels(plot_df)
+    return plot_df
+
+
+def _size_column(df):
+    return next(c for c in ("volume_bio_um3", "area_bio_um2", "shape_metric_bio") if c in df.columns)
+
+
+def _nucleus_labels(df):
+    single_file = df["filename"].nunique(dropna=False) <= 1
+    return [
+        f"Cell {cell}" if single_file else f"{Path(str(name)).stem}\nCell {cell}"
+        for name, cell in zip(df["filename"], df["cell_id"])
+    ]
+
+
+def _panel_message(axis, text):
+    axis.text(0.5, 0.5, text, ha="center", va="center", transform=axis.transAxes, fontsize=11, color="#555555")
+
+
+#Points outside a fixed axis are not drawn; say how many so nothing disappears silently.
+def _note_outside(axis, values, low, high):
+    values = pd.Series(values).dropna()
+    outside = int(((values < low) | (values > high)).sum())
+    if outside:
+        axis.text(0.98, 0.98, f"{outside} outside axis range", ha="right", va="top",
+                  transform=axis.transAxes, fontsize=8, color="#8b0000")
+
+
+def _per_nucleus_strip(axis, plot_df, column, order):
+    data = plot_df.dropna(subset=[column])
+    sns.boxplot(data=data, x="nucleus_label", y=column, order=order, ax=axis, color="#d6e2f0",
+                showfliers=False, width=0.5)
+    sns.stripplot(data=data, x="nucleus_label", y=column, order=order, ax=axis, color=STANDARD_COLOR,
+                  alpha=0.6, jitter=0.15, size=4)
+    axis.set_xlabel("Nucleus")
+    if len(order) > 8:
+        axis.tick_params(axis="x", labelrotation=45, labelsize=8)
+
+
+#The standard six panels with fixed axes: two runs drawn with this function are comparable by eye.
+def build_standard_figure(df, min_size, max_size, title="", subtitle=""):
+    sns.set_theme(style="ticks")
+    plot_df = standard_plot_frame(df, min_size, max_size)
+    is_3d = _size_column(plot_df) != "area_bio_um2"
+    size_label = "Biological volume (µm³)" if is_3d else "Biological area (µm²)"
+    k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
+    k_label = r"K$_{part}$ (object / nucleoplasm)"
+    order = sorted(plot_df["nucleus_label"].unique().tolist())
+    has_k = "partition_coefficient" in plot_df.columns and plot_df["partition_coefficient"].notna().any()
+    has_fa = "A_object" in plot_df.columns and pd.to_numeric(plot_df["A_object"], errors="coerce").notna().any()
+    if has_fa:
+        plot_df["A_object"] = pd.to_numeric(plot_df["A_object"], errors="coerce")
+
+    fig, axes = plt.subplots(2, 3, figsize=(20, 11))
+    (ax_size, ax_k, ax_size_k), (ax_fa, ax_size_fa, ax_counts) = axes
+
+    ax_size.set_title("A) Size distribution", fontsize=13, fontweight="bold")
+    if plot_df.empty:
+        _panel_message(ax_size, "No QC-passed objects")
+    else:
+        bins = np.logspace(np.log10(min_size), np.log10(max_size), 31)
+        ax_size.hist(plot_df["size_plot"].dropna(), bins=bins, color=STANDARD_COLOR, alpha=0.8)
+        median_size = plot_df["size_plot"].median()
+        ax_size.axvline(median_size, color="#333333", linestyle="--", linewidth=1.5,
+                        label=f"Median {median_size:.4g}")
+        ax_size.legend(fontsize=9)
+    ax_size.set_xscale("log")
+    ax_size.set_xlim(min_size, max_size)
+    ax_size.set_xlabel(size_label)
+    ax_size.set_ylabel("Objects")
+
+    ax_k.set_title("B) K_part per nucleus", fontsize=13, fontweight="bold")
+    ax_size_k.set_title("C) Size vs K_part", fontsize=13, fontweight="bold")
+    if has_k:
+        _per_nucleus_strip(ax_k, plot_df, "partition_coefficient", order)
+        valid_k = plot_df.dropna(subset=["partition_coefficient", "size_plot"])
+        ax_size_k.scatter(valid_k["size_plot"], valid_k["partition_coefficient"], color=STANDARD_COLOR,
+                          alpha=0.6, s=25, edgecolors="none")
+        _note_outside(ax_k, plot_df["partition_coefficient"], k_min, k_max)
+        _note_outside(ax_size_k, plot_df["partition_coefficient"], k_min, k_max)
+    else:
+        _panel_message(ax_k, "No valid K_part\n(manual ROI with nucleoplasm needed)")
+        _panel_message(ax_size_k, "No valid K_part\n(manual ROI with nucleoplasm needed)")
+    for axis in (ax_k, ax_size_k):
+        axis.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2, label="K = 1 (nucleoplasm)")
+        axis.set_yscale("log")
+        axis.set_ylim(k_min, k_max)
+        k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
+        axis.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
+        axis.minorticks_off()
+        axis.set_ylabel(k_label)
+        axis.legend(fontsize=9, loc="lower right")
+    if not has_k:
+        ax_k.set_xlabel("Nucleus")
+    ax_size_k.set_xscale("log")
+    ax_size_k.set_xlim(min_size, max_size)
+    ax_size_k.set_xlabel(size_label)
+
+    ax_fa.set_title("D) FA per nucleus", fontsize=13, fontweight="bold")
+    ax_size_fa.set_title("E) Size vs FA", fontsize=13, fontweight="bold")
+    if has_fa:
+        _per_nucleus_strip(ax_fa, plot_df, "A_object", order)
+        valid_fa = plot_df.dropna(subset=["A_object", "size_plot"])
+        ax_size_fa.scatter(valid_fa["size_plot"], valid_fa["A_object"], color=STANDARD_COLOR,
+                           alpha=0.6, s=25, edgecolors="none")
+    else:
+        for axis in (ax_fa, ax_size_fa):
+            _panel_message(axis, "FA needs Radial FA Profiling\n(enable it in the settings)")
+        ax_fa.set_xlabel("Nucleus")
+    for axis in (ax_fa, ax_size_fa):
+        axis.set_ylim(0.0, 1.0)
+        axis.set_ylabel("FA (object)")
+    ax_size_fa.set_xscale("log")
+    ax_size_fa.set_xlim(min_size, max_size)
+    ax_size_fa.set_xlabel(size_label)
+
+    ax_counts.set_title("F) QC-passed objects per nucleus", fontsize=13, fontweight="bold")
+    counts = plot_df["nucleus_label"].value_counts().reindex(order, fill_value=0)
+    if counts.empty:
+        _panel_message(ax_counts, "No QC-passed objects")
+    else:
+        bars = ax_counts.bar(range(len(counts)), counts.values, color=STANDARD_COLOR)
+        ax_counts.bar_label(bars, fontsize=9)
+        ax_counts.set_ylim(0, counts.max() * 1.4)
+        ax_counts.set_xticks(range(len(counts)))
+        ax_counts.set_xticklabels(counts.index)
+        if len(counts) > 8:
+            ax_counts.tick_params(axis="x", labelrotation=45, labelsize=8)
+    ax_counts.set_xlabel("Nucleus")
+    ax_counts.set_ylabel("Object count")
+    eligible = _as_bool_series(standard_size_eligible(df, min_size, max_size)).sum()
+    ax_counts.text(0.02, 0.98, f"Segmented: {len(df)}\nSize-eligible: {eligible}\nQC-passed: {len(plot_df)}",
+                   ha="left", va="top", transform=ax_counts.transAxes, fontsize=9,
+                   bbox={"facecolor": "white", "edgecolor": "#cccccc"})
+
+    n_nuclei = plot_df.groupby(["filename", "cell_id"], dropna=False).ngroups if not plot_df.empty else 0
+    heading = f"{title} — {len(plot_df)} objects / {_count_text(n_nuclei, 'nucleus', 'nuclei')} (QC-passed)"
+    fig.suptitle(heading + (f"\n{subtitle}" if subtitle else ""), fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+#A condition is the top-level folder under the merge root; deeper folders (replicates) group into it.
+def condition_label(run_id):
+    return str(run_id).replace("\\", "/").split("/")[0]
+
+
+#One row per nucleus. A nucleus is (run, file, cell), so the same filename in two runs stays two nuclei.
+def nucleus_summary(primary):
+    frame = primary.copy()
+    frame["condition"] = frame["run_id"].map(condition_label)
+    frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
+    frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
+    if "K_valid" in frame.columns:
+        frame.loc[~_as_bool_series(frame["K_valid"]), "k_value"] = np.nan
+    frame["fa_value"] = pd.to_numeric(frame.get("A_object"), errors="coerce")
+    keys = ["condition", "run_id", "filename", "cell_id"]
+    summary = frame.groupby(keys, dropna=False, sort=True).agg(
+        n_objects=("object_id", "size"),
+        median_size=("size_value", "median"),
+        median_K=("k_value", "median"),
+        median_FA=("fa_value", "median"),
+    ).reset_index()
+    return summary
+
+
+def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, colors):
+    rng = np.random.default_rng(0)
+    for position, condition in enumerate(conditions):
+        objects = frame.loc[frame["condition"] == condition, value_col].dropna() if value_col else pd.Series(dtype=float)
+        nuclei = summary.loc[summary["condition"] == condition, summary_col].dropna()
+        if len(objects):
+            axis.scatter(position + rng.uniform(-0.25, 0.25, len(objects)), objects, s=8, alpha=0.25,
+                         color=colors[condition], edgecolors="none")
+        if len(nuclei):
+            axis.scatter(position + rng.uniform(-0.12, 0.12, len(nuclei)), nuclei, s=70, color=colors[condition],
+                         edgecolors="black", linewidths=0.8, zorder=3)
+            axis.hlines(nuclei.median(), position - 0.35, position + 0.35, color="black", linewidth=2.5, zorder=4)
+    axis.set_xlim(-0.6, len(conditions) - 0.4)
+
+
+#Conditions side by side on the fixed axes of the standard plots: small dots = objects,
+#large dots = nucleus medians, bar = median of the nucleus medians.
+def build_condition_comparison_figure(primary, min_size, max_size, order=None, note=""):
+    sns.set_theme(style="ticks")
+    frame = primary.copy()
+    frame["condition"] = frame["run_id"].map(condition_label)
+    frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
+    frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
+    if "K_valid" in frame.columns:
+        frame.loc[~_as_bool_series(frame["K_valid"]), "k_value"] = np.nan
+    frame["fa_value"] = pd.to_numeric(frame.get("A_object"), errors="coerce")
+    summary = nucleus_summary(primary)
+    conditions = list(order) if order else sorted(frame["condition"].unique().tolist())
+    palette = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"]
+    colors = {condition: palette[i % len(palette)] for i, condition in enumerate(conditions)}
+    tick_labels = [
+        f"{c}\n{_count_text(int((summary['condition'] == c).sum()), 'nucleus', 'nuclei')} / {int((frame['condition'] == c).sum())} obj."
+        for c in conditions
+    ]
+    is_3d = _size_column(frame) != "area_bio_um2"
+    k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
+
+    fig, axes = plt.subplots(1, 4, figsize=(max(16, 4.5 * len(conditions) + 6), 6.5))
+    ax_size, ax_k, ax_fa, ax_n = axes
+    _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors)
+    ax_size.set_yscale("log")
+    ax_size.set_ylim(min_size, max_size)
+    ax_size.set_ylabel("Biological volume (µm³)" if is_3d else "Biological area (µm²)")
+    ax_size.set_title("A) Size", fontsize=13, fontweight="bold")
+
+    _comparison_panel(ax_k, frame, summary, "k_value", "median_K", conditions, colors)
+    ax_k.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
+    ax_k.set_yscale("log")
+    ax_k.set_ylim(k_min, k_max)
+    k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
+    ax_k.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
+    ax_k.minorticks_off()
+    ax_k.set_ylabel(r"K$_{part}$ (object / nucleoplasm)")
+    ax_k.set_title("B) K_part", fontsize=13, fontweight="bold")
+
+    _comparison_panel(ax_fa, frame, summary, "fa_value", "median_FA", conditions, colors)
+    ax_fa.set_ylim(0.0, 1.0)
+    ax_fa.set_ylabel("FA (object)")
+    ax_fa.set_title("C) FA", fontsize=13, fontweight="bold")
+    if frame["fa_value"].dropna().empty:
+        _panel_message(ax_fa, "FA needs Radial FA Profiling")
+
+    _comparison_panel(ax_n, frame, summary, None, "n_objects", conditions, colors)
+    ax_n.set_ylim(0, max(1, summary["n_objects"].max()) * 1.2)
+    ax_n.set_ylabel("QC-passed objects per nucleus")
+    ax_n.set_title("D) Objects per nucleus", fontsize=13, fontweight="bold")
+
+    for axis in axes:
+        axis.set_xticks(range(len(conditions)))
+        axis.set_xticklabels(tick_labels, fontsize=9)
+    fig.suptitle(
+        "Conditions side by side — small dots: objects, large dots: nucleus medians, bar: median of nuclei.\n"
+        "Compare conditions by nuclei, not by pooled objects.",
+        fontsize=11,
+    )
+    bottom = 0.0
+    if note:
+        fig.text(0.01, 0.01, note, ha="left", va="bottom", fontsize=9, color="#8B0000")
+        bottom = 0.03 + 0.03 * note.count("\n")
+    fig.tight_layout(rect=(0, bottom, 1, 0.9))
+    return fig
+
+
+#Groups side by side without pooling them under one QC policy (e.g. ExM vs IF, which differ in expansion
+#factor and size range). Runs inside a group must match; settings that differ between groups are listed.
+def compare_run_groups(groups, output_path):
+    labels = [str(label).strip().replace("/", "-").replace("\\", "-") for label, _ in groups]
+    if len(groups) < 2:
+        raise ValueError("Choose at least two folders to compare.")
+    if any(not label for label in labels) or len(set(labels)) != len(labels):
+        raise ValueError("Group names must be non-empty and unique.")
+
+    group_runs = []
+    for label, (_, folder) in zip(labels, groups):
+        folder = Path(folder).resolve()
+        csv_paths = find_merge_source_csvs(folder)
+        if not csv_paths:
+            raise ValueError(f"Group {label}: the folder is empty (no *_Output_Batch_*.csv): {folder}")
+        runs = []
+        for csv_path in csv_paths:
+            metadata, metadata_path = _load_run_metadata(csv_path)
+            min_size = _metadata_value(metadata, "parameters.plot_min_size")
+            max_size = _metadata_value(metadata, "parameters.plot_max_size")
+            if min_size is None or max_size is None:
+                raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
+            df = pd.read_csv(csv_path)
+            primary = _prepare_reporting_frames(df, float(min_size), float(max_size))[1]
+            entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))[1]
+            run_id = f"{label}/{_run_id(folder, csv_path)}"
+            primary.insert(0, "run_id", run_id)
+            runs.append({"run_id": run_id, "policy": _fingerprint_payload(entries), "primary": primary,
+                         "min_size": float(min_size), "max_size": float(max_size)})
+        inside = _merge_policy_comparison(runs)
+        mismatched = inside.loc[inside["compatible"] == "no"]
+        if len(mismatched):
+            details = [
+                f"{row['parameter']}: " + ", ".join(f"{run['run_id']}={row[run['run_id']]}" for run in runs)
+                for _, row in mismatched.iterrows()
+            ]
+            raise QCPolicyMismatchError(
+                f"Runs in group {label} do not share one QC policy:\n" + "\n".join(details)
+            )
+        group_runs.append((label, runs))
+
+    #Each group has one policy now, so its first run stands for the group.
+    keys = sorted({key for _, runs in group_runs for key in runs[0]["policy"]})
+    difference_rows, differences = [], []
+    for key in keys:
+        values = {label: runs[0]["policy"].get(key) for label, runs in group_runs}
+        if len({json.dumps(value, sort_keys=True, default=str) for value in values.values()}) > 1:
+            difference_rows.append({"parameter": key, **values})
+            differences.append(f"{key}: " + ", ".join(f"{label}={value:g}" if isinstance(value, float)
+                                                      else f"{label}={value}" for label, value in values.items()))
+
+    primary = pd.concat([run["primary"] for _, runs in group_runs for run in runs], ignore_index=True, sort=False)
+    nuclei = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
+    group_rows = []
+    for label, runs in group_runs:
+        group_nuclei = nuclei.loc[nuclei["condition"] == label]
+        group_rows.append({
+            "group": label,
+            "runs": len(runs),
+            "nuclei": len(group_nuclei),
+            "objects": int(group_nuclei["n_objects"].sum()) if len(group_nuclei) else 0,
+            "median_K_of_nuclei": group_nuclei["median_K"].median() if len(group_nuclei) else np.nan,
+            "median_FA_of_nuclei": group_nuclei["median_FA"].median() if len(group_nuclei) else np.nan,
+            "median_size_of_nuclei": group_nuclei["median_size"].median() if len(group_nuclei) else np.nan,
+            "size_range": f"{runs[0]['min_size']:g}–{runs[0]['max_size']:g}",
+            "expansion_factor": runs[0]["policy"].get("analysis.expansion_factor"),
+        })
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plot_path = output_path.with_suffix(".png")
+    excel_path = output_path.with_suffix(".xlsx")
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        pd.DataFrame(group_rows).to_excel(writer, sheet_name="Per_Group", index=False)
+        nuclei.to_excel(writer, sheet_name="Per_Nucleus", index=False)
+        pd.DataFrame(difference_rows, columns=["parameter"] + labels).to_excel(
+            writer, sheet_name="Settings_Differences", index=False)
+        primary.to_excel(writer, sheet_name="Primary_Objects", index=False)
+        for sheet in writer.sheets.values():
+            _style_table_sheet(sheet)
+
+    note = ""
+    if differences:
+        note = "\n".join(textwrap.wrap("Settings differ between groups (not pooled): " + "; ".join(differences), 190))
+    fig = build_condition_comparison_figure(
+        primary,
+        min(run["min_size"] for _, runs in group_runs for run in runs),
+        max(run["max_size"] for _, runs in group_runs for run in runs),
+        order=labels,
+        note=note,
+    )
+    fig.savefig(plot_path, dpi=300)
+    plt.close(fig)
+    return {"plot": plot_path, "excel": excel_path, "differences": differences, "groups": group_rows}
+
+
+def standard_size_eligible(df, min_size, max_size):
+    return _prepare_reporting_frames(df, min_size, max_size)[3]["size_eligible"]
+
+
+def generate_plots(csv_filename, min_size=DEFAULT_SETTINGS["plot_min_size"], max_size=DEFAULT_SETTINGS["plot_max_size"]):
+    plt.rcParams.update({"font.sans-serif": "DejaVu Sans", "font.family": "sans-serif"})
     csv_path = Path(csv_filename)
     if not csv_path.exists():
         print(f"Error: File '{csv_filename}' not found!")
         return
 
     df = pd.read_csv(csv_path)
-
-
-    if "volume_bio_um3" in df.columns:
-        df["size_plot"] = df["volume_bio_um3"]
-        xlabel_text = "Biological Volume (µm³)"
-        title_a = "A) Condensate Volume Distribution"
-        title_c = "C) Volume vs. Total Intensity"
-        unit_label = "µm³"
-    elif "area_bio_um2" in df.columns:
-        df["size_plot"] = df["area_bio_um2"]
-        xlabel_text = "Biological Area (µm²)"
-        title_a = "A) Condensate Area Distribution"
-        title_c = "C) Area vs. Total Intensity"
-        unit_label = "µm²"
-    elif "shape_metric_bio" in df.columns:
-        df["size_plot"] = df["shape_metric_bio"]
-        is_3d_mode = df["is_3d"].iloc[0] if "is_3d" in df.columns else True
-        unit_label = "µm³" if is_3d_mode else "µm²"
-        dim_name = "Volume" if is_3d_mode else "Area"
-        xlabel_text = f"Biological {dim_name} ({unit_label})"
-        title_a = f"A) Condensate {dim_name} Distribution"
-        title_c = f"C) {dim_name} vs. Total Intensity"
-    else:
-        print("Error: Missing columns for size calculation!")
-        return
-
-    df_filtered = df[(df["size_plot"] >= min_size) & (df["size_plot"] <= max_size)].copy()
-
-    # Standard plots are descriptive and intentionally independent of Radial FA Profiling
-    # QC.  Show both the segmented-component count and the biologically sized
-    # subset so the size filter cannot silently look like a low cell count.
-    counts_per_cell = _build_standard_cell_counts(df, df_filtered)
-
-    if counts_per_cell["filename"].nunique(dropna=False) == 1:
-        counts_per_cell["display_label"] = counts_per_cell["cell_id"].map(
-            lambda value: f"Cell {value}"
-        )
-    else:
-        counts_per_cell["display_label"] = counts_per_cell.apply(
-            lambda row: f"{Path(str(row['filename'])).stem}\nCell {row['cell_id']}",
-            axis=1,
-        )
-
-    fig, axes = plt.subplots(2, 3, figsize=(22, 12))
-
-    def show_empty_size_panel(axis, title):
-        axis.set_title(title, fontsize=13, fontweight="bold")
-        axis.text(
-            0.5,
-            0.5,
-            f"No objects within\n{min_size:g}–{max_size:g} {unit_label}",
-            ha="center",
-            va="center",
-            transform=axis.transAxes,
-            fontsize=12,
-        )
-        axis.set_xticks([])
-        axis.set_yticks([])
-
-    if df_filtered.empty:
-        show_empty_size_panel(axes[0, 0], title_a)
-    else:
-        sns.histplot(df_filtered["size_plot"], kde=True, ax=axes[0, 0], color="#2b5c8f", bins=30 if len(df_filtered) > 30 else 10)
-        median_size = df_filtered["size_plot"].median()
-        axes[0, 0].axvline(median_size, color="#d9534f", linestyle="--", linewidth=2, label=f"Median: {median_size:.4f} {unit_label}")
-        axes[0, 0].set_title(title_a, fontsize=13, fontweight="bold")
-        axes[0, 0].set_xlabel(xlabel_text)
-        axes[0, 0].set_ylabel("Count")
-        axes[0, 0].legend()
-
-    cell_axis = axes[0, 1]
-    positions = np.arange(len(counts_per_cell))
-    bar_width = 0.38
-    bars_all = cell_axis.bar(
-        positions - bar_width / 2,
-        counts_per_cell["all_segmented_count"],
-        width=bar_width,
-        color="#9aa9bd",
-        label="All segmented components",
-    )
-    bars_eligible = cell_axis.bar(
-        positions + bar_width / 2,
-        counts_per_cell["size_eligible_count"],
-        width=bar_width,
-        color="#8e44ad",
-        label=f"Within {min_size:g}–{max_size:g} {unit_label}",
-    )
-    for bars in (bars_all, bars_eligible):
-        for bar in bars:
-            height = int(bar.get_height())
-            cell_axis.annotate(
-                str(height),
-                (bar.get_x() + bar.get_width() / 2, height),
-                xytext=(0, 3),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
-    cell_axis.set_xticks(positions)
-    cell_axis.set_xticklabels(counts_per_cell["display_label"])
-    if len(counts_per_cell) > 8:
-        cell_axis.tick_params(axis="x", labelrotation=45, labelsize=8)
-    cell_axis.set_title("B) Objects per Cell Label", fontsize=13, fontweight="bold")
-    cell_axis.set_xlabel("ROI / cell label")
-    cell_axis.set_ylabel("Object count")
-    cell_axis.legend(fontsize=9)
-
-    if df_filtered.empty:
-        show_empty_size_panel(axes[0, 2], title_c)
-        show_empty_size_panel(axes[1, 0], "D) Signal Concentration (Mean Intensity)")
-        show_empty_size_panel(axes[1, 1], "E) Size vs. Mean Intensity")
-        show_empty_size_panel(axes[1, 2], "F) 2D Density (Cluster Topography)")
-    else:
-        sns.scatterplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], color="#2e7d32", s=40, alpha=0.5)
-        sns.regplot(data=df_filtered, x="size_plot", y="integrated_density", ax=axes[0, 2], scatter=False, color="#1b5e20")
-        axes[0, 2].set_title(title_c, fontsize=13, fontweight="bold")
-        axes[0, 2].set_xlabel(xlabel_text)
-        axes[0, 2].set_ylabel("Integrated Density (a.u.)")
-
-        sns.violinplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="#f57c00", inner="quartile", alpha=0.7)
-        sns.stripplot(y=df_filtered["mean_intensity"], ax=axes[1, 0], color="black", alpha=0.2, jitter=0.15, size=3)
-        axes[1, 0].set_title("D) Signal Concentration (Mean Intensity)", fontsize=13, fontweight="bold")
-        axes[1, 0].set_ylabel("Mean Intensity (a.u.)")
-
-        sns.scatterplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], color="#c0392b", s=40, alpha=0.5)
-        sns.regplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 1], scatter=False, color="#922b21")
-        axes[1, 1].set_title("E) Size vs. Mean Intensity", fontsize=13, fontweight="bold")
-        axes[1, 1].set_xlabel(xlabel_text)
-        axes[1, 1].set_ylabel("Mean Intensity (a.u.)")
-
-        sns.kdeplot(data=df_filtered, x="size_plot", y="mean_intensity", ax=axes[1, 2], fill=True, cmap="YlOrBr", thresh=0.05, alpha=0.8)
-        axes[1, 2].set_title("F) 2D Density (Cluster Topography)", fontsize=13, fontweight="bold")
-        axes[1, 2].set_xlabel(xlabel_text)
-        axes[1, 2].set_ylabel("Mean Intensity (a.u.)")
-
-
-    fig.suptitle(scale_correction_label(load_scale_metadata(csv_path), df.columns), fontsize=11)
-    plt.tight_layout(rect=(0, 0, 1, 0.96))
+    subtitle = scale_correction_label(load_scale_metadata(csv_path), df.columns)
+    fig = build_standard_figure(df, min_size, max_size, title=csv_path.stem, subtitle=subtitle)
     output_plot = csv_path.parent / f"{csv_path.stem}_Analysis_Plots.png"
-    plt.savefig(output_plot, dpi=300)
+    fig.savefig(output_plot, dpi=300)
     plt.close(fig)
-
     print(f"Graphs were successfuly generated to: '{output_plot}'")
 
 

@@ -433,6 +433,34 @@ def _four_panel_figure(plot_df, title):
     return fig
 
 
+def _intensity_values(plot_df, column):
+    return pd.to_numeric(plot_df[column], errors="coerce").dropna() if column in plot_df.columns else pd.Series([], dtype=float)
+
+
+#Rows of the PDF summary table. Intensities are raw ADU: comparable only between images acquired with the same settings.
+def _summary_table_rows(plot_df, sample_name):
+    size_col = "volume_bio_um3" if "volume_bio_um3" in plot_df.columns else "shape_metric_bio"
+    class_col = _get_particle_class_col(plot_df)
+    class_counts = plot_df[class_col].value_counts() if class_col else pd.Series([], dtype=int)
+    k_vals = _k_values(plot_df)
+    intensity = _intensity_values(plot_df, "mean_intensity")
+    nucleoplasm = _intensity_values(plot_df, "nucleoplasm_mean_intensity")
+    rows = [
+        ["Sample ID", str(sample_name)],
+        ["Total Primary Particles", f"{len(plot_df):,}"],
+        ["Median Partitioning (K_part)", f"{k_vals.median():.2f}" if not k_vals.empty else "N/A"],
+        ["Mean Partitioning (K_part)", f"{k_vals.mean():.2f}" if not k_vals.empty else "N/A"],
+        ["Median Particle Mean Intensity", f"{intensity.median():.1f} ADU" if not intensity.empty else "N/A"],
+        ["Mean Particle Mean Intensity", f"{intensity.mean():.1f} ADU" if not intensity.empty else "N/A"],
+        ["Median Nucleoplasm Intensity", f"{nucleoplasm.median():.1f} ADU" if not nucleoplasm.empty else "N/A"],
+        ["Median Particle Volume", f"{plot_df[size_col].median():.4f} µm³" if size_col in plot_df.columns else "N/A"],
+    ]
+    for cname, count in class_counts.items():
+        pct = (count / len(plot_df)) * 100 if len(plot_df) > 0 else 0
+        rows.append([f"Class: {cname}", f"{count:,} ({pct:.1f}%)"])
+    return rows
+
+
 def export_unified_pdf_report(
     df: pd.DataFrame,
     pdf_path: Path | str,
@@ -463,20 +491,7 @@ def export_unified_pdf_report(
                 ax_hist.grid(True, linestyle="--", alpha=0.4)
 
         ax_table.axis("off")
-        class_col = _get_particle_class_col(plot_df)
-        class_counts = plot_df[class_col].value_counts() if class_col else pd.Series([], dtype=int)
-        k_vals = _k_values(plot_df)
-        table_data = [
-            ["Metric", "Value"],
-            ["Sample ID", str(sample_name)],
-            ["Total Primary Particles", f"{len(plot_df):,}"],
-            ["Median Partitioning (K_part)", f"{k_vals.median():.2f}" if not k_vals.empty else "N/A"],
-            ["Mean Partitioning (K_part)", f"{k_vals.mean():.2f}" if not k_vals.empty else "N/A"],
-            ["Median Particle Volume", f"{plot_df[size_col].median():.4f} µm³" if size_col in plot_df.columns else "N/A"],
-        ]
-        for cname, count in class_counts.items():
-            pct = (count / len(plot_df)) * 100 if len(plot_df) > 0 else 0
-            table_data.append([f"Class: {cname}", f"{count:,} ({pct:.1f}%)"])
+        table_data = [["Metric", "Value"]] + _summary_table_rows(plot_df, sample_name)
         table = ax_table.table(cellText=table_data, loc="center", cellLoc="left", colWidths=[0.5, 0.4])
         table.auto_set_font_size(False)
         table.set_fontsize(9.5)
@@ -534,6 +549,8 @@ def export_partitioning_analysis(
         "total_objects": len(plot_df),  # backward compatibility alias
         "median_partition_coefficient": float(k_vals.median()) if not k_vals.empty else np.nan,
         "mean_partition_coefficient": float(k_vals.mean()) if not k_vals.empty else np.nan,
+        "median_mean_intensity_adu": float(_intensity_values(plot_df, "mean_intensity").median())
+        if not _intensity_values(plot_df, "mean_intensity").empty else np.nan,
         "class_percentages": class_counts.round(1).to_dict(),
         "interpretation_warning": PSF_INTERPRETATION_WARNING,
         "plot_png": str(combined_png) if export_pngs else None,
