@@ -34,7 +34,8 @@ def test_condition_ticks_use_singular_for_one_nucleus():
                                 volume_bio_um3=[0.5, 0.6], partition_coefficient=[5.0, 6.0], K_valid=True,
                                 A_object=0.4, primary_qc_valid=True))
     fig = build_condition_comparison_figure(primary, 0.2, 2.0)
-    ticks = [t.get_text() for t in fig.axes[1].get_xticklabels()]
+    k_panel = next(ax for ax in fig.axes if ax.get_title().startswith("B)"))
+    ticks = [t.get_text() for t in k_panel.get_xticklabels()]
     assert "1 nucleus /" in ticks[0]
 
 

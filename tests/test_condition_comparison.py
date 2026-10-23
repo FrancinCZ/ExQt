@@ -46,19 +46,37 @@ def test_invalid_k_is_not_used():
     assert summary["median_K"].isna().all()
 
 
+def _panel(fig, letter):
+    return next(ax for ax in fig.axes if ax.get_title().startswith(f"{letter})"))
+
+
 def test_figure_has_fixed_axes_and_conditions_in_order():
     primary = pd.concat([_primary("B_cond", 4.0), _primary("A_cond", 2.0)])
     fig = build_condition_comparison_figure(primary, MIN_SIZE, MAX_SIZE)
-    by_label = {ax.get_ylabel(): ax for ax in fig.axes}
-    size_ax = next(ax for label, ax in by_label.items() if "volume" in label.lower())
-    k_ax = next(ax for label, ax in by_label.items() if "K" in label)
-    fa_ax = next(ax for label, ax in by_label.items() if "FA" in label)
-    assert np.allclose(size_ax.get_ylim(), (MIN_SIZE, MAX_SIZE))
-    assert np.allclose(k_ax.get_ylim(), (DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]))
-    assert np.allclose(fa_ax.get_ylim(), (0.0, 1.0))
-    ticks = [t.get_text() for t in k_ax.get_xticklabels()]
+    assert np.allclose(_panel(fig, "A").get_ylim(), (MIN_SIZE, MAX_SIZE))
+    for letter in "BC":
+        assert np.allclose(_panel(fig, letter).get_ylim(), (DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]))
+    for letter in "DE":
+        assert np.allclose(_panel(fig, letter).get_ylim(), (0.0, 1.0))
+    for letter in "CE":
+        assert np.allclose(_panel(fig, letter).get_xlim(), (MIN_SIZE, MAX_SIZE))
+    ticks = [t.get_text() for t in _panel(fig, "B").get_xticklabels()]
     assert ticks[0].startswith("A_cond") and ticks[1].startswith("B_cond")
     assert "2 nuclei" in ticks[0]
+
+
+# Supervisor request 2026-10-23: Control / Test / Test2 in one figure, each of the standard graphs with one
+# box per sample (like the size panel), and the scatter panels coloured by sample.
+def test_six_standard_panels_with_one_box_per_condition():
+    primary = pd.concat([_primary("Control", 2.0), _primary("Test", 4.0), _primary("Test2", 6.0)])
+    fig = build_condition_comparison_figure(primary, MIN_SIZE, MAX_SIZE)
+    titles = [ax.get_title() for ax in fig.axes if ax.get_title()]
+    assert [t[:2] for t in titles] == ["A)", "B)", "C)", "D)", "E)", "F)"]
+    for letter in "ABD":
+        boxes = [p for p in _panel(fig, letter).patches if p.__class__.__name__ == "PathPatch"]
+        assert len(boxes) == 3
+    legend = _panel(fig, "C").get_legend()
+    assert [t.get_text() for t in legend.get_texts()][:3] == ["Control", "Test", "Test2"]
 
 
 def _write_run(folder, k):
