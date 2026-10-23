@@ -1320,23 +1320,35 @@ def nucleus_summary(primary):
     return summary
 
 
-def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, colors):
+def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, colors, boxes=False):
     rng = np.random.default_rng(0)
     for position, condition in enumerate(conditions):
         objects = frame.loc[frame["condition"] == condition, value_col].dropna() if value_col else pd.Series(dtype=float)
         nuclei = summary.loc[summary["condition"] == condition, summary_col].dropna()
+        if boxes and len(objects):
+            box = axis.boxplot(objects, positions=[position], widths=0.55, showfliers=False, patch_artist=True,
+                               medianprops={"color": "#333333", "linewidth": 1.5})
+            box["boxes"][0].set(facecolor=colors[condition], alpha=0.25, edgecolor="#555555")
         if len(objects):
-            axis.scatter(position + rng.uniform(-0.25, 0.25, len(objects)), objects, s=8, alpha=0.25,
-                         color=colors[condition], edgecolors="none")
+            axis.scatter(position + rng.uniform(-0.2, 0.2, len(objects)), objects, s=10,
+                         alpha=0.5 if boxes else 0.25, color=colors[condition], edgecolors="none", zorder=2)
         if len(nuclei):
             axis.scatter(position + rng.uniform(-0.12, 0.12, len(nuclei)), nuclei, s=70, color=colors[condition],
                          edgecolors="black", linewidths=0.8, zorder=3)
-            axis.hlines(nuclei.median(), position - 0.35, position + 0.35, color="black", linewidth=2.5, zorder=4)
+            if not boxes:
+                axis.hlines(nuclei.median(), position - 0.35, position + 0.35, color="black", linewidth=2.5, zorder=4)
     axis.set_xlim(-0.6, len(conditions) - 0.4)
 
 
-#Conditions side by side on the fixed axes of the standard plots: small dots = objects,
-#large dots = nucleus medians, bar = median of the nucleus medians.
+def _condition_scatter(axis, frame, value_col, conditions, colors):
+    for condition in conditions:
+        points = frame.loc[frame["condition"] == condition].dropna(subset=["size_value", value_col])
+        axis.scatter(points["size_value"], points[value_col], s=20, alpha=0.6, color=colors[condition],
+                     edgecolors="none", label=condition)
+
+
+#The six standard panels with one box per condition (Merge: condition = top-level folder) and the scatter
+#panels coloured by condition. Box = objects, large dots = nucleus medians; compare conditions by nuclei.
 def build_condition_comparison_figure(primary, min_size, max_size, order=None, note=""):
     sns.set_theme(style="ticks")
     frame = primary.copy()
@@ -1355,51 +1367,71 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
         for c in conditions
     ]
     is_3d = _size_column(frame) != "area_bio_um2"
+    size_label = "Biological volume (µm³)" if is_3d else "Biological area (µm²)"
     k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
+    k_label = r"K$_{part}$ (object / nucleoplasm)"
+    k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
+    has_k = frame["k_value"].notna().any()
+    has_fa = frame["fa_value"].notna().any()
 
-    fig, axes = plt.subplots(1, 4, figsize=(max(16, 4.5 * len(conditions) + 6), 6.5))
-    ax_size, ax_k, ax_fa, ax_n = axes
-    _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors)
+    fig, axes = plt.subplots(2, 3, figsize=(max(20, 2.2 * len(conditions) * 3 + 4), 12))
+    (ax_size, ax_k, ax_size_k), (ax_fa, ax_size_fa, ax_n) = axes
+
+    _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors, boxes=True)
     ax_size.set_yscale("log")
     ax_size.set_ylim(min_size, max_size)
-    ax_size.set_ylabel("Biological volume (µm³)" if is_3d else "Biological area (µm²)")
+    ax_size.set_ylabel(size_label)
     ax_size.set_title("A) Size", fontsize=13, fontweight="bold")
 
-    _comparison_panel(ax_k, frame, summary, "k_value", "median_K", conditions, colors)
-    ax_k.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
-    ax_k.set_yscale("log")
-    ax_k.set_ylim(k_min, k_max)
-    k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
-    ax_k.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
-    ax_k.minorticks_off()
-    ax_k.set_ylabel(r"K$_{part}$ (object / nucleoplasm)")
+    _comparison_panel(ax_k, frame, summary, "k_value", "median_K", conditions, colors, boxes=True)
     ax_k.set_title("B) K_part", fontsize=13, fontweight="bold")
+    _condition_scatter(ax_size_k, frame, "k_value", conditions, colors)
+    ax_size_k.set_title("C) Size vs K_part", fontsize=13, fontweight="bold")
+    for axis in (ax_k, ax_size_k):
+        axis.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
+        axis.set_yscale("log")
+        axis.set_ylim(k_min, k_max)
+        axis.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
+        axis.minorticks_off()
+        axis.set_ylabel(k_label)
+        _note_outside(axis, frame["k_value"], k_min, k_max)
+        if not has_k:
+            _panel_message(axis, "No valid K_part")
 
-    _comparison_panel(ax_fa, frame, summary, "fa_value", "median_FA", conditions, colors)
-    ax_fa.set_ylim(0.0, 1.0)
-    ax_fa.set_ylabel("FA (object)")
-    ax_fa.set_title("C) FA", fontsize=13, fontweight="bold")
-    if frame["fa_value"].dropna().empty:
-        _panel_message(ax_fa, "FA needs Radial FA Profiling")
+    _comparison_panel(ax_fa, frame, summary, "fa_value", "median_FA", conditions, colors, boxes=True)
+    ax_fa.set_title("D) FA", fontsize=13, fontweight="bold")
+    _condition_scatter(ax_size_fa, frame, "fa_value", conditions, colors)
+    ax_size_fa.set_title("E) Size vs FA", fontsize=13, fontweight="bold")
+    for axis in (ax_fa, ax_size_fa):
+        axis.set_ylim(0.0, 1.0)
+        axis.set_ylabel("FA (object)")
+        if not has_fa:
+            _panel_message(axis, "FA needs Radial FA Profiling")
+
+    for axis in (ax_size_k, ax_size_fa):
+        axis.set_xscale("log")
+        axis.set_xlim(min_size, max_size)
+        axis.set_xlabel(size_label)
+        axis.legend(fontsize=9, loc="lower right", markerscale=1.5)
 
     _comparison_panel(ax_n, frame, summary, None, "n_objects", conditions, colors)
     ax_n.set_ylim(0, max(1, summary["n_objects"].max()) * 1.2)
     ax_n.set_ylabel("QC-passed objects per nucleus")
-    ax_n.set_title("D) Objects per nucleus", fontsize=13, fontweight="bold")
+    ax_n.set_title("F) Objects per nucleus", fontsize=13, fontweight="bold")
 
-    for axis in axes:
+    for axis in (ax_size, ax_k, ax_fa, ax_n):
         axis.set_xticks(range(len(conditions)))
         axis.set_xticklabels(tick_labels, fontsize=9)
     fig.suptitle(
-        "Conditions side by side — small dots: objects, large dots: nucleus medians, bar: median of nuclei.\n"
+        "Conditions side by side — box and small dots: objects, large dots: nucleus medians.\n"
         "Compare conditions by nuclei, not by pooled objects.",
         fontsize=11,
     )
     bottom = 0.0
     if note:
         fig.text(0.01, 0.01, note, ha="left", va="bottom", fontsize=9, color="#8B0000")
-        bottom = 0.03 + 0.03 * note.count("\n")
-    fig.tight_layout(rect=(0, bottom, 1, 0.9))
+        bottom = 0.02 + 0.02 * note.count("\n")
+    fig.tight_layout(rect=(0, bottom, 1, 0.94))
     return fig
 
 
