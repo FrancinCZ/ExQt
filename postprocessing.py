@@ -1304,7 +1304,8 @@ def condition_label(run_id):
 #One row per nucleus. A nucleus is (run, file, cell), so the same filename in two runs stays two nuclei.
 def nucleus_summary(primary):
     frame = primary.copy()
-    frame["condition"] = frame["run_id"].map(condition_label)
+    if "condition" not in frame.columns:
+        frame["condition"] = frame["run_id"].map(condition_label)
     frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
     frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
     if "K_valid" in frame.columns:
@@ -1320,92 +1321,128 @@ def nucleus_summary(primary):
     return summary
 
 
-def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, colors):
+def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, colors, boxes=False):
     rng = np.random.default_rng(0)
     for position, condition in enumerate(conditions):
         objects = frame.loc[frame["condition"] == condition, value_col].dropna() if value_col else pd.Series(dtype=float)
         nuclei = summary.loc[summary["condition"] == condition, summary_col].dropna()
+        if boxes and len(objects):
+            box = axis.boxplot(objects, positions=[position], widths=0.55, showfliers=False, patch_artist=True,
+                               medianprops={"color": "#333333", "linewidth": 1.5})
+            box["boxes"][0].set(facecolor=colors[condition], alpha=0.25, edgecolor="#555555")
         if len(objects):
-            axis.scatter(position + rng.uniform(-0.25, 0.25, len(objects)), objects, s=8, alpha=0.25,
-                         color=colors[condition], edgecolors="none")
+            axis.scatter(position + rng.uniform(-0.2, 0.2, len(objects)), objects, s=10,
+                         alpha=0.5 if boxes else 0.25, color=colors[condition], edgecolors="none", zorder=2)
         if len(nuclei):
             axis.scatter(position + rng.uniform(-0.12, 0.12, len(nuclei)), nuclei, s=70, color=colors[condition],
                          edgecolors="black", linewidths=0.8, zorder=3)
-            axis.hlines(nuclei.median(), position - 0.35, position + 0.35, color="black", linewidth=2.5, zorder=4)
+            if not boxes:
+                axis.hlines(nuclei.median(), position - 0.35, position + 0.35, color="black", linewidth=2.5, zorder=4)
     axis.set_xlim(-0.6, len(conditions) - 0.4)
 
 
-#Conditions side by side on the fixed axes of the standard plots: small dots = objects,
-#large dots = nucleus medians, bar = median of the nucleus medians.
-def build_condition_comparison_figure(primary, min_size, max_size, order=None, note=""):
+COMPARISON_PALETTE = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"]
+
+
+def _condition_scatter(axis, frame, value_col, conditions, colors):
+    for condition in conditions:
+        points = frame.loc[frame["condition"] == condition].dropna(subset=["size_value", value_col])
+        axis.scatter(points["size_value"], points[value_col], s=20, alpha=0.6, color=colors[condition],
+                     edgecolors="none", label=condition)
+
+
+#The six standard panels with one box per condition (Merge: condition = top-level folder) and the scatter
+#panels coloured by condition. Box = objects, large dots = nucleus medians; compare conditions by nuclei.
+def build_condition_comparison_figure(primary, min_size, max_size, order=None, note="", colors=None):
     sns.set_theme(style="ticks")
     frame = primary.copy()
-    frame["condition"] = frame["run_id"].map(condition_label)
+    if "condition" not in frame.columns:
+        frame["condition"] = frame["run_id"].map(condition_label)
     frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
     frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
     if "K_valid" in frame.columns:
         frame.loc[~_as_bool_series(frame["K_valid"]), "k_value"] = np.nan
     frame["fa_value"] = pd.to_numeric(frame.get("A_object"), errors="coerce")
-    summary = nucleus_summary(primary)
+    summary = nucleus_summary(frame)
     conditions = list(order) if order else sorted(frame["condition"].unique().tolist())
-    palette = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"]
-    colors = {condition: palette[i % len(palette)] for i, condition in enumerate(conditions)}
+    if colors is None:
+        colors = {condition: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, condition in enumerate(conditions)}
     tick_labels = [
         f"{c}\n{_count_text(int((summary['condition'] == c).sum()), 'nucleus', 'nuclei')} / {int((frame['condition'] == c).sum())} obj."
         for c in conditions
     ]
     is_3d = _size_column(frame) != "area_bio_um2"
+    size_label = "Biological volume (µm³)" if is_3d else "Biological area (µm²)"
     k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
+    k_label = r"K$_{part}$ (object / nucleoplasm)"
+    k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
+    has_k = frame["k_value"].notna().any()
+    has_fa = frame["fa_value"].notna().any()
 
-    fig, axes = plt.subplots(1, 4, figsize=(max(16, 4.5 * len(conditions) + 6), 6.5))
-    ax_size, ax_k, ax_fa, ax_n = axes
-    _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors)
+    fig, axes = plt.subplots(2, 3, figsize=(max(20, 2.2 * len(conditions) * 3 + 4), 12))
+    (ax_size, ax_k, ax_size_k), (ax_fa, ax_size_fa, ax_n) = axes
+
+    _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors, boxes=True)
     ax_size.set_yscale("log")
     ax_size.set_ylim(min_size, max_size)
-    ax_size.set_ylabel("Biological volume (µm³)" if is_3d else "Biological area (µm²)")
+    ax_size.set_ylabel(size_label)
     ax_size.set_title("A) Size", fontsize=13, fontweight="bold")
 
-    _comparison_panel(ax_k, frame, summary, "k_value", "median_K", conditions, colors)
-    ax_k.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
-    ax_k.set_yscale("log")
-    ax_k.set_ylim(k_min, k_max)
-    k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
-    ax_k.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
-    ax_k.minorticks_off()
-    ax_k.set_ylabel(r"K$_{part}$ (object / nucleoplasm)")
+    _comparison_panel(ax_k, frame, summary, "k_value", "median_K", conditions, colors, boxes=True)
     ax_k.set_title("B) K_part", fontsize=13, fontweight="bold")
+    _condition_scatter(ax_size_k, frame, "k_value", conditions, colors)
+    ax_size_k.set_title("C) Size vs K_part", fontsize=13, fontweight="bold")
+    for axis in (ax_k, ax_size_k):
+        axis.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
+        axis.set_yscale("log")
+        axis.set_ylim(k_min, k_max)
+        axis.set_yticks(k_ticks, labels=[f"{t:g}" for t in k_ticks])
+        axis.minorticks_off()
+        axis.set_ylabel(k_label)
+        _note_outside(axis, frame["k_value"], k_min, k_max)
+        if not has_k:
+            _panel_message(axis, "No valid K_part")
 
-    _comparison_panel(ax_fa, frame, summary, "fa_value", "median_FA", conditions, colors)
-    ax_fa.set_ylim(0.0, 1.0)
-    ax_fa.set_ylabel("FA (object)")
-    ax_fa.set_title("C) FA", fontsize=13, fontweight="bold")
-    if frame["fa_value"].dropna().empty:
-        _panel_message(ax_fa, "FA needs Radial FA Profiling")
+    _comparison_panel(ax_fa, frame, summary, "fa_value", "median_FA", conditions, colors, boxes=True)
+    ax_fa.set_title("D) FA", fontsize=13, fontweight="bold")
+    _condition_scatter(ax_size_fa, frame, "fa_value", conditions, colors)
+    ax_size_fa.set_title("E) Size vs FA", fontsize=13, fontweight="bold")
+    for axis in (ax_fa, ax_size_fa):
+        axis.set_ylim(0.0, 1.0)
+        axis.set_ylabel("FA (object)")
+        if not has_fa:
+            _panel_message(axis, "FA needs Radial FA Profiling")
+
+    for axis in (ax_size_k, ax_size_fa):
+        axis.set_xscale("log")
+        axis.set_xlim(min_size, max_size)
+        axis.set_xlabel(size_label)
+        axis.legend(fontsize=9, loc="lower right", markerscale=1.5)
 
     _comparison_panel(ax_n, frame, summary, None, "n_objects", conditions, colors)
     ax_n.set_ylim(0, max(1, summary["n_objects"].max()) * 1.2)
     ax_n.set_ylabel("QC-passed objects per nucleus")
-    ax_n.set_title("D) Objects per nucleus", fontsize=13, fontweight="bold")
+    ax_n.set_title("F) Objects per nucleus", fontsize=13, fontweight="bold")
 
-    for axis in axes:
+    for axis in (ax_size, ax_k, ax_fa, ax_n):
         axis.set_xticks(range(len(conditions)))
         axis.set_xticklabels(tick_labels, fontsize=9)
     fig.suptitle(
-        "Conditions side by side — small dots: objects, large dots: nucleus medians, bar: median of nuclei.\n"
+        "Conditions side by side — box and small dots: objects, large dots: nucleus medians.\n"
         "Compare conditions by nuclei, not by pooled objects.",
         fontsize=11,
     )
     bottom = 0.0
     if note:
         fig.text(0.01, 0.01, note, ha="left", va="bottom", fontsize=9, color="#8B0000")
-        bottom = 0.03 + 0.03 * note.count("\n")
-    fig.tight_layout(rect=(0, bottom, 1, 0.9))
+        bottom = 0.02 + 0.02 * note.count("\n")
+    fig.tight_layout(rect=(0, bottom, 1, 0.94))
     return fig
 
 
 #Groups side by side without pooling them under one QC policy (e.g. ExM vs IF, which differ in expansion
 #factor and size range). Runs inside a group must match; settings that differ between groups are listed.
-def compare_run_groups(groups, output_path):
+def _load_compare_groups(groups):
     labels = [str(label).strip().replace("/", "-").replace("\\", "-") for label, _ in groups]
     if len(groups) < 2:
         raise ValueError("Choose at least two folders to compare.")
@@ -1427,9 +1464,15 @@ def compare_run_groups(groups, output_path):
                 raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
             df = pd.read_csv(csv_path)
             primary = _prepare_reporting_frames(df, float(min_size), float(max_size))[1]
+            primary = primary.sort_values(["filename", "cell_id"], kind="stable").reset_index(drop=True)
             entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))[1]
-            run_id = f"{label}/{_run_id(folder, csv_path)}"
+            relative_run = _run_id(folder, csv_path)
+            run_id = f"{label}/{relative_run}"
             primary.insert(0, "run_id", run_id)
+            primary["group"] = label
+            #The key names a nucleus independently of the editable group name.
+            primary["nucleus_key"] = [f"{csv_path}::{name}::{cell}" for name, cell in zip(primary["filename"], primary["cell_id"])]
+            primary["nucleus_label"] = _compare_nucleus_labels(label, relative_run, primary)
             runs.append({"run_id": run_id, "policy": _fingerprint_payload(entries), "primary": primary,
                          "min_size": float(min_size), "max_size": float(max_size)})
         inside = _merge_policy_comparison(runs)
@@ -1443,6 +1486,34 @@ def compare_run_groups(groups, output_path):
                 f"Runs in group {label} do not share one QC policy:\n" + "\n".join(details)
             )
         group_runs.append((label, runs))
+    return labels, group_runs
+
+
+#"ExM img001 C1": group, first folder of the run (or the file when the run has several files), cell.
+def _compare_nucleus_labels(label, relative_run, primary):
+    run_part = relative_run.replace("\\", "/").split("/")[0]
+    several_files = primary["filename"].nunique() > 1
+    return [
+        f"{label} {Path(str(name)).stem if several_files else run_part} C{cell}"
+        for name, cell in zip(primary["filename"], primary["cell_id"])
+    ]
+
+
+#Every nucleus with QC-passed objects in the chosen folders, for picking nuclei in Compare runs.
+def list_compare_nuclei(groups):
+    _, group_runs = _load_compare_groups(groups)
+    nuclei = []
+    for label, runs in group_runs:
+        for run in runs:
+            primary = run["primary"]
+            for key, rows in primary.groupby("nucleus_key", sort=False):
+                nuclei.append({"key": key, "group": label, "label": rows["nucleus_label"].iloc[0],
+                               "n_objects": len(rows)})
+    return nuclei
+
+
+def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
+    labels, group_runs = _load_compare_groups(groups)
 
     #Each group has one policy now, so its first run stands for the group.
     keys = sorted({key for _, runs in group_runs for key in runs[0]["policy"]})
@@ -1455,10 +1526,16 @@ def compare_run_groups(groups, output_path):
                                                       else f"{label}={value}" for label, value in values.items()))
 
     primary = pd.concat([run["primary"] for _, runs in group_runs for run in runs], ignore_index=True, sort=False)
-    nuclei = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
+    if nuclei is not None:
+        unknown = set(nuclei) - set(primary["nucleus_key"])
+        if unknown or not nuclei:
+            raise ValueError("Choose nuclei from the listed ones (unknown or no nucleus selected).")
+        primary = primary.loc[primary["nucleus_key"].isin(nuclei)].copy()
+    primary["condition"] = primary["group"]
+    nuclei_table = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
     group_rows = []
     for label, runs in group_runs:
-        group_nuclei = nuclei.loc[nuclei["condition"] == label]
+        group_nuclei = nuclei_table.loc[nuclei_table["condition"] == label]
         group_rows.append({
             "group": label,
             "runs": len(runs),
@@ -1477,22 +1554,30 @@ def compare_run_groups(groups, output_path):
     excel_path = output_path.with_suffix(".xlsx")
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         pd.DataFrame(group_rows).to_excel(writer, sheet_name="Per_Group", index=False)
-        nuclei.to_excel(writer, sheet_name="Per_Nucleus", index=False)
+        nuclei_table.to_excel(writer, sheet_name="Per_Nucleus", index=False)
         pd.DataFrame(difference_rows, columns=["parameter"] + labels).to_excel(
             writer, sheet_name="Settings_Differences", index=False)
-        primary.to_excel(writer, sheet_name="Primary_Objects", index=False)
+        primary.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="Primary_Objects", index=False)
         for sheet in writer.sheets.values():
             _style_table_sheet(sheet)
 
     note = ""
     if differences:
         note = "\n".join(textwrap.wrap("Settings differ between groups (not pooled): " + "; ".join(differences), 190))
+    order, colors = labels, None
+    if per_nucleus:
+        #One column per nucleus, coloured by its group, in the order the nuclei were listed.
+        group_colors = {label: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, label in enumerate(labels)}
+        primary["condition"] = primary["nucleus_label"]
+        order = list(dict.fromkeys(primary["nucleus_label"]))
+        colors = {name: group_colors[group] for name, group in zip(primary["nucleus_label"], primary["group"])}
     fig = build_condition_comparison_figure(
         primary,
         min(run["min_size"] for _, runs in group_runs for run in runs),
         max(run["max_size"] for _, runs in group_runs for run in runs),
-        order=labels,
+        order=order,
         note=note,
+        colors=colors,
     )
     fig.savefig(plot_path, dpi=300)
     plt.close(fig)
