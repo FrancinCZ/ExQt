@@ -1304,7 +1304,8 @@ def condition_label(run_id):
 #One row per nucleus. A nucleus is (run, file, cell), so the same filename in two runs stays two nuclei.
 def nucleus_summary(primary):
     frame = primary.copy()
-    frame["condition"] = frame["run_id"].map(condition_label)
+    if "condition" not in frame.columns:
+        frame["condition"] = frame["run_id"].map(condition_label)
     frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
     frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
     if "K_valid" in frame.columns:
@@ -1340,6 +1341,9 @@ def _comparison_panel(axis, frame, summary, value_col, summary_col, conditions, 
     axis.set_xlim(-0.6, len(conditions) - 0.4)
 
 
+COMPARISON_PALETTE = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"]
+
+
 def _condition_scatter(axis, frame, value_col, conditions, colors):
     for condition in conditions:
         points = frame.loc[frame["condition"] == condition].dropna(subset=["size_value", value_col])
@@ -1349,19 +1353,20 @@ def _condition_scatter(axis, frame, value_col, conditions, colors):
 
 #The six standard panels with one box per condition (Merge: condition = top-level folder) and the scatter
 #panels coloured by condition. Box = objects, large dots = nucleus medians; compare conditions by nuclei.
-def build_condition_comparison_figure(primary, min_size, max_size, order=None, note=""):
+def build_condition_comparison_figure(primary, min_size, max_size, order=None, note="", colors=None):
     sns.set_theme(style="ticks")
     frame = primary.copy()
-    frame["condition"] = frame["run_id"].map(condition_label)
+    if "condition" not in frame.columns:
+        frame["condition"] = frame["run_id"].map(condition_label)
     frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
     frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
     if "K_valid" in frame.columns:
         frame.loc[~_as_bool_series(frame["K_valid"]), "k_value"] = np.nan
     frame["fa_value"] = pd.to_numeric(frame.get("A_object"), errors="coerce")
-    summary = nucleus_summary(primary)
+    summary = nucleus_summary(frame)
     conditions = list(order) if order else sorted(frame["condition"].unique().tolist())
-    palette = ["#4E79A7", "#F28E2B", "#59A14F", "#E15759", "#B07AA1", "#76B7B2", "#EDC948", "#9C755F"]
-    colors = {condition: palette[i % len(palette)] for i, condition in enumerate(conditions)}
+    if colors is None:
+        colors = {condition: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, condition in enumerate(conditions)}
     tick_labels = [
         f"{c}\n{_count_text(int((summary['condition'] == c).sum()), 'nucleus', 'nuclei')} / {int((frame['condition'] == c).sum())} obj."
         for c in conditions
@@ -1437,7 +1442,7 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
 
 #Groups side by side without pooling them under one QC policy (e.g. ExM vs IF, which differ in expansion
 #factor and size range). Runs inside a group must match; settings that differ between groups are listed.
-def compare_run_groups(groups, output_path):
+def _load_compare_groups(groups):
     labels = [str(label).strip().replace("/", "-").replace("\\", "-") for label, _ in groups]
     if len(groups) < 2:
         raise ValueError("Choose at least two folders to compare.")
@@ -1459,9 +1464,15 @@ def compare_run_groups(groups, output_path):
                 raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
             df = pd.read_csv(csv_path)
             primary = _prepare_reporting_frames(df, float(min_size), float(max_size))[1]
+            primary = primary.sort_values(["filename", "cell_id"], kind="stable").reset_index(drop=True)
             entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))[1]
-            run_id = f"{label}/{_run_id(folder, csv_path)}"
+            relative_run = _run_id(folder, csv_path)
+            run_id = f"{label}/{relative_run}"
             primary.insert(0, "run_id", run_id)
+            primary["group"] = label
+            #The key names a nucleus independently of the editable group name.
+            primary["nucleus_key"] = [f"{csv_path}::{name}::{cell}" for name, cell in zip(primary["filename"], primary["cell_id"])]
+            primary["nucleus_label"] = _compare_nucleus_labels(label, relative_run, primary)
             runs.append({"run_id": run_id, "policy": _fingerprint_payload(entries), "primary": primary,
                          "min_size": float(min_size), "max_size": float(max_size)})
         inside = _merge_policy_comparison(runs)
@@ -1475,6 +1486,34 @@ def compare_run_groups(groups, output_path):
                 f"Runs in group {label} do not share one QC policy:\n" + "\n".join(details)
             )
         group_runs.append((label, runs))
+    return labels, group_runs
+
+
+#"ExM img001 C1": group, first folder of the run (or the file when the run has several files), cell.
+def _compare_nucleus_labels(label, relative_run, primary):
+    run_part = relative_run.replace("\\", "/").split("/")[0]
+    several_files = primary["filename"].nunique() > 1
+    return [
+        f"{label} {Path(str(name)).stem if several_files else run_part} C{cell}"
+        for name, cell in zip(primary["filename"], primary["cell_id"])
+    ]
+
+
+#Every nucleus with QC-passed objects in the chosen folders, for picking nuclei in Compare runs.
+def list_compare_nuclei(groups):
+    _, group_runs = _load_compare_groups(groups)
+    nuclei = []
+    for label, runs in group_runs:
+        for run in runs:
+            primary = run["primary"]
+            for key, rows in primary.groupby("nucleus_key", sort=False):
+                nuclei.append({"key": key, "group": label, "label": rows["nucleus_label"].iloc[0],
+                               "n_objects": len(rows)})
+    return nuclei
+
+
+def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
+    labels, group_runs = _load_compare_groups(groups)
 
     #Each group has one policy now, so its first run stands for the group.
     keys = sorted({key for _, runs in group_runs for key in runs[0]["policy"]})
@@ -1487,10 +1526,16 @@ def compare_run_groups(groups, output_path):
                                                       else f"{label}={value}" for label, value in values.items()))
 
     primary = pd.concat([run["primary"] for _, runs in group_runs for run in runs], ignore_index=True, sort=False)
-    nuclei = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
+    if nuclei is not None:
+        unknown = set(nuclei) - set(primary["nucleus_key"])
+        if unknown or not nuclei:
+            raise ValueError("Choose nuclei from the listed ones (unknown or no nucleus selected).")
+        primary = primary.loc[primary["nucleus_key"].isin(nuclei)].copy()
+    primary["condition"] = primary["group"]
+    nuclei_table = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
     group_rows = []
     for label, runs in group_runs:
-        group_nuclei = nuclei.loc[nuclei["condition"] == label]
+        group_nuclei = nuclei_table.loc[nuclei_table["condition"] == label]
         group_rows.append({
             "group": label,
             "runs": len(runs),
@@ -1509,22 +1554,30 @@ def compare_run_groups(groups, output_path):
     excel_path = output_path.with_suffix(".xlsx")
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         pd.DataFrame(group_rows).to_excel(writer, sheet_name="Per_Group", index=False)
-        nuclei.to_excel(writer, sheet_name="Per_Nucleus", index=False)
+        nuclei_table.to_excel(writer, sheet_name="Per_Nucleus", index=False)
         pd.DataFrame(difference_rows, columns=["parameter"] + labels).to_excel(
             writer, sheet_name="Settings_Differences", index=False)
-        primary.to_excel(writer, sheet_name="Primary_Objects", index=False)
+        primary.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="Primary_Objects", index=False)
         for sheet in writer.sheets.values():
             _style_table_sheet(sheet)
 
     note = ""
     if differences:
         note = "\n".join(textwrap.wrap("Settings differ between groups (not pooled): " + "; ".join(differences), 190))
+    order, colors = labels, None
+    if per_nucleus:
+        #One column per nucleus, coloured by its group, in the order the nuclei were listed.
+        group_colors = {label: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, label in enumerate(labels)}
+        primary["condition"] = primary["nucleus_label"]
+        order = list(dict.fromkeys(primary["nucleus_label"]))
+        colors = {name: group_colors[group] for name, group in zip(primary["nucleus_label"], primary["group"])}
     fig = build_condition_comparison_figure(
         primary,
         min(run["min_size"] for _, runs in group_runs for run in runs),
         max(run["max_size"] for _, runs in group_runs for run in runs),
-        order=labels,
+        order=order,
         note=note,
+        colors=colors,
     )
     fig.savefig(plot_path, dpi=300)
     plt.close(fig)

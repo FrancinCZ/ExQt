@@ -125,8 +125,95 @@ def test_compare_runs_dialog_and_action(tmp_path):
             patch("App.QMessageBox.information") as info:
         dialog_cls.return_value.exec.return_value = 1
         dialog_cls.return_value.groups.return_value = [("ExM", str(groups[0][1])), ("IF", str(groups[1][1]))]
+        dialog_cls.return_value.selected_nuclei.return_value = None
+        dialog_cls.return_value.per_nucleus.return_value = False
         win.compare_runs()
     assert out.is_file()
     assert "IF: 5 nuclei" in info.call_args[0][2]
     win.close()
+    app.processEvents()
+
+
+# Picking nuclei (request 2026-10-25): the supervisor wants 2 ExM and 2 IF nuclei compared graph by graph.
+# Compare runs lists every nucleus of the chosen folders; only ticked nuclei are used, and optionally each
+# nucleus is its own column (coloured by its group).
+def _box_colors(ax):
+    return [tuple(p.get_facecolor()) for p in ax.patches if p.__class__.__name__ == "PathPatch"]
+
+
+def test_nuclei_are_listed_per_group(tmp_path):
+    from postprocessing import list_compare_nuclei
+
+    nuclei = list_compare_nuclei(_groups(tmp_path))
+    assert [n["group"] for n in nuclei].count("ExM") == 2 and [n["group"] for n in nuclei].count("IF") == 5
+    first = nuclei[0]
+    assert first["label"] == "ExM img001 C1" and first["n_objects"] == 4
+    assert len({n["key"] for n in nuclei}) == 7
+
+
+def test_only_picked_nuclei_are_compared(tmp_path):
+    from postprocessing import list_compare_nuclei
+
+    groups = _groups(tmp_path)
+    nuclei = list_compare_nuclei(groups)
+    picked = [n["key"] for n in nuclei if n["label"] in ("ExM img001 C1", "IF img001 C2", "IF img001 C4")]
+    result = compare_run_groups(groups, tmp_path / "pick.png", nuclei=picked)
+    per_nucleus = pd.read_excel(result["excel"], sheet_name="Per_Nucleus")
+    assert len(per_nucleus) == 3
+    assert {row["group"]: row["nuclei"] for row in result["groups"]} == {"ExM": 1, "IF": 2}
+
+
+def test_each_nucleus_as_its_own_column(tmp_path):
+    import postprocessing
+    from postprocessing import list_compare_nuclei
+
+    groups = _groups(tmp_path)
+    labels = ["ExM img001 C1", "ExM img002 C1", "IF img001 C2", "IF img001 C4"]
+    picked = [n["key"] for n in list_compare_nuclei(groups) if n["label"] in labels]
+    figures = []
+    original = postprocessing.build_condition_comparison_figure
+
+    def spy(*args, **kwargs):
+        figures.append(original(*args, **kwargs))
+        return figures[-1]
+
+    postprocessing.build_condition_comparison_figure = spy
+    try:
+        compare_run_groups(groups, tmp_path / "each.png", nuclei=picked, per_nucleus=True)
+    finally:
+        postprocessing.build_condition_comparison_figure = original
+    k_panel = next(ax for ax in figures[0].axes if ax.get_title().startswith("B)"))
+    ticks = [t.get_text().split("\n")[0] for t in k_panel.get_xticklabels()]
+    assert ticks == labels
+    colors = _box_colors(k_panel)
+    assert len(colors) == 4 and colors[0] == colors[1] != colors[2] == colors[3]
+
+
+def test_unknown_nucleus_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="nucle"):
+        compare_run_groups(_groups(tmp_path), tmp_path / "x.png", nuclei=["nope"])
+
+
+def test_dialog_lists_nuclei_and_returns_ticked(tmp_path):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from App import CompareRunsDialog
+    groups = _groups(tmp_path)
+    dialog = CompareRunsDialog()
+    dialog.add_folder(str(groups[0][1]), "ExM")
+    dialog.add_folder(str(groups[1][1]), "IF")
+    assert dialog.nuclei_list.count() == 7
+    assert dialog.selected_nuclei() is None          # all ticked = no filter
+    for row in range(dialog.nuclei_list.count()):
+        item = dialog.nuclei_list.item(row)
+        if not item.text().startswith(("ExM img001 C1", "IF img001 C2")):
+            item.setCheckState(Qt.Unchecked)
+    assert len(dialog.selected_nuclei()) == 2
+    dialog.per_nucleus_check.setChecked(True)
+    assert dialog.per_nucleus()
+    dialog.close()
     app.processEvents()

@@ -21,7 +21,8 @@ import napari
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton, 
                                 QVBoxLayout, QHBoxLayout, QWidget, QFormLayout, 
                                 QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
-                                QMessageBox, QProgressBar, QSplitter, QTableWidget, QTableWidgetItem, QHeaderView)
+                                QMessageBox, QProgressBar, QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
+                                QListWidget, QListWidgetItem)
 from PySide6.QtGui import QAction
 import qdarktheme
 from PySide6.QtCore import QSettings, QThread, Signal, Qt
@@ -35,6 +36,7 @@ from postprocessing import (
     QCPolicyMismatchError,
     _prepare_reporting_frames,
     compare_run_groups,
+    list_compare_nuclei,
     detect_red_flags,
     generate_excel_stats,
     generate_plots,
@@ -727,6 +729,16 @@ class CompareRunsDialog(QDialog):
         row_buttons.addStretch()
         layout.addLayout(row_buttons)
 
+        layout.addWidget(QLabel("Nuclei to compare (untick the ones you do not want):"))
+        self.nuclei_list = QListWidget()
+        layout.addWidget(self.nuclei_list)
+        self.nuclei_status = QLabel("")
+        self.nuclei_status.setWordWrap(True)
+        layout.addWidget(self.nuclei_status)
+        self.per_nucleus_check = QCheckBox("Each nucleus as its own column (coloured by group)")
+        layout.addWidget(self.per_nucleus_check)
+        self.table.itemChanged.connect(self._refresh_nuclei)
+
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText("Compare")
         self.buttons.accepted.connect(self.accept)
@@ -748,11 +760,47 @@ class CompareRunsDialog(QDialog):
         path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
         self.table.setItem(row, 1, path_item)
         self._update_ok()
+        self._refresh_nuclei()
 
     def remove_selected(self):
         for row in sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True):
             self.table.removeRow(row)
         self._update_ok()
+        self._refresh_nuclei()
+
+    #List the nuclei of the chosen folders; ticks survive a refresh (keys do not depend on group names).
+    def _refresh_nuclei(self, *_):
+        if any(self.table.item(row, col) is None for row in range(self.table.rowCount()) for col in (0, 1)):
+            return
+        unticked = {
+            self.nuclei_list.item(row).data(Qt.UserRole)
+            for row in range(self.nuclei_list.count())
+            if self.nuclei_list.item(row).checkState() != Qt.Checked
+        }
+        self.nuclei_list.clear()
+        self.nuclei_status.setText("")
+        if self.table.rowCount() < 2:
+            return
+        try:
+            nuclei = list_compare_nuclei(self.groups())
+        except Exception as exc:
+            self.nuclei_status.setText(f"Nuclei cannot be listed: {exc}")
+            return
+        for nucleus in nuclei:
+            item = QListWidgetItem(f"{nucleus['label']}  ({nucleus['n_objects']} obj.)")
+            item.setData(Qt.UserRole, nucleus["key"])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked if nucleus["key"] in unticked else Qt.Checked)
+            self.nuclei_list.addItem(item)
+
+    def selected_nuclei(self):
+        """Keys of the ticked nuclei, or None when all are ticked (no filter)."""
+        items = [self.nuclei_list.item(row) for row in range(self.nuclei_list.count())]
+        ticked = [item.data(Qt.UserRole) for item in items if item.checkState() == Qt.Checked]
+        return None if len(ticked) == len(items) else ticked
+
+    def per_nucleus(self):
+        return self.per_nucleus_check.isChecked()
 
     def _update_ok(self):
         self.buttons.button(QDialogButtonBox.Ok).setEnabled(self.table.rowCount() >= 2)
@@ -1677,6 +1725,10 @@ class ExQt(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
         groups = dialog.groups()
+        nuclei = dialog.selected_nuclei()
+        if nuclei == []:
+            QMessageBox.warning(self, "Compare runs", "Tick at least one nucleus.")
+            return
         default_name = "_vs_".join(name for name, _ in groups) + ".png"
         output_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -1687,7 +1739,7 @@ class ExQt(QMainWindow):
         if not output_path:
             return
         try:
-            result = compare_run_groups(groups, output_path)
+            result = compare_run_groups(groups, output_path, nuclei=nuclei, per_nucleus=dialog.per_nucleus())
         except QCPolicyMismatchError as exc:
             QMessageBox.critical(self, "Runs in a group differ", str(exc))
             return
