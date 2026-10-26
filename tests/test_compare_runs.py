@@ -217,3 +217,36 @@ def test_dialog_lists_nuclei_and_returns_ticked(tmp_path):
     assert dialog.per_nucleus()
     dialog.close()
     app.processEvents()
+
+
+def test_nucleus_labels_stay_unique_when_runs_share_a_folder(tmp_path):
+    # Argon C (2026-10-26): two single-file runs under one date folder were both called "ExM 2026.08.06 C1",
+    # so "each nucleus as its own column" pooled two nuclei into one column.
+    from postprocessing import list_compare_nuclei
+
+    _write_run(tmp_path / "ExM" / "2026.08.06" / "img001" / "Result", 5.0, 10.0, 0.02, 2.0)
+    _write_run(tmp_path / "ExM" / "2026.08.06" / "img002" / "Result", 6.0, 10.0, 0.02, 2.0)
+    _write_run(tmp_path / "IF" / "img001" / "Result", 16.0, 1.0, 0.9, 4.7, cells=2)
+    groups = [("ExM", tmp_path / "ExM"), ("IF", tmp_path / "IF")]
+
+    nuclei = list_compare_nuclei(groups)
+    labels = [n["label"] for n in nuclei]
+    assert len(set(labels)) == len(labels) == 4
+    # Labels that did not collide keep their short form.
+    assert "IF img001 C1" in labels and "IF img001 C2" in labels
+
+    import postprocessing
+
+    captured = {}
+    original = postprocessing.build_condition_comparison_figure
+
+    def spy(primary, min_size, max_size, **kwargs):
+        captured["columns"] = primary.groupby("condition").size().to_dict()
+        return original(primary, min_size, max_size, **kwargs)
+
+    postprocessing.build_condition_comparison_figure = spy
+    try:
+        compare_run_groups(groups, tmp_path / "each.png", per_nucleus=True)
+    finally:
+        postprocessing.build_condition_comparison_figure = original
+    assert len(captured["columns"]) == 4 and set(captured["columns"].values()) == {4}

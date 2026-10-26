@@ -549,6 +549,7 @@ def process_condensates(
     detector_offset_source="manual",
     roi_output_dir=None,
     allow_z_edge=False,
+    roi_source_func=None,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
@@ -691,6 +692,9 @@ def process_condensates(
             })
         print("Waiting for user to draw ROI in Napari...")
         extruded_mask = request_roi_func(img_intensity.shape, is_3d)
+        #The GUI says where the ROI came from (manual, saved_roi, empty_fallback_fov).
+        if roi_source_func is not None:
+            roi_source = roi_source_func()
         if is_3d and extruded_mask.max() > 0:
             extruded_mask = _interpolate_or_extrude_roi(extruded_mask)
         roi_mask = extruded_mask > 0
@@ -728,8 +732,12 @@ def process_condensates(
     k_offset = detector_offset_adu
 
     #Precompute nucleoplasm (background within cell ROI across active Z-slices) mean intensity per cell_id.
-    #Auto-ROI has no nucleus outline, so the "nucleoplasm" would include gel/background: no K there.
-    cell_ids = np.unique(extruded_mask[extruded_mask > 0]) if roi_source != "auto_fov" else []
+    #Auto-ROI and the empty-ROI whole-FOV fallback have no nucleus outline, so the "nucleoplasm" would include gel/background: no K there.
+    k_no_nucleus_reason = {
+        "auto_fov": "auto_roi_no_nucleoplasm",
+        "empty_fallback_fov": "empty_fallback_fov_no_nucleoplasm",
+    }.get(roi_source)
+    cell_ids = np.unique(extruded_mask[extruded_mask > 0]) if k_no_nucleus_reason is None else []
     nucleoplasm_means = {}
     for cid in cell_ids:
         bg_mask = (extruded_mask == cid) & (labeled_mask == 0)
@@ -782,10 +790,10 @@ def process_condensates(
 
         bg_int = nucleoplasm_means.get(cell_id, np.nan)
         net_mean_int = max(mean_int - k_offset, 0.0)
-        if roi_source == "auto_fov":
+        if k_no_nucleus_reason is not None:
             net_bg_int = np.nan
             k_valid = False
-            k_invalid_reason = "auto_roi_no_nucleoplasm"
+            k_invalid_reason = k_no_nucleus_reason
         elif not np.isfinite(bg_int):
             net_bg_int = np.nan
             k_valid = False

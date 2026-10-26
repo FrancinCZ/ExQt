@@ -1473,8 +1473,8 @@ def _load_compare_groups(groups):
             #The key names a nucleus independently of the editable group name.
             primary["nucleus_key"] = [f"{csv_path}::{name}::{cell}" for name, cell in zip(primary["filename"], primary["cell_id"])]
             primary["nucleus_label"] = _compare_nucleus_labels(label, relative_run, primary)
-            runs.append({"run_id": run_id, "policy": _fingerprint_payload(entries), "primary": primary,
-                         "min_size": float(min_size), "max_size": float(max_size)})
+            runs.append({"run_id": run_id, "relative_run": relative_run, "policy": _fingerprint_payload(entries),
+                         "primary": primary, "min_size": float(min_size), "max_size": float(max_size)})
         inside = _merge_policy_comparison(runs)
         mismatched = inside.loc[inside["compatible"] == "no"]
         if len(mismatched):
@@ -1486,6 +1486,7 @@ def _load_compare_groups(groups):
                 f"Runs in group {label} do not share one QC policy:\n" + "\n".join(details)
             )
         group_runs.append((label, runs))
+    _make_nucleus_labels_unique(group_runs)
     return labels, group_runs
 
 
@@ -1497,6 +1498,24 @@ def _compare_nucleus_labels(label, relative_run, primary):
         f"{label} {Path(str(name)).stem if several_files else run_part} C{cell}"
         for name, cell in zip(primary["filename"], primary["cell_id"])
     ]
+
+
+#A short label can name two nuclei (two single-file runs under one date folder). Those get the full run path,
+#which is unique inside a group, so "each nucleus as its own column" never pools two nuclei.
+def _make_nucleus_labels_unique(group_runs):
+    keys_per_label = {}
+    for _, runs in group_runs:
+        for run in runs:
+            for key, text in zip(run["primary"]["nucleus_key"], run["primary"]["nucleus_label"]):
+                keys_per_label.setdefault(text, set()).add(key)
+    for label, runs in group_runs:
+        for run in runs:
+            primary = run["primary"]
+            path = run["relative_run"].replace("\\", "/")
+            primary["nucleus_label"] = [
+                f"{label} {path}/{Path(str(name)).stem} C{cell}" if len(keys_per_label[text]) > 1 else text
+                for text, name, cell in zip(primary["nucleus_label"], primary["filename"], primary["cell_id"])
+            ]
 
 
 #Every nucleus with QC-passed objects in the chosen folders, for picking nuclei in Compare runs.

@@ -118,3 +118,11 @@ def test_fingerprint_falls_back_to_columns_for_old_metadata():
     manual = pd.DataFrame({"volume_bio_um3": [0.1], "roi_source": ["manual"], "K_offset_method": ["explicit_setting"]})
     auto = manual.assign(roi_source="auto_fov")
     assert qc_policy_fingerprint({}, manual)[0] != qc_policy_fingerprint({}, auto)[0]
+
+
+def test_every_project_module_is_hashed():
+    # Argon B (2026-10-26): roi_tools.py was missing, so ROI-drawing changes left no trace in the run metadata.
+    from provenance import SOURCE_FILES
+
+    modules = {path.name for path in PROJECT.glob("*.py")}
+    assert modules - set(SOURCE_FILES) == set()
