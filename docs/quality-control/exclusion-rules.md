@@ -9,6 +9,7 @@ Every size-eligible object that is not primary has a machine-readable reason in 
 ### 1. `touches_image_edge` (Image Edge)
 - **Criterion:** the object reaches the first or last position in Z, Y or X, or (aligned stacks) touches the alignment padding marked 0 in `<stem>_alignment_valid.tif`.
 - **Reason:** the object may continue outside the image, so its volume and shape are incomplete.
+- **Option (Settings → QC: Keep objects cut by the first/last Z slice, off by default):** for stacks that do not cover the whole nucleus in Z, objects that touch only the first or last Z slice (`touches_z_edge_only`) stay primary. Their $K_{\text{part}}$ is usable, but their volume and FA are underestimated. XY border and alignment padding are still excluded. Recorded as `z_edge_allowed` and in the QC policy fingerprint.
 
 ### 2. `touches_roi_edge` (ROI Edge)
 - **Criterion:** object voxels are adjacent to voxels outside the ROI (never set when the ROI is the whole field of view).

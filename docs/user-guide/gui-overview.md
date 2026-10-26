@@ -31,7 +31,7 @@ The window is divided into two main sections:
 
 ### 4. Action Buttons
 - **Start analysis:** analyses all paired files in the input folder.
-- **Confirm ROI and Continue:** confirms the drawn ROI (see *Nuclear ROI & Napari*).
+- **Preview ROI / Use saved ROI / Confirm ROI and Continue:** shown while drawing the ROI, with step-by-step help above them (see *Nuclear ROI & Napari*).
 - **Approve & Next Image:** in review mode, keeps the current image and continues.
 - **Stop and Discard This Image:** discards the current image and stops; images approved earlier are saved.
 
@@ -52,6 +52,7 @@ Click **Settings** in the top menu bar:
 | **Enable Radial FA Profiling (3D)** | Off | Layer metrics (Core–Middle–Shell) and the geometric null model. |
 | **Min. voxels per layer** | `20` | Minimum voxels for a valid layer FA and for the core. |
 | **Require Z-topology PASS** | Checked | Objects split along Z are not primary. |
+| **QC: Keep objects cut by the first/last Z slice** | Unchecked | For stacks that do not cover the whole nucleus in Z: objects touching only the first/last slice stay primary ($K_{\text{part}}$ usable, size/FA underestimated). Runs with and without it are not merged. |
 | **Dark mode** | Off | Dark or light appearance; remembered for the next start. |
 
 > [!TIP]
@@ -74,6 +75,9 @@ Corrects lateral (XY) drift between consecutive Z-slices and writes aligned copi
 
 ### 2. `Tools` → `Merge existing runs...`
 Merges compatible run CSVs from a folder tree into one Excel file (`Merged_Stats.xlsx`) and figure (`Merged_Stats.png`); runs with different QC settings are not merged.
+
+### 3. `Tools` → `Compare runs...`
+Draws groups of runs side by side without merging them, e.g. ExM vs IF. Add one folder per group (`Add folder...`); every run found in that folder and its subfolders belongs to the group, and the group name is editable. Runs inside one group must share the QC settings. Settings that differ between groups (expansion factor, size range, `allow_z_edge` …) are allowed, listed in red under the figure and on the `Settings_Differences` sheet. The **Nuclei** list shows every nucleus with QC-passed objects (e.g. `ExM img001 C1`, with its object count); untick nuclei to leave them out. When two nuclei would get the same name, the full run path is added (e.g. `ExM 2026.08.06/img001/Result/img001 C1`). **Each nucleus as its own column (coloured by group)** draws one box per picked nucleus instead of one per group. Output: `<name>.png` (the six panels of the standard plots on their fixed axes: size, K_part, size vs. K_part, FA, size vs. FA, objects per nucleus) and `<name>.xlsx` (`Per_Group`, `Per_Nucleus`, `Settings_Differences`, `Primary_Objects`). Compare groups by nuclei; size is only comparable when the analyzed size ranges match.
 
 ## Top Menu: Settings
 Opens the Settings window described above.

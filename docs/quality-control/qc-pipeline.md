@@ -24,7 +24,7 @@ Objects within the chosen size range (Min size – Max size).
 ### 3. Primary Objects (`<run>_Primary_Condensates.csv`)
 The objects used for the summary statistics and plots. An object is primary if it is size-eligible and:
 
-- does not touch the edge of the image/stack or the alignment padding (`touches_image_edge`);
+- does not touch the edge of the image/stack or the alignment padding (`touches_image_edge`); with the optional Z-edge setting, objects cut only by the first/last Z slice are kept (`touches_z_edge_only`, `z_edge_allowed`);
 - is not cut by the ROI boundary (`touches_roi_edge`);
 - does not come from a stack whose alignment status is `REVIEW` (`alignment_status`);
 - with Radial FA Profiling: passes the Z-topology check, has all layer FA valid and enough core voxels (`mode_a_primary_include`).
