@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -12,6 +13,21 @@ from reference_values import reference_value
 
 
 #Legend text for the reference lines; the values are working values (reference_values.py).
+#Decades only; a range under two decades also gets 2 and 5 ticks. Decided when drawn, so autoscaled limits count.
+class _DecimalLogLocator(LogLocator):
+    def tick_values(self, vmin, vmax):
+        low, high = sorted((vmin, vmax))
+        self.set_params(subs=(1.0, 2.0, 5.0) if 0 < low and high / low < 100 else (1.0,))
+        return super().tick_values(vmin, vmax)
+
+
+#Size axes stay logarithmic but are labelled in plain decimals (0.01, 0.1, 1), not powers of ten.
+def decimal_log_axis(axis):
+    axis.set_major_locator(_DecimalLogLocator(base=10))
+    axis.set_major_formatter(FuncFormatter(lambda value, _: np.format_float_positional(value, trim="-")))
+    axis.set_minor_formatter(NullFormatter())
+
+
 def _reference_labels():
     return {
         "psf": f"PSF-like elongation, FA {reference_value('fa_psf_elongation_limit'):g} (working value)",
@@ -121,6 +137,7 @@ def plot_size_vs_partitioning(
     ax.axhline(med_k, color="#2ca02c", linestyle=":", linewidth=1.2, label=f"Median K = {med_k:.2f}")
 
     ax.set_xscale("log")
+    decimal_log_axis(ax.xaxis)
     ax.set_xlabel(r"Particle Volume ($\mu\mathrm{m}^3$)", fontsize=10, fontweight="bold")
     ax.set_ylabel(r"Partitioning ($K_{\mathrm{part}}$)", fontsize=10, fontweight="bold")
     title = r"Size vs. Partitioning ($K_{\mathrm{part}}$)"
@@ -285,6 +302,7 @@ def plot_volume_vs_intensity(
     ax.axhline(med_int, color="#333333", linestyle="--", linewidth=1.2, label=f"Median Density ({med_int:.1f} ADU)")
 
     ax.set_xscale("log")
+    decimal_log_axis(ax.xaxis)
     ax.set_xlabel(r"Particle Volume ($\mu\mathrm{m}^3$)", fontsize=10, fontweight="bold")
     ax.set_ylabel("Mean Intensity (ADU)", fontsize=10, fontweight="bold")
     title = "Volume vs. Mean Intensity"
@@ -359,6 +377,7 @@ def plot_volume_vs_anisotropy(
     ax.axhline(reference_value("fa_globular_boundary"), color="#888888", linestyle="--", linewidth=1.2, label=labels["globular"])
 
     ax.set_xscale("log")
+    decimal_log_axis(ax.xaxis)
     ax.set_ylim(-0.02, 1.02)
     ax.set_xlabel(r"Particle Volume ($\mu\mathrm{m}^3$)", fontsize=10, fontweight="bold")
     ax.set_ylabel(r"3D Fractional Anisotropy ($FA_{\mathrm{object}}$)", fontsize=10, fontweight="bold")

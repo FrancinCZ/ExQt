@@ -17,7 +17,7 @@ Every run is drawn with the same six panels and the same fixed axes, so two runs
 | **E** | Size vs. FA | Fixed size axis, FA 0–1. |
 | **F** | QC-passed objects per nucleus | With the counts of segmented, size-eligible and QC-passed objects. |
 
-Points outside a fixed axis are not drawn; the panel states how many there are. The title gives the number of objects and nuclei.
+Size axes are logarithmic and labelled in plain decimals (0.01, 0.1, 1 µm³); a range under two decades also gets 0.02 and 0.05 ticks. Points outside a fixed axis are not drawn; the panel states how many there are. The title gives the number of objects and nuclei.
 
 ## Conditions Side by Side
 
@@ -32,7 +32,7 @@ Analysis/
 
 The figure has the six panels of the standard plots (A size, B $K_{\text{part}}$, C size vs. $K_{\text{part}}$, D FA, E size vs. FA, F objects per nucleus) on the same fixed axes, with one box per condition in A, B, D and F, so several conditions (e.g. Control, Test, Test2) sit side by side in one graph. C and E are scatter plots coloured by condition. In F each dot is one nucleus and the bar is the median. Compare conditions by nuclei: objects of one nucleus are not independent measurements. No statistical test is drawn.
 
-**Tools → Compare runs…** draws the same six panels for groups that cannot be merged, e.g. ExM (expansion factor 8–10) and IF (expansion factor 1). Each chosen folder is one group; runs inside a group must share the QC settings, settings that differ between groups are listed under the figure. Single nuclei can be picked, and each picked nucleus can get its own column (coloured by its group). See [GUI overview](user-guide/gui-overview.md).
+**Tools → Compare runs…** draws the same six panels for groups that cannot be merged, e.g. ExM (expansion factor 8–10) and IF (expansion factor 1). Each chosen folder is one group; runs inside a group must share the QC settings, settings that differ between groups are listed under the figure. Single nuclei can be picked, and each picked nucleus can get its own column (coloured by its group). Unlike the standard plots and Merge, the $K_{\text{part}}$ axis in Compare runs is fitted to the plotted values: from the next round value below the lowest K to the next above the highest (e.g. highest K 1.5 → axis to 2), always with K = 1 inside. All groups in one figure share that axis, but two Compare runs figures can have different K axes. See [GUI overview](user-guide/gui-overview.md).
 
 ## The Four Summary Plots
 
