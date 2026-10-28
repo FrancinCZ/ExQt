@@ -149,6 +149,29 @@ def test_empty_roi_fallback_is_recorded(tmp_path):
     sources = df.groupby("filename")["roi_source"].unique().to_dict()
     assert list(sources["img1.tif"]) == ["manual"]
     assert list(sources["img2.tif"]) == ["empty_fallback_fov"]
+    # Argon A (2026-10-26): the whole-FOV fallback has no nucleus outline, so no K there.
+    img1 = df[df["filename"] == "img1.tif"]
+    img2 = df[df["filename"] == "img2.tif"]
+    assert img1["K_valid"].all()
+    assert not img2["K_valid"].any()
+    assert img2["partition_coefficient"].isna().all()
+    assert set(img2["K_invalid_reason"]) == {"empty_fallback_fov_no_nucleoplasm"}
+
+
+def test_process_condensates_takes_roi_source_from_callback(tmp_path):
+    from Batch import process_condensates
+
+    _write_pair(tmp_path, "img1")
+    df = process_condensates(
+        tif_path=tmp_path / "img1.tif", mask_path=tmp_path / "img1_Mask.tif",
+        mode="3d", min_voxels=1, auto_roi=False, pixel_size_nm=100.0, z_step_nm=300.0,
+        signal_channel=0, dapi_channel=0,
+        request_roi_func=lambda shape, is_3d: np.ones(shape, dtype=int),
+        roi_source_func=lambda: "empty_fallback_fov",
+    )
+    assert set(df["roi_source"]) == {"empty_fallback_fov"}
+    assert not df["K_valid"].any()
+    assert set(df["K_invalid_reason"]) == {"empty_fallback_fov_no_nucleoplasm"}
 
 
 class _FakeWorker:

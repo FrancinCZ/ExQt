@@ -1,8 +1,38 @@
 # Reports & Visualizations
 
-When reports are enabled, ExQt saves a four-panel summary figure and a PDF report for the primary objects.
+When reports are enabled, ExQt saves a standard six-panel figure (`*_Analysis_Plots.png`), a four-panel summary figure and a PDF report for the primary objects.
 
 ---
+
+## The Standard Plots
+
+Every run is drawn with the same six panels and the same fixed axes, so two runs can be compared by eye. Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. Intensity is shown as $K_{\text{part}}$ (object / nucleoplasm of the same nucleus, baseline 1), not in raw ADU, which is not comparable between images.
+
+| Panel | Plot | Axes |
+| :--- | :--- | :--- |
+| **A** | Size distribution | Log size axis fixed to the GUI size range. |
+| **B** | $K_{\text{part}}$ per nucleus | Log axis fixed to `plot_k_min`–`plot_k_max` (`defaults.py`, working values 0.5–50); line at K = 1. |
+| **C** | Size vs. $K_{\text{part}}$ | Same fixed axes as A and B. |
+| **D** | FA per nucleus | 0–1; needs Radial FA Profiling. |
+| **E** | Size vs. FA | Fixed size axis, FA 0–1. |
+| **F** | QC-passed objects per nucleus | With the counts of segmented, size-eligible and QC-passed objects. |
+
+Points outside a fixed axis are not drawn; the panel states how many there are. The title gives the number of objects and nuclei.
+
+## Conditions Side by Side
+
+**Merge existing runs…** also saves `Merged_Stats_Conditions.png` and a `Per_Nucleus` sheet. A condition is the top-level folder under the chosen merge folder, so replicates in subfolders are grouped:
+
+```
+Analysis/
+  Control/rep1/…_Output_Batch_3d.csv
+  Control/rep2/…
+  Treated/rep1/…
+```
+
+The figure has the six panels of the standard plots (A size, B $K_{\text{part}}$, C size vs. $K_{\text{part}}$, D FA, E size vs. FA, F objects per nucleus) on the same fixed axes, with one box per condition in A, B, D and F, so several conditions (e.g. Control, Test, Test2) sit side by side in one graph. C and E are scatter plots coloured by condition. In F each dot is one nucleus and the bar is the median. Compare conditions by nuclei: objects of one nucleus are not independent measurements. No statistical test is drawn.
+
+**Tools → Compare runs…** draws the same six panels for groups that cannot be merged, e.g. ExM (expansion factor 8–10) and IF (expansion factor 1). Each chosen folder is one group; runs inside a group must share the QC settings, settings that differ between groups are listed under the figure. Single nuclei can be picked, and each picked nucleus can get its own column (coloured by its group). See [GUI overview](user-guide/gui-overview.md).
 
 ## The Four Summary Plots
 

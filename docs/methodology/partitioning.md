@@ -26,6 +26,7 @@ The value and its source are saved per object (`K_offset_adu`, `K_offset_source`
 ## When K_part Is Not Reported
 
 - **Auto-ROI:** there is no nucleus outline, so no nucleoplasm is defined (`K_invalid_reason = "auto_roi_no_nucleoplasm"`).
+- **Empty manual ROI:** if nothing is drawn and the whole field of view is confirmed (`roi_source = empty_fallback_fov`), there is no nucleus outline either (`K_invalid_reason = "empty_fallback_fov_no_nucleoplasm"`).
 - **No nucleoplasm voxels** (`"no_nucleoplasm"`) or $I_{\text{nucleoplasm}} - \text{offset} \le 0$ (`"negative_denominator"`).
 
 Values below 1 are reported, not filtered out.

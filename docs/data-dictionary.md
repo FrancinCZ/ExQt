@@ -10,7 +10,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | :--- | :---: | :---: | :--- |
 | `filename` | - | `string` | Basename of the processed 3D TIFF acquisition file. |
 | `cell_id` | - | `integer` | Identifier of the specific nucleus / cell within the field of view. |
-| `roi_source` | - | `string` | How the analysed region was defined: `auto_fov` (Auto-ROI, whole field of view), `manual` (ROI drawn by the user), `empty_fallback_fov` (nothing drawn, user explicitly confirmed the whole field of view). |
+| `roi_source` | - | `string` | How the analysed region was defined: `auto_fov` (Auto-ROI, whole field of view), `manual` (ROI drawn by the user), `empty_fallback_fov` (nothing drawn, user explicitly confirmed the whole field of view), `saved_roi` (ROI saved by a previous run for this image, reused with **Use saved ROI**). |
 | `object_id` | - | `integer` | Unique connected-component label assigned to the condensate. |
 | `Z_px` | pixels | `float` | Axial centroid coordinate within the raw optical stack. |
 | `Y_px` | pixels | `float` | Vertical lateral centroid coordinate. |
@@ -44,7 +44,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `K_offset_source` | - | `string` | Where the explicit value came from: `manual` or `lif_photon_counting` (read from a Leica .lif file, details in `*_metadata.json`). |
 | `partition_coefficient` | - | `float` | Intensity ratio: $\max(I_{\text{cond}} - \text{offset}, 0) / (I_{\text{nuc}} - \text{offset})$. NaN when `K_valid` is `False`. |
 | `K_valid` | - | `boolean` | `True` if a manual ROI nucleoplasm exists and $I_{\text{nuc}} - \text{offset} > 0$. K < 1 is not filtered. |
-| `K_invalid_reason` | - | `string` | `auto_roi_no_nucleoplasm`, `no_nucleoplasm`, or `negative_denominator`. |
+| `K_invalid_reason` | - | `string` | `auto_roi_no_nucleoplasm`, `empty_fallback_fov_no_nucleoplasm` (nothing drawn, whole field of view used), `no_nucleoplasm`, or `negative_denominator`. |
 
 ---
 
@@ -90,6 +90,8 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `mode_a_z_split_slice_fraction`| - | `float` | Fraction of occupied $Z$-slices containing $\ge 2$ disconnected components. |
 | `touches_image_edge` | - | `boolean` | `True` if the object reaches the image/stack border or alignment padding (valid-voxel mask). All modes; excluded from primary. |
 | `touches_roi_edge` | - | `boolean` | `True` if the ROI boundary cuts the object. All modes; excluded from primary. |
+| `touches_z_edge_only` | - | `boolean` | `True` if a 3D object touches only the first/last Z slice (not the XY border, not alignment padding). |
+| `z_edge_allowed` | - | `boolean` | Run setting: objects with `touches_z_edge_only` stay primary (size/FA underestimated). Default `False`. |
 | `mode_a_object_touches_edge` | - | `boolean` | Mode A copy of `touches_image_edge`. |
 | `mode_a_object_touches_roi_edge` | - | `boolean` | Mode A copy of `touches_roi_edge`. |
 | `alignment_status` | - | `string` | Aligner overall status of the input stack: `PASS`, `REVIEW` (analysed, never primary) or `not_aligned` (no `<stem>_drift.csv`). `FAIL` stacks are not analysed. |
