@@ -11,6 +11,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw, ImageFont
+from partitioning_plots import decimal_log_axis
 from scale_reporting import load_scale_metadata, scale_correction_label
 
 
@@ -1222,6 +1223,7 @@ def build_standard_figure(df, min_size, max_size, title="", subtitle=""):
         ax_size.legend(fontsize=9)
     ax_size.set_xscale("log")
     ax_size.set_xlim(min_size, max_size)
+    decimal_log_axis(ax_size.xaxis)
     ax_size.set_xlabel(size_label)
     ax_size.set_ylabel("Objects")
 
@@ -1250,6 +1252,7 @@ def build_standard_figure(df, min_size, max_size, title="", subtitle=""):
         ax_k.set_xlabel("Nucleus")
     ax_size_k.set_xscale("log")
     ax_size_k.set_xlim(min_size, max_size)
+    decimal_log_axis(ax_size_k.xaxis)
     ax_size_k.set_xlabel(size_label)
 
     ax_fa.set_title("D) FA per nucleus", fontsize=13, fontweight="bold")
@@ -1268,6 +1271,7 @@ def build_standard_figure(df, min_size, max_size, title="", subtitle=""):
         axis.set_ylabel("FA (object)")
     ax_size_fa.set_xscale("log")
     ax_size_fa.set_xlim(min_size, max_size)
+    decimal_log_axis(ax_size_fa.xaxis)
     ax_size_fa.set_xlabel(size_label)
 
     ax_counts.set_title("F) QC-passed objects per nucleus", fontsize=13, fontweight="bold")
@@ -1353,7 +1357,23 @@ def _condition_scatter(axis, frame, value_col, conditions, colors):
 
 #The six standard panels with one box per condition (Merge: condition = top-level folder) and the scatter
 #panels coloured by condition. Box = objects, large dots = nucleus medians; compare conditions by nuclei.
-def build_condition_comparison_figure(primary, min_size, max_size, order=None, note="", colors=None):
+#K axis fitted to the plotted values (Compare runs, feedback 2026-10-27): the next round value above the
+#highest K and below the lowest, always with K = 1 inside. None when there is no K.
+K_AXIS_STEPS = (0.1, 0.2, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0)
+
+
+def fitted_k_axis(values):
+    values = pd.to_numeric(pd.Series(values, dtype=float), errors="coerce")
+    values = values[np.isfinite(values) & (values > 0)]
+    if values.empty:
+        return None
+    lowest, highest = min(values.min(), 1.0), max(values.max(), 1.0)
+    low = max([step for step in K_AXIS_STEPS if step < lowest], default=lowest / 2)
+    high = min([step for step in K_AXIS_STEPS if step > highest], default=highest * 2)
+    return low, high, [step for step in K_AXIS_STEPS if low <= step <= high]
+
+
+def build_condition_comparison_figure(primary, min_size, max_size, order=None, note="", colors=None, fit_k_axis=False):
     sns.set_theme(style="ticks")
     frame = primary.copy()
     if "condition" not in frame.columns:
@@ -1376,6 +1396,9 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
     k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
     k_label = r"K$_{part}$ (object / nucleoplasm)"
     k_ticks = [t for t in (0.5, 1, 2, 5, 10, 20, 50, 100) if k_min <= t <= k_max]
+    fitted = fitted_k_axis(frame["k_value"]) if fit_k_axis else None
+    if fitted:
+        k_min, k_max, k_ticks = fitted
     has_k = frame["k_value"].notna().any()
     has_fa = frame["fa_value"].notna().any()
 
@@ -1385,6 +1408,7 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
     _comparison_panel(ax_size, frame, summary, "size_value", "median_size", conditions, colors, boxes=True)
     ax_size.set_yscale("log")
     ax_size.set_ylim(min_size, max_size)
+    decimal_log_axis(ax_size.yaxis)
     ax_size.set_ylabel(size_label)
     ax_size.set_title("A) Size", fontsize=13, fontweight="bold")
 
@@ -1416,6 +1440,7 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
     for axis in (ax_size_k, ax_size_fa):
         axis.set_xscale("log")
         axis.set_xlim(min_size, max_size)
+        decimal_log_axis(axis.xaxis)
         axis.set_xlabel(size_label)
         axis.legend(fontsize=9, loc="lower right", markerscale=1.5)
 
@@ -1463,18 +1488,23 @@ def _load_compare_groups(groups):
             if min_size is None or max_size is None:
                 raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
             df = pd.read_csv(csv_path)
-            primary = _prepare_reporting_frames(df, float(min_size), float(max_size))[1]
-            primary = primary.sort_values(["filename", "cell_id"], kind="stable").reset_index(drop=True)
+            raw, primary, excluded, _, _ = _prepare_reporting_frames(df, float(min_size), float(max_size))
             entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))[1]
             relative_run = _run_id(folder, csv_path)
             run_id = f"{label}/{relative_run}"
-            primary.insert(0, "run_id", run_id)
-            primary["group"] = label
-            #The key names a nucleus independently of the editable group name.
-            primary["nucleus_key"] = [f"{csv_path}::{name}::{cell}" for name, cell in zip(primary["filename"], primary["cell_id"])]
+            frames = {}
+            for name, frame in (("primary", primary), ("excluded", excluded), ("raw", raw)):
+                frame = frame.sort_values(["filename", "cell_id"], kind="stable").reset_index(drop=True)
+                frame.insert(0, "run_id", run_id)
+                frame["group"] = label
+                #The key names a nucleus independently of the editable group name.
+                frame["nucleus_key"] = [f"{csv_path}::{file}::{cell}" for file, cell in zip(frame["filename"], frame["cell_id"])]
+                frames[name] = frame
+            primary = frames["primary"]
             primary["nucleus_label"] = _compare_nucleus_labels(label, relative_run, primary)
             runs.append({"run_id": run_id, "relative_run": relative_run, "policy": _fingerprint_payload(entries),
-                         "primary": primary, "min_size": float(min_size), "max_size": float(max_size)})
+                         "primary": primary, "excluded": frames["excluded"], "raw": frames["raw"],
+                         "min_size": float(min_size), "max_size": float(max_size)})
         inside = _merge_policy_comparison(runs)
         mismatched = inside.loc[inside["compatible"] == "no"]
         if len(mismatched):
@@ -1544,22 +1574,35 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
             differences.append(f"{key}: " + ", ".join(f"{label}={value:g}" if isinstance(value, float)
                                                       else f"{label}={value}" for label, value in values.items()))
 
-    primary = pd.concat([run["primary"] for _, runs in group_runs for run in runs], ignore_index=True, sort=False)
+    primary, excluded, raw = (
+        pd.concat([run[name] for _, runs in group_runs for run in runs], ignore_index=True, sort=False)
+        for name in ("primary", "excluded", "raw")
+    )
     if nuclei is not None:
         unknown = set(nuclei) - set(primary["nucleus_key"])
         if unknown or not nuclei:
             raise ValueError("Choose nuclei from the listed ones (unknown or no nucleus selected).")
         primary = primary.loc[primary["nucleus_key"].isin(nuclei)].copy()
+        excluded = excluded.loc[excluded["nucleus_key"].isin(nuclei)]
+        raw = raw.loc[raw["nucleus_key"].isin(nuclei)]
     primary["condition"] = primary["group"]
     nuclei_table = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
     group_rows = []
     for label, runs in group_runs:
         group_nuclei = nuclei_table.loc[nuclei_table["condition"] == label]
+        #QC funnel of the group, as in the Summary sheet of one run's *_Detailed_Stats.xlsx.
+        n_raw = int((raw["group"] == label).sum())
+        n_primary = int((primary["group"] == label).sum())
+        n_eligible = n_primary + int((excluded["group"] == label).sum())
         group_rows.append({
             "group": label,
             "runs": len(runs),
             "nuclei": len(group_nuclei),
             "objects": int(group_nuclei["n_objects"].sum()) if len(group_nuclei) else 0,
+            "raw_components": n_raw,
+            "size_eligible_objects": n_eligible,
+            "primary_objects": n_primary,
+            "qc_acceptance_rate": n_primary / n_eligible if n_eligible else np.nan,
             "median_K_of_nuclei": group_nuclei["median_K"].median() if len(group_nuclei) else np.nan,
             "median_FA_of_nuclei": group_nuclei["median_FA"].median() if len(group_nuclei) else np.nan,
             "median_size_of_nuclei": group_nuclei["median_size"].median() if len(group_nuclei) else np.nan,
@@ -1577,6 +1620,8 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         pd.DataFrame(difference_rows, columns=["parameter"] + labels).to_excel(
             writer, sheet_name="Settings_Differences", index=False)
         primary.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="Primary_Objects", index=False)
+        excluded.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="QC_Excluded", index=False)
+        raw.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="All_Objects_Raw", index=False)
         for sheet in writer.sheets.values():
             _style_table_sheet(sheet)
 
@@ -1597,6 +1642,7 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         order=order,
         note=note,
         colors=colors,
+        fit_k_axis=True,
     )
     fig.savefig(plot_path, dpi=300)
     plt.close(fig)

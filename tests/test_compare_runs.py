@@ -250,3 +250,88 @@ def test_nucleus_labels_stay_unique_when_runs_share_a_folder(tmp_path):
     finally:
         postprocessing.build_condition_comparison_figure = original
     assert len(captured["columns"]) == 4 and set(captured["columns"].values()) == {4}
+
+
+def _k_axis(fig):
+    panel = next(ax for ax in fig.axes if ax.get_title().startswith("B)"))
+    return panel.get_ylim(), [float(t) for t in panel.get_yticks() if panel.get_ylim()[0] <= t <= panel.get_ylim()[1]]
+
+
+def test_fitted_k_axis_values():
+    # Supervisor feedback 2026-10-27: highest K 1.5 -> axis to 2, not 50; K = 1 stays visible.
+    from postprocessing import fitted_k_axis
+
+    assert fitted_k_axis([1.2, 1.5]) == (0.75, 2.0, [0.75, 1.0, 1.5, 2.0])
+    low, high, ticks = fitted_k_axis([4.0, 7.0])
+    assert (low, high) == (0.75, 10.0) and 1.0 in ticks and 5.0 in ticks
+    low, high, _ = fitted_k_axis([0.3, 16.6])
+    assert low < 0.3 and 16.6 < high <= 20.0
+    assert fitted_k_axis([]) is None
+
+
+def test_compare_runs_fits_k_axis_to_data_and_merge_stays_fixed(tmp_path):
+    import postprocessing
+
+    root = tmp_path / "data"
+    _write_run(root / "A" / "img001" / "Result", 1.2, 10.0, 0.02, 2.0)
+    _write_run(root / "B" / "img001" / "Result", 1.2, 1.0, 0.02, 2.0)
+    figures = []
+    original = postprocessing.build_condition_comparison_figure
+
+    def keep(*args, **kwargs):
+        fig = original(*args, **kwargs)
+        figures.append(fig)
+        return fig
+
+    postprocessing.build_condition_comparison_figure = keep
+    try:
+        compare_run_groups([("A", root / "A"), ("B", root / "B")], tmp_path / "cmp.png")
+    finally:
+        postprocessing.build_condition_comparison_figure = original
+    (low, high), ticks = _k_axis(figures[0])
+    # K values 1.2-1.5 in the test runs.
+    assert (low, high) == (0.75, 2.0) and ticks == [0.75, 1.0, 1.5, 2.0]
+
+    from defaults import DEFAULT_SETTINGS
+    primary = pd.DataFrame(dict(run_id="Control", filename="a.tif", cell_id=1, object_id=[1, 2], volume_bio_um3=[0.1, 0.2],
+                                partition_coefficient=[1.2, 1.5], K_valid=True, A_object=0.3))
+    (low, high), _ = _k_axis(original(primary, 0.02, 2.0))
+    assert (low, high) == (DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"])
+
+
+def test_compare_workbook_has_combined_tables_like_the_run_report(tmp_path):
+    # Supervisor feedback 2026-10-27: one combined table with the data of all compared runs,
+    # as in the per-run *_Detailed_Stats.xlsx (primary, QC-excluded and all objects).
+    groups = _groups(tmp_path)
+    for csv in tmp_path.rglob("*_Output_Batch_3d.csv"):
+        df = pd.read_csv(csv)
+        extra = df.iloc[[0, 0]].copy()
+        extra["object_id"] = [90, 91]
+        extra["touches_image_edge"] = [True, False]
+        extra["volume_bio_um3"] = [df["volume_bio_um3"].iloc[1], 1e-6]  # QC-excluded, too small
+        pd.concat([df, extra]).to_csv(csv, index=False)
+
+    result = compare_run_groups(groups, tmp_path / "cmp.png")
+    sheets = pd.read_excel(result["excel"], sheet_name=None)
+    assert {"Per_Group", "Primary_Objects", "QC_Excluded", "All_Objects_Raw"} <= set(sheets)
+    excluded, raw = sheets["QC_Excluded"], sheets["All_Objects_Raw"]
+    assert {"group", "run_id"} <= set(excluded.columns) and {"group", "run_id"} <= set(raw.columns)
+    # One excluded object per run (edge); the too-small one is only in the raw table.
+    assert excluded.groupby("group").size().to_dict() == {"ExM": 2, "IF": 1}
+    assert len(raw) == len(sheets["Primary_Objects"]) + 2 * 3
+    per_group = sheets["Per_Group"].set_index("group")
+    assert per_group.loc["IF", "raw_components"] == 5 * 4 + 2
+    assert per_group.loc["IF", "size_eligible_objects"] == 5 * 4 + 1
+    assert per_group.loc["IF", "primary_objects"] == 20
+    assert per_group.loc["IF", "qc_acceptance_rate"] == pytest.approx(20 / 21)
+
+
+def test_combined_tables_follow_picked_nuclei(tmp_path):
+    from postprocessing import list_compare_nuclei
+
+    groups = _groups(tmp_path)
+    picked = [n["key"] for n in list_compare_nuclei(groups) if n["label"] in ("IF img001 C1", "IF img001 C2")]
+    picked += [n["key"] for n in list_compare_nuclei(groups) if n["group"] == "ExM"]
+    result = compare_run_groups(groups, tmp_path / "cmp.png", nuclei=picked)
+    raw = pd.read_excel(result["excel"], sheet_name="All_Objects_Raw")
+    assert sorted(raw.loc[raw["group"] == "IF", "cell_id"].unique()) == [1, 2]
