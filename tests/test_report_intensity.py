@@ -40,3 +40,31 @@ def test_summary_json_has_median_intensity(tmp_path):
     summary = export_partitioning_analysis(_frame(), tmp_path, "s", export_pngs=False)
     assert summary["median_mean_intensity_adu"] == pytest.approx(600.0)
     assert (tmp_path / "s_ExQt_Report.pdf").is_file()
+
+
+def test_class_rows_have_one_fixed_order_with_zeros():
+    # Supervisor feedback 2026-10-31: class rows sorted by count changed order between PDFs.
+    # The six main classes now always appear in one fixed order (0 included), others after them.
+    classes = (["Globular (Low FA) / Shell-Enriched"] * 3 + ["Elongated (High FA) / No Significant Gradient"] * 2
+               + ["Unclassified", "Elongated (High FA) / Core-Enriched"])
+    frame = pd.DataFrame(dict(primary_qc_valid=True, volume_bio_um3=0.1, particle_class=classes))
+    class_rows = [(label, value) for label, value in _summary_table_rows(frame, "s") if label.startswith("Class: ")]
+    assert class_rows == [
+        ("Class: Elongated (High FA) / Core-Enriched", "1 (14.3%)"),
+        ("Class: Globular (Low FA) / Core-Enriched", "0 (0.0%)"),
+        ("Class: Elongated (High FA) / No Significant Gradient", "2 (28.6%)"),
+        ("Class: Globular (Low FA) / No Significant Gradient", "0 (0.0%)"),
+        ("Class: Elongated (High FA) / Shell-Enriched", "0 (0.0%)"),
+        ("Class: Globular (Low FA) / Shell-Enriched", "3 (42.9%)"),
+        ("Class: Unclassified", "1 (14.3%)"),
+    ]
+
+
+def test_no_class_rows_without_classes():
+    assert not [row for row in _summary_table_rows(_frame(), "s") if row[0].startswith("Class: ")]
+
+
+def test_unclassified_only_run_has_no_zero_rows():
+    frame = pd.DataFrame(dict(primary_qc_valid=True, volume_bio_um3=0.1, particle_class=["Unclassified"] * 2))
+    class_rows = [row for row in _summary_table_rows(frame, "s") if row[0].startswith("Class: ")]
+    assert class_rows == [["Class: Unclassified", "2 (100.0%)"]]

@@ -11,7 +11,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw, ImageFont
-from partitioning_plots import decimal_log_axis
+from partitioning_plots import MAIN_CLASS_ORDER, _get_particle_class_col, decimal_log_axis, ordered_class_counts
 from scale_reporting import load_scale_metadata, scale_correction_label
 
 
@@ -1561,6 +1561,57 @@ def list_compare_nuclei(groups):
     return nuclei
 
 
+#Class shares in Compare runs (feedback 2026-10-31): % of QC-passed objects per class, pooled per column
+#(group or nucleus), and per nucleus for the dots. None without Radial FA Profiling classes.
+def class_percentages(primary):
+    class_col = _get_particle_class_col(primary)
+    if class_col is None or not primary[class_col].astype(str).isin(MAIN_CLASS_ORDER).any():
+        return None, None
+    classes = list(ordered_class_counts(primary[class_col]).index)
+
+    def shares(frame, keys):
+        rows = []
+        for key_values, rows_of in frame.groupby(keys, sort=False):
+            counts = ordered_class_counts(rows_of[class_col]).reindex(classes, fill_value=0)
+            key_values = key_values if isinstance(key_values, tuple) else (key_values,)
+            for name, count in counts.items():
+                rows.append({**dict(zip(keys, key_values)), "class": name, "objects": int(count),
+                             "total_objects": len(rows_of), "percent": 100.0 * count / len(rows_of)})
+        return pd.DataFrame(rows)
+
+    return shares(primary, ["condition", "group"]), shares(primary, ["condition", "group", "nucleus_label"])
+
+
+def build_class_bar_figure(table, nucleus_table, order, colors):
+    sns.set_theme(style="ticks")
+    classes = list(dict.fromkeys(table["class"]))
+    fig, ax = plt.subplots(figsize=(max(12, 1.1 * len(classes) * len(order) + 4), 7))
+    width = 0.8 / len(order)
+    x = np.arange(len(classes))
+    for i, condition in enumerate(order):
+        rows = table[table["condition"] == condition].set_index("class").reindex(classes)
+        offset = x - 0.4 + width * (i + 0.5)
+        n_total = int(rows["total_objects"].max())
+        ax.bar(offset, rows["percent"], width=width * 0.92, color=colors[condition],
+               label=f"{condition} ({n_total} obj.)")
+        nuclei = nucleus_table[nucleus_table["condition"] == condition]
+        #A column of one nucleus would draw its dot on top of its own bar.
+        if nuclei["nucleus_label"].nunique() > 1:
+            for j, name in enumerate(classes):
+                values = nuclei.loc[nuclei["class"] == name, "percent"]
+                ax.scatter(np.full(len(values), offset[j]), values, s=22, color="white",
+                           edgecolors="#333333", linewidths=0.8, zorder=3)
+    ax.set_xticks(x, labels=[name.replace(" / ", "\n") for name in classes], fontsize=10)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("QC-passed objects in class (%)")
+    ax.set_title("Particle classes: bars pool all objects of a column, dots are single nuclei",
+                 fontsize=13, fontweight="bold")
+    ax.legend(fontsize=10, loc="upper right")
+    sns.despine(fig)
+    fig.tight_layout()
+    return fig
+
+
 def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
     labels, group_runs = _load_compare_groups(groups)
 
@@ -1587,6 +1638,7 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         raw = raw.loc[raw["nucleus_key"].isin(nuclei)]
     primary["condition"] = primary["group"]
     nuclei_table = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
+    class_table, class_nuclei = class_percentages(primary)
     group_rows = []
     for label, runs in group_runs:
         group_nuclei = nuclei_table.loc[nuclei_table["condition"] == label]
@@ -1622,6 +1674,9 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         primary.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="Primary_Objects", index=False)
         excluded.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="QC_Excluded", index=False)
         raw.drop(columns=["nucleus_key"]).to_excel(writer, sheet_name="All_Objects_Raw", index=False)
+        if class_table is not None:
+            class_table.drop(columns=["condition"]).to_excel(writer, sheet_name="Class_Percentages", index=False)
+            class_nuclei.drop(columns=["condition"]).to_excel(writer, sheet_name="Class_Per_Nucleus", index=False)
         for sheet in writer.sheets.values():
             _style_table_sheet(sheet)
 
@@ -1629,9 +1684,9 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
     if differences:
         note = "\n".join(textwrap.wrap("Settings differ between groups (not pooled): " + "; ".join(differences), 190))
     order, colors = labels, None
+    group_colors = {label: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, label in enumerate(labels)}
     if per_nucleus:
         #One column per nucleus, coloured by its group, in the order the nuclei were listed.
-        group_colors = {label: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, label in enumerate(labels)}
         primary["condition"] = primary["nucleus_label"]
         order = list(dict.fromkeys(primary["nucleus_label"]))
         colors = {name: group_colors[group] for name, group in zip(primary["nucleus_label"], primary["group"])}
@@ -1646,7 +1701,17 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
     )
     fig.savefig(plot_path, dpi=300)
     plt.close(fig)
-    return {"plot": plot_path, "excel": excel_path, "differences": differences, "groups": group_rows}
+
+    class_plot = None
+    if class_table is not None:
+        if per_nucleus:
+            class_table, class_nuclei = class_percentages(primary)
+        class_plot = output_path.with_name(f"{output_path.stem}_Classes.png")
+        fig = build_class_bar_figure(class_table, class_nuclei, order, colors or group_colors)
+        fig.savefig(class_plot, dpi=300)
+        plt.close(fig)
+    return {"plot": plot_path, "excel": excel_path, "class_plot": class_plot, "differences": differences,
+            "groups": group_rows}
 
 
 def standard_size_eligible(df, min_size, max_size):
