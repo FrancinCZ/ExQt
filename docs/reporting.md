@@ -45,6 +45,10 @@ Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. R
 | **Bottom-left** | Volume vs. mean intensity | Intensity before any ratio. |
 | **Bottom-right** | Volume vs. FA | Line at the PSF-like elongation (working value). |
 
+## Particle Classes
+
+The PDF summary table and the Compare runs class chart list the classes in one fixed order: Elongated / Core-Enriched, Globular / Core-Enriched, Elongated / No Significant Gradient, Globular / No Significant Gradient, Elongated / Shell-Enriched, Globular / Shell-Enriched, then any other class that occurs (Profile-Unavailable, Punctate, Unclassified). The six main classes are always listed, with 0 when absent, so tables of different runs line up row by row. A run without Radial FA Profiling has only Unclassified objects and lists just that.
+
 ## How to Read Each Plot
 
 The plots are descriptive; none of them tests a physical model. Keep in mind:

@@ -78,6 +78,27 @@ def _report_subset(df: pd.DataFrame) -> pd.DataFrame:
     return subset
 
 
+#One fixed class order for tables and charts (feedback 2026-10-31): grouped by gradient, Elongated before Globular.
+MAIN_CLASS_ORDER = (
+    "Elongated (High FA) / Core-Enriched",
+    "Globular (Low FA) / Core-Enriched",
+    "Elongated (High FA) / No Significant Gradient",
+    "Globular (Low FA) / No Significant Gradient",
+    "Elongated (High FA) / Shell-Enriched",
+    "Globular (Low FA) / Shell-Enriched",
+)
+
+
+#Counts per class: the six main classes always (0 included), then any other class that occurs.
+#Without Radial FA Profiling every object is Unclassified: then no rows of zeros.
+def ordered_class_counts(classes: pd.Series) -> pd.Series:
+    counts = classes.dropna().astype(str).value_counts()
+    others = [c for c in CLASS_COLOR_PALETTE if c in counts.index and c not in MAIN_CLASS_ORDER]
+    others += sorted(c for c in counts.index if c not in MAIN_CLASS_ORDER and c not in others)
+    main = list(MAIN_CLASS_ORDER) if counts.index.isin(MAIN_CLASS_ORDER).any() else []
+    return counts.reindex(main + others, fill_value=0)
+
+
 def _get_particle_class_col(df: pd.DataFrame) -> str | None:
     if "particle_class" in df.columns:
         return "particle_class"
@@ -460,7 +481,7 @@ def _intensity_values(plot_df, column):
 def _summary_table_rows(plot_df, sample_name):
     size_col = "volume_bio_um3" if "volume_bio_um3" in plot_df.columns else "shape_metric_bio"
     class_col = _get_particle_class_col(plot_df)
-    class_counts = plot_df[class_col].value_counts() if class_col else pd.Series([], dtype=int)
+    class_counts = ordered_class_counts(plot_df[class_col]) if class_col else pd.Series([], dtype=int)
     k_vals = _k_values(plot_df)
     intensity = _intensity_values(plot_df, "mean_intensity")
     nucleoplasm = _intensity_values(plot_df, "nucleoplasm_mean_intensity")

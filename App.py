@@ -1756,7 +1756,9 @@ class ExQt(QMainWindow):
             "Comparison completed",
             "\n".join(lines)
             + f"\n\nSettings that differ between groups (shown on the graph):\n{differences}"
-            + f"\n\nGraph:\n{result['plot']}\n\nTable:\n{result['excel']}",
+            + f"\n\nGraph:\n{result['plot']}"
+            + (f"\n\nClasses:\n{result['class_plot']}" if result.get("class_plot") else "")
+            + f"\n\nTable:\n{result['excel']}",
         )
 
     def choose_output_folder(self):

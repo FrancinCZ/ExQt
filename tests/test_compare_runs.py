@@ -335,3 +335,58 @@ def test_combined_tables_follow_picked_nuclei(tmp_path):
     result = compare_run_groups(groups, tmp_path / "cmp.png", nuclei=picked)
     raw = pd.read_excel(result["excel"], sheet_name="All_Objects_Raw")
     assert sorted(raw.loc[raw["group"] == "IF", "cell_id"].unique()) == [1, 2]
+
+
+def _add_classes(root, classes_per_csv):
+    for csv, classes in zip(sorted(root.rglob("*_Output_Batch_3d.csv")), classes_per_csv):
+        df = pd.read_csv(csv)
+        df["condensate_class"] = (classes * len(df))[:len(df)]
+        df.to_csv(csv, index=False)
+
+
+def test_class_bar_chart_and_sheets(tmp_path):
+    # Supervisor feedback 2026-10-31: % of objects per class, one bar per group, as her pBabe/HPV8/HPV16 chart.
+    # Bars pool the group's objects; dots are single nuclei, so a nucleus with many objects is visible.
+    import postprocessing
+
+    groups = _groups(tmp_path)
+    core, shell = "Elongated (High FA) / Core-Enriched", "Globular (Low FA) / Shell-Enriched"
+    # Sorted CSVs: IF (5 nuclei x 4 objects), then ExM img001, ExM img002.
+    _add_classes(tmp_path, [[core, core, core, shell], [core] * 4, [shell] * 4])
+    captured = {}
+    original = postprocessing.build_class_bar_figure
+
+    def spy(table, nucleus_table, order, colors):
+        captured.update(order=order)
+        fig = original(table, nucleus_table, order, colors)
+        captured["fig"] = fig
+        return fig
+
+    postprocessing.build_class_bar_figure = spy
+    try:
+        result = compare_run_groups(groups, tmp_path / "cmp.png")
+    finally:
+        postprocessing.build_class_bar_figure = original
+    assert result["class_plot"].is_file() and result["class_plot"].name == "cmp_Classes.png"
+    assert captured["order"] == ["ExM", "IF"]
+
+    table = pd.read_excel(result["excel"], sheet_name="Class_Percentages")
+    exm = table[table["group"] == "ExM"].set_index("class")
+    # Fixed class order, six main classes always listed.
+    assert list(table.loc[table["group"] == "ExM", "class"])[:2] == [core, "Globular (Low FA) / Core-Enriched"]
+    assert exm.loc[core, "objects"] == 4 and exm.loc[core, "total_objects"] == 8
+    assert exm.loc[core, "percent"] == pytest.approx(50.0)
+    assert table.loc[table["group"] == "IF"].set_index("class").loc[core, "percent"] == pytest.approx(75.0)
+    per_nucleus = pd.read_excel(result["excel"], sheet_name="Class_Per_Nucleus")
+    exm_core = per_nucleus[(per_nucleus["group"] == "ExM") & (per_nucleus["class"] == core)]
+    assert sorted(exm_core["percent"]) == [0.0, 100.0]
+
+    bars_panel = captured["fig"].axes[0]
+    heights = sorted(round(p.get_height(), 1) for p in bars_panel.patches if p.get_height() > 0)
+    assert 50.0 in heights and 75.0 in heights
+
+
+def test_no_class_chart_without_classes(tmp_path):
+    result = compare_run_groups(_groups(tmp_path), tmp_path / "cmp.png")
+    assert result["class_plot"] is None
+    assert "Class_Percentages" not in pd.read_excel(result["excel"], sheet_name=None)
