@@ -26,7 +26,7 @@ The objects used for the summary statistics and plots. An object is primary if i
 
 - does not touch the edge of the image/stack or the alignment padding (`touches_image_edge`); with the optional Z-edge setting, objects cut only by the first/last Z slice are kept (`touches_z_edge_only`, `z_edge_allowed`);
 - is not cut by the ROI boundary (`touches_roi_edge`);
-- does not come from a stack whose alignment status is `REVIEW` (`alignment_status`);
+- does not come from a stack whose alignment status is `REVIEW` (`alignment_status`; `REVIEW_OUTSIDE_ROI`, where every weak step lies outside the ROI Z range, is allowed);
 - with Radial FA Profiling: passes the Z-topology check, has all layer FA valid and enough core voxels (`mode_a_primary_include`).
 
 Size-eligible objects that fail a check are saved in `<run>_QC_Excluded.csv` with the reason.

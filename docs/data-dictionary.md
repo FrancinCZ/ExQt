@@ -94,6 +94,6 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `z_edge_allowed` | - | `boolean` | Run setting: objects with `touches_z_edge_only` stay primary (size/FA underestimated). Default `False`. |
 | `mode_a_object_touches_edge` | - | `boolean` | Mode A copy of `touches_image_edge`. |
 | `mode_a_object_touches_roi_edge` | - | `boolean` | Mode A copy of `touches_roi_edge`. |
-| `alignment_status` | - | `string` | Aligner overall status of the input stack: `PASS`, `REVIEW` (analysed, never primary) or `not_aligned` (no `<stem>_drift.csv`). `FAIL` stacks are not analysed. |
+| `alignment_status` | - | `string` | Aligner overall status of the input stack: `PASS`, `REVIEW` (a weak alignment step inside the ROI Z range: analysed, never primary, `mode_a_qc_reason` starts with `alignment_review`), `REVIEW_OUTSIDE_ROI` (all weak steps outside the ROI Z range: eligible for primary statistics) or `not_aligned` (no `<stem>_drift.csv`). `FAIL` stacks are not analysed. |
 | `primary_qc_valid` | - | `boolean` | `True` if the object is in the primary set (see Quality Control). |
 | `mode_a_qc_reason` | - | `string` | Semicolon-delimited list of rejection reasons for excluded objects. |

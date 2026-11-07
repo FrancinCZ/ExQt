@@ -289,7 +289,8 @@ def _prepare_reporting_frames(df, min_size, max_size):
         complete_fa = pd.Series(True, index=report_df.index)
         primary_requested = pd.Series(True, index=report_df.index)
 
-    # Stacks whose alignment is REVIEW are analysed but never primary.
+    # Stacks whose alignment is REVIEW inside the ROI are analysed but never primary;
+    # REVIEW_OUTSIDE_ROI (all weak steps outside the ROI Z range) stays eligible.
     if "alignment_status" in report_df.columns:
         alignment_ok = report_df["alignment_status"].astype(str).ne("REVIEW")
     else:
@@ -522,6 +523,8 @@ def _write_summary_sheet(writer, raw, primary, excluded, report_df, size_col, fi
         # Flags are written as Excel booleans: COUNTIF(range, 1) would never count TRUE.
         ("Touches image edge", f'={_combined_countif(image_edge_col, "TRUE", quote=False)}', "Hard QC exclusion (incl. alignment padding)."),
         ("Touches ROI edge", f'={_combined_countif(roi_edge_col, "TRUE", quote=False)}', "Hard QC exclusion."),
+        ("Alignment REVIEW in ROI", f'={_combined_countif("alignment_status", "REVIEW")}', "Excluded from primary analysis (a weak alignment step lies inside the ROI Z range)."),
+        ("Alignment REVIEW outside ROI", f'={_combined_countif("alignment_status", "REVIEW_OUTSIDE_ROI")}', "Kept: all weak alignment steps lie outside the ROI Z range."),
     ]
     ws["A15"], ws["B15"], ws["C15"] = "Condition", "Count", "Meaning"
     for row_index, (label, formula, definition) in enumerate(qc_rows, start=16):
@@ -1005,47 +1008,84 @@ def _generate_merge_plot(output_path, run_stats, primary):
     return plot_path
 
 
-def merge_statistics_folder(folder, output_path=None, include_raw=False):
+def _load_merge_run(root, csv_path):
+    metadata, metadata_path = _load_run_metadata(csv_path)
+    if not metadata_path.exists():
+        raise ValueError(f"Missing metadata for {csv_path}: expected {metadata_path.name}")
+    df = pd.read_csv(csv_path)
+    min_size = _metadata_value(metadata, "parameters.plot_min_size")
+    max_size = _metadata_value(metadata, "parameters.plot_max_size")
+    if min_size is None or max_size is None:
+        raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
+    raw, primary, excluded, report_df, size_col = _prepare_reporting_frames(
+        df, float(min_size), float(max_size)
+    )
+    fingerprint, entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))
+    run_id = _run_id(root, csv_path)
+    for frame in (raw, primary, excluded, report_df):
+        frame.insert(0, "source_csv", str(csv_path))
+        frame.insert(0, "run_id", run_id)
+    return {
+        "run_id": run_id,
+        "csv_path": csv_path,
+        "metadata_path": metadata_path,
+        "metadata": metadata,
+        "fingerprint": fingerprint,
+        "entries": entries,
+        "policy": _fingerprint_payload(entries),
+        "raw": raw,
+        "primary": primary,
+        "excluded": excluded,
+        "report": report_df,
+        "size_col": size_col,
+        "min_size": min_size,
+        "max_size": max_size,
+    }
+
+
+#Preview for the Merge dialog: one row per run found under the folder, with its condition
+#(top-level folder), nuclei and primary objects, and the QC settings in which it differs from
+#the most common setting among the runs (an empty list means it can be merged with them).
+def list_merge_runs(folder):
+    root = Path(folder).resolve()
+    runs, rows = [], []
+    for csv_path in find_merge_source_csvs(root):
+        try:
+            runs.append(_load_merge_run(root, csv_path))
+        except Exception as exc:
+            rows.append({"run_id": _run_id(root, csv_path), "csv_path": str(csv_path),
+                         "condition": condition_label(_run_id(root, csv_path)),
+                         "nuclei": 0, "objects": 0, "differences": [], "error": str(exc)})
+    if runs:
+        counts = pd.Series([run["fingerprint"] for run in runs]).value_counts()
+        reference = next(run for run in runs if run["fingerprint"] == counts.index[0])
+        for run in runs:
+            differences = []
+            for key in sorted(set(reference["policy"]) | set(run["policy"])):
+                mine, theirs = run["policy"].get(key), reference["policy"].get(key)
+                if json.dumps(mine, sort_keys=True, default=str) != json.dumps(theirs, sort_keys=True, default=str):
+                    differences.append(f"{key}: {mine} (others: {theirs})")
+            primary = run["primary"]
+            nuclei = primary[["filename", "cell_id"]].drop_duplicates().shape[0] if len(primary) and {"filename", "cell_id"}.issubset(primary.columns) else 0
+            rows.append({"run_id": run["run_id"], "csv_path": str(run["csv_path"]),
+                         "condition": condition_label(run["run_id"]), "nuclei": int(nuclei),
+                         "objects": int(len(primary)), "differences": differences, "error": ""})
+    return sorted(rows, key=lambda row: row["run_id"])
+
+
+def merge_statistics_folder(folder, output_path=None, include_raw=False, csv_paths=None):
 
     root = Path(folder).resolve()
-    csv_paths = find_merge_source_csvs(root)
-    if not csv_paths:
+    found = find_merge_source_csvs(root)
+    if not found:
         raise ValueError("No original *_Output_Batch_*.csv files were found in the selected folder.")
 
-    runs = []
-    for csv_path in csv_paths:
-        metadata, metadata_path = _load_run_metadata(csv_path)
-        if not metadata_path.exists():
-            raise ValueError(f"Missing metadata for {csv_path}: expected {metadata_path.name}")
-        df = pd.read_csv(csv_path)
-        min_size = _metadata_value(metadata, "parameters.plot_min_size")
-        max_size = _metadata_value(metadata, "parameters.plot_max_size")
-        if min_size is None or max_size is None:
-            raise ValueError(f"Missing analyzed biological size range in {metadata_path}")
-        raw, primary, excluded, report_df, size_col = _prepare_reporting_frames(
-            df, float(min_size), float(max_size)
-        )
-        fingerprint, entries = qc_policy_fingerprint(metadata, df, float(min_size), float(max_size))
-        run_id = _run_id(root, csv_path)
-        for frame in (raw, primary, excluded, report_df):
-            frame.insert(0, "source_csv", str(csv_path))
-            frame.insert(0, "run_id", run_id)
-        runs.append({
-            "run_id": run_id,
-            "csv_path": csv_path,
-            "metadata_path": metadata_path,
-            "metadata": metadata,
-            "fingerprint": fingerprint,
-            "entries": entries,
-            "policy": _fingerprint_payload(entries),
-            "raw": raw,
-            "primary": primary,
-            "excluded": excluded,
-            "report": report_df,
-            "size_col": size_col,
-            "min_size": min_size,
-            "max_size": max_size,
-        })
+    if csv_paths is not None:
+        chosen = {Path(path).resolve() for path in csv_paths}
+        found = [path for path in found if path.resolve() in chosen]
+        if not found:
+            raise ValueError("No runs were selected for the merge.")
+    runs = [_load_merge_run(root, csv_path) for csv_path in found]
 
     comparison = _merge_policy_comparison(runs)
     incompatible = comparison.loc[comparison["compatible"] == "no"]
@@ -1137,7 +1177,7 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False):
         "excluded_count": len(merged_excluded),
         "raw_count": len(merged_raw),
         "qc_fingerprint": runs[0]["fingerprint"],
-        "source_csvs": csv_paths,
+        "source_csvs": found,
     }
 
 

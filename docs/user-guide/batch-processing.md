@@ -54,7 +54,7 @@ Written by the analysis worker in `App.py` next to the CSV. Before comparing num
 | `provenance.source_sha256` | SHA-256 of every analysis module – identifies the code even without git. |
 | `provenance.python`, `platform`, `packages` | Interpreter, OS and library versions (numpy, scipy, scikit-image, pandas, tifffile, …). |
 | `files.input_files` | Name, size and SHA-256 of each analysed TIFF, its mask and alignment sidecars (`_drift.csv`, `_alignment_valid.tif`). |
-| `files.analysed_files`, `alignment_review_files`, `excluded_files` | What entered the CSV, which stacks were alignment REVIEW, and every excluded file with its reason. |
+| `files.analysed_files`, `alignment_review_files`, `alignment_review_outside_roi_files`, `excluded_files` | What entered the CSV, which stacks were alignment REVIEW inside the ROI (not primary) or only outside it (kept), and every excluded file with its reason. |
 | `parameters` | Mode, ExF, `auto_roi`, raw noise floor, size range, GUI calibration, `calibration_source`, `applied_calibration_by_file`. |
 | `partitioning` | K offset method and value, Auto-ROI and padding policy. |
 | `classification` | Gradient test and significance level. |

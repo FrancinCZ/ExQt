@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QPushButton,
                                 QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit, QFileDialog, QDialog, QDialogButtonBox,
                                 QMessageBox, QProgressBar, QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
                                 QListWidget, QListWidgetItem)
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 import qdarktheme
 from PySide6.QtCore import QSettings, QThread, Signal, Qt
 import numpy as np
@@ -37,6 +37,7 @@ from postprocessing import (
     _prepare_reporting_frames,
     compare_run_groups,
     list_compare_nuclei,
+    list_merge_runs,
     detect_red_flags,
     generate_excel_stats,
     generate_plots,
@@ -348,6 +349,10 @@ class AnalysisWorker(QThread):
                 "analysed_files": list(calibrations),
                 "input_files": list(input_records.values()),
                 "alignment_review_files": review_files,
+                "alignment_review_outside_roi_files": (
+                    sorted(final_df.loc[final_df["alignment_status"].astype(str).eq("REVIEW_OUTSIDE_ROI"), "filename"].unique().tolist())
+                    if "alignment_status" in final_df.columns else []
+                ),
                 "excluded_files": excluded_files,
             },
             "classification": {"gradient_test": GRADIENT_TEST, "gradient_alpha": GRADIENT_ALPHA},
@@ -812,6 +817,114 @@ class CompareRunsDialog(QDialog):
             (self.table.item(row, 0).text().strip(), self.table.item(row, 1).text())
             for row in range(self.table.rowCount())
         ]
+
+
+class MergeRunsDialog(QDialog):
+    """Choose one folder, see every run found in it and untick the runs that should not be merged."""
+
+    def __init__(self, parent=None, start_folder=""):
+        super().__init__(parent)
+        self.setWindowTitle("Merge runs")
+        self.setMinimumWidth(760)
+        self.start_folder = start_folder
+        self.root = ""
+
+        layout = QVBoxLayout(self)
+        note = QLabel(
+            "Choose one folder. Every ExQt run found in it (also in subfolders) is merged into one "
+            "statistic. The condition of a run is its top-level subfolder, e.g. Control/ and Test/; "
+            "conditions are drawn side by side in the merged graphs.\n"
+            "All ticked runs must share the same QC settings (expansion factor, size range, QC options). "
+            "Runs that differ are marked in red: untick them, or use Compare runs instead."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        folder_row = QHBoxLayout()
+        self.folder_edit = QLineEdit()
+        self.folder_edit.setReadOnly(True)
+        self.folder_edit.setPlaceholderText("No folder chosen")
+        self.btn_folder = QPushButton("Choose folder...")
+        self.btn_folder.clicked.connect(self.choose_folder)
+        folder_row.addWidget(self.folder_edit)
+        folder_row.addWidget(self.btn_folder)
+        layout.addLayout(folder_row)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Run", "Condition", "Nuclei", "Objects", "QC settings"])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in (1, 2, 3):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.itemChanged.connect(self._update_ok)
+        layout.addWidget(self.table)
+
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+
+        self.raw_check = QCheckBox("Include raw audit sheet (every raw component; normally not needed)")
+        layout.addWidget(self.raw_check)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Merge")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self._update_ok()
+
+    def choose_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose folder containing ExQt runs", self.start_folder)
+        if folder:
+            self.set_folder(folder)
+
+    def set_folder(self, folder):
+        self.root = str(folder)
+        self.folder_edit.setText(self.root)
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        try:
+            runs = list_merge_runs(folder)
+        except Exception as exc:
+            runs = []
+            self.status.setText(f"Runs cannot be listed: {exc}")
+        else:
+            self.status.setText("" if runs else "No ExQt runs were found in this folder.")
+        for run in runs:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            problem = run["error"] or "; ".join(run["differences"])
+            run_item = QTableWidgetItem(run["run_id"])
+            run_item.setData(Qt.UserRole, run["csv_path"])
+            run_item.setFlags(run_item.flags() | Qt.ItemIsUserCheckable)
+            run_item.setCheckState(Qt.Unchecked if problem else Qt.Checked)
+            run_item.setToolTip(run["csv_path"])
+            self.table.setItem(row, 0, run_item)
+            for column, value in ((1, run["condition"]), (2, run["nuclei"]), (3, run["objects"])):
+                self.table.setItem(row, column, QTableWidgetItem(str(value)))
+            state = QTableWidgetItem(("Cannot be read: " + run["error"]) if run["error"]
+                                     else ("Differs: " + problem) if problem else "\u2713 same as the others")
+            state.setToolTip(state.text())
+            if problem:
+                state.setForeground(QColor("#dc2626"))
+            self.table.setItem(row, 4, state)
+        self.table.blockSignals(False)
+        self._update_ok()
+
+    def selected_csvs(self):
+        return [
+            self.table.item(row, 0).data(Qt.UserRole)
+            for row in range(self.table.rowCount())
+            if self.table.item(row, 0).checkState() == Qt.Checked
+        ]
+
+    def include_raw(self):
+        return self.raw_check.isChecked()
+
+    def _update_ok(self, *_):
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(bool(self.selected_csvs()))
 
 
 class SizePreviewDialog(QDialog):
@@ -1670,13 +1783,12 @@ class ExQt(QMainWindow):
         ReportOptionsDialog(self).exec()
 
     def merge_existing_runs(self):
-        root = QFileDialog.getExistingDirectory(
-            self,
-            "Choose folder containing ExQt run CSVs",
-            self.output_path_edit.text() or self.folder_input.text(),
-        )
-        if not root:
+        dialog = MergeRunsDialog(self, self.output_path_edit.text() or self.folder_input.text())
+        if dialog.exec() != QDialog.Accepted:
             return
+        root = dialog.root
+        csv_paths = dialog.selected_csvs()
+        include_raw = dialog.include_raw()
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save merged statistics",
@@ -1687,18 +1799,8 @@ class ExQt(QMainWindow):
             return
         if not output_path.lower().endswith(".xlsx"):
             output_path += ".xlsx"
-        include_raw = QMessageBox.question(
-            self,
-            "Include merged raw audit?",
-            (
-                "Include every raw connected component in an additional workbook sheet?\n\n"
-                "Recommended: No. Primary and QC-excluded objects plus per-run summaries are normally sufficient."
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        ) == QMessageBox.Yes
         try:
-            result = merge_statistics_folder(root, output_path, include_raw=include_raw)
+            result = merge_statistics_folder(root, output_path, include_raw=include_raw, csv_paths=csv_paths)
         except QCPolicyMismatchError as exc:
             QMessageBox.critical(
                 self,
