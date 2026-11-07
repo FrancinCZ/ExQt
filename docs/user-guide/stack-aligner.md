@@ -12,7 +12,7 @@
 4. **Overall status:** texture-less steps at the ends of the stack are ignored; `FAIL` steps in the middle up to `max_fail_fraction` (20 %) give `REVIEW`, more give `FAIL`. The overall status is written to `<stem>_drift.csv` (`overall_status`).
 5. **Output:** with `expand_canvas` (default) the canvas is enlarged by the accumulated drift and the new border is filled with zeros. These padding voxels are marked 0 in `<stem>_alignment_valid.tif`, and the analysis excludes them from intensity statistics and uses them for edge detection. For `FAIL` no image is written.
 
-The analysis follows the overall status: `PASS` normal, `REVIEW` analysed but not primary, `FAIL` excluded.
+The analysis follows the overall status: `PASS` normal, `REVIEW` analysed but not primary, `FAIL` excluded. A `REVIEW` stack is only excluded when a non-`PASS` step lies inside the Z range of the ROI (both slices of the step Z-1→Z inside the ROI): a bad step shifts the slices above it as one block, so a step outside the ROI does not distort the analysed region. Such stacks get `alignment_status = REVIEW_OUTSIDE_ROI` and stay eligible for primary statistics. With Auto-ROI (whole field of view) or a drift CSV without step positions every `REVIEW` stays excluded.
 
 ---
 

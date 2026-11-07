@@ -475,6 +475,38 @@ def validate_alignment_qc(tif_path):
 
 
 
+#Alignment steps (moving Z index, reason) that are not PASS, read from the aligner's drift CSV.
+def alignment_problem_steps(tif_path):
+    drift_csv = _alignment_drift_csv(tif_path)
+    if not drift_csv.is_file():
+        return []
+    table = pd.read_csv(drift_csv)
+    if not {"moving_z", "status"}.issubset(table.columns):
+        return []
+    bad = table[table["status"].astype(str).ne("PASS")]
+    reasons = bad["reason"].fillna("").astype(str) if "reason" in bad.columns else [""] * len(bad)
+    return [(int(z), str(r)) for z, r in zip(bad["moving_z"], reasons)]
+
+
+#A REVIEW stack only matters where the ROI is: a bad step between slices Z-1 and Z shifts the
+#slices above it as a block, so it distorts the analysed region only when both slices lie in
+#the ROI's Z range. Returns "REVIEW" when such a step exists, otherwise "REVIEW_OUTSIDE_ROI".
+def alignment_status_for_roi(tif_path, roi_mask):
+    roi = np.asarray(roi_mask, dtype=bool)
+    if roi.ndim != 3 or not roi.any():
+        return "REVIEW"
+    steps = alignment_problem_steps(tif_path)
+    if not steps:
+        #Older drift CSVs do not say where the weak steps are: stay strict.
+        return "REVIEW"
+    roi_z = np.flatnonzero(roi.any(axis=(1, 2)))
+    z_min, z_max = int(roi_z.min()), int(roi_z.max())
+    inside = [(z, r) for z, r in steps if z - 1 >= z_min and z <= z_max]
+    if inside:
+        return "REVIEW"
+    return "REVIEW_OUTSIDE_ROI"
+
+
 #Read calibrated XY/Z spacing without guessing an unspecified TIFF unit.
 def get_metadata_from_tif(tif_path):
 
@@ -710,6 +742,12 @@ def process_condensates(
 
     print("\n[3/5] Applying provided Mask...")
 
+    #REVIEW alignment whose problem steps all lie outside the ROI's Z range does not affect the analysed region.
+    if alignment_status == "REVIEW":
+        alignment_status = alignment_status_for_roi(tif_path, roi_mask)
+        if alignment_status == "REVIEW_OUTSIDE_ROI":
+            print("      [Alignment QC] REVIEW steps lie outside the ROI Z range: objects stay eligible for primary statistics.")
+
     img_mask_process = img_mask_process * roi_mask
 
     labeled_mask = _prepare_labeled_mask(img_mask_process)
@@ -912,6 +950,13 @@ def process_condensates(
                 metrics["mode_a_qc_reason"] = ";".join(qc_reasons)
                 # QC reasons found after the metrics were computed also void the class.
                 metrics["condensate_class"] = UNCLASSIFIED_QC
+
+            #Name the alignment exclusion too. The class stays: reporting removes REVIEW stacks from
+            #primary statistics through alignment_status, and the object itself is measurable.
+            if alignment_status == "REVIEW":
+                metrics["mode_a_qc_reason"] = ";".join(
+                    ["alignment_review"] + [r for r in str(metrics["mode_a_qc_reason"]).split(";") if r]
+                )
 
             row.update({
                 "A_object": metrics["A_object"],
