@@ -9,7 +9,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | Column Name | Physical Unit | Data Type | Mathematical Definition & Description |
 | :--- | :---: | :---: | :--- |
 | `filename` | - | `string` | Basename of the processed 3D TIFF acquisition file. |
-| `cell_id` | - | `integer` | Identifier of the specific nucleus / cell within the field of view. |
+| `cell_id` | - | `integer` | Identifier of the specific nucleus / cell within the field of view: the nucleus ROI that holds most of the object's voxels. |
 | `roi_source` | - | `string` | How the analysed region was defined: `auto_fov` (Auto-ROI, whole field of view), `manual` (ROI drawn by the user), `empty_fallback_fov` (nothing drawn, user explicitly confirmed the whole field of view), `saved_roi` (ROI saved by a previous run for this image, reused with **Use saved ROI**). |
 | `object_id` | - | `integer` | Unique connected-component label assigned to the condensate. |
 | `Z_px` | pixels | `float` | Axial centroid coordinate within the raw optical stack. |
@@ -89,7 +89,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `mode_a_z_topology_status` | - | `string` | Topological section continuity: `'pass'`, `'review'`, or `'fail'`. |
 | `mode_a_z_split_slice_fraction`| - | `float` | Fraction of occupied $Z$-slices containing $\ge 2$ disconnected components. |
 | `touches_image_edge` | - | `boolean` | `True` if the object reaches the image/stack border or alignment padding (valid-voxel mask). All modes; excluded from primary. |
-| `touches_roi_edge` | - | `boolean` | `True` if the ROI boundary cuts the object. All modes; excluded from primary. |
+| `touches_roi_edge` | - | `boolean` | `True` if the boundary of the object's nucleus ROI cuts the object, including an object that reaches into a neighbouring nucleus ROI. All modes; excluded from primary. |
 | `touches_z_edge_only` | - | `boolean` | `True` if a 3D object touches only the first/last Z slice (not the XY border, not alignment padding). |
 | `z_edge_allowed` | - | `boolean` | Run setting: objects with `touches_z_edge_only` stay primary (size/FA underestimated). Default `False`. |
 | `mode_a_object_touches_edge` | - | `boolean` | Mode A copy of `touches_image_edge`. |

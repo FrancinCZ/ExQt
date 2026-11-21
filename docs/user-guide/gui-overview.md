@@ -56,7 +56,7 @@ Click **Settings** in the top menu bar:
 | **Dark mode** | Off | Dark or light appearance; remembered for the next start. |
 
 > [!TIP]
-> **Metadata Detection:** When you select an input folder with `Browse`, ExQt reads OME / ImageJ calibration from the TIFF headers (plain TIFF DPI such as the default 72 dpi is ignored; values outside XY 1–2000 nm or Z 1–5000 nm are reported and ignored). ExQt then asks what to apply:
+> **Metadata Detection:** When you select an input folder with `Browse`, ExQt reads OME / ImageJ calibration from the TIFF headers (plain TIFF DPI such as the default 72 dpi is ignored; values outside XY 1–2000 nm or Z 1–5000 nm are reported and ignored). A file whose header declares different pixel sizes in X and Y is excluded from the analysis with a message, because ExQt uses one XY pixel size. ExQt then asks what to apply:
 > - **One calibration in all files:** *Yes* copies it into Settings, *No* keeps your settings. Either way, the Settings values are applied to every file.
 > - **Different calibrations:** *Yes* applies each file's own TIFF calibration (Settings only for files without one), *No* applies Settings to all files.
 >

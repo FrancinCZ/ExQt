@@ -90,10 +90,11 @@ def live_shape_numbers(shapes_data, shape_types, image_shape):
     if n_shapes == 0:
         return [], None
     plane_shape = tuple(image_shape[-2:])
+    #A 2D image is one slice: shapes are grouped the same way (Batch.nucleus_roi_labels).
     if len(image_shape) == 2:
-        return [str(i + 1) for i in range(n_shapes)], None
-
-    z_of_shape = [int(round(float(np.asarray(vertices)[0, 0]))) for vertices in shapes_data]
+        z_of_shape = [0] * n_shapes
+    else:
+        z_of_shape = [int(round(float(np.asarray(vertices)[0, 0]))) for vertices in shapes_data]
     drawn_z = sorted(set(z_of_shape))
     #Work in the bounding box of all shapes: row-major pixel order (used for numbering) is unchanged.
     all_yx = np.concatenate([np.asarray(vertices)[:, -2:] for vertices in shapes_data])

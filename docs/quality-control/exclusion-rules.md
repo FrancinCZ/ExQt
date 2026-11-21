@@ -12,7 +12,7 @@ Every size-eligible object that is not primary has a machine-readable reason in 
 - **Option (Settings → QC: Keep objects cut by the first/last Z slice, off by default):** for stacks that do not cover the whole nucleus in Z, objects that touch only the first or last Z slice (`touches_z_edge_only`) stay primary. Their $K_{\text{part}}$ is usable, but their volume and FA are underestimated. XY border and alignment padding are still excluded. Recorded as `z_edge_allowed` and in the QC policy fingerprint.
 
 ### 2. `touches_roi_edge` (ROI Edge)
-- **Criterion:** object voxels are adjacent to voxels outside the ROI (never set when the ROI is the whole field of view).
+- **Criterion:** object voxels are adjacent to voxels outside the ROI of the object's nucleus, including voxels of a neighbouring nucleus ROI (never set when the ROI is the whole field of view).
 - **Reason:** the ROI cut the object, so its volume, shape and intensity are incomplete.
 
 ### 3. `z_topology_review` / `z_topology_fail` (Split Along Z)

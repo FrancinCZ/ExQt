@@ -536,7 +536,8 @@ def align_tiff_stack(
                 np.ones(reference.shape, dtype=np.float32), "ZYX", alignment.cumulative_shifts_yx,
                 expand_canvas=config.expand_canvas,
             ) > 0.999
-            tifffile.imwrite(valid_output, valid.astype(np.uint8), compression="zlib")
+            #Explicit grayscale: tifffile would store a 3- or 4-plane stack as one RGB image.
+            tifffile.imwrite(valid_output, valid.astype(np.uint8), compression="zlib", photometric="minisblack")
         except Exception:
             for partial in (output, mask_output, valid_output):
                 if partial is not None and partial.exists():
