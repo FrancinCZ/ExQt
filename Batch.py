@@ -6,7 +6,7 @@ import pandas as pd
 import tifffile
 from scipy.ndimage import binary_dilation, laplace, distance_transform_edt
 from skimage.measure import regionprops, label
-from rezim_a_metrics import MODE_A_LAYER_SCHEME, UNCLASSIFIED_QC, compute_core_shell_metrics
+from rezim_a_metrics import MODE_A_LAYER_SCHEME, UNCLASSIFIED_QC, classify_particle, compute_core_shell_metrics
 from defaults import DEFAULT_SETTINGS
 
 
@@ -475,6 +475,39 @@ def validate_alignment_qc(tif_path):
 
 
 
+#Detector ceiling of an integer image: the bit-depth limit the data actually reach (e.g. 4095 for
+#12-bit data stored as 16-bit), otherwise the dtype maximum. None for float images (no fixed ceiling).
+def saturation_level(image):
+    array = np.asarray(image)
+    if not np.issubdtype(array.dtype, np.integer) or array.size == 0:
+        return None
+    dtype_max = int(np.iinfo(array.dtype).max)
+    observed = int(array.max())
+    for bits in (8, 10, 12, 14, 16):
+        level = 2**bits - 1
+        if level <= dtype_max and observed == level:
+            return level
+    return dtype_max
+
+
+#QC reasons that only concern the radial layers (core/middle/shell), not the object itself.
+LAYER_QC_PREFIXES = ("empty_layer_", "core_below_min_voxels", "invalid_anisotropy_shell",
+                     "invalid_anisotropy_middle", "layer_coverage_error")
+
+
+def _is_layer_reason(reason):
+    return reason.startswith(LAYER_QC_PREFIXES)
+
+
+#Radial-layer results that are not measurable when the object is too small for three layers.
+RADIAL_LAYER_FIELDS = (
+    "A_shell", "A_middle", "A_core", "delta_A_middle_shell", "delta_A_core_middle", "delta_A_core_shell",
+    "mean_intensity_shell", "mean_intensity_middle", "mean_intensity_core",
+    "delta_intensity_middle_shell", "delta_intensity_core_middle", "delta_intensity_core_shell",
+    "gradient_t_core_shell", "gradient_p_core_shell", "delta_FA_excess",
+)
+
+
 #Alignment steps (moving Z index, reason) that are not PASS, read from the aligner's drift CSV.
 def alignment_problem_steps(tif_path):
     drift_csv = _alignment_drift_csv(tif_path)
@@ -582,6 +615,7 @@ def process_condensates(
     roi_output_dir=None,
     allow_z_edge=False,
     roi_source_func=None,
+    keep_small_objects=False,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
@@ -802,6 +836,7 @@ def process_condensates(
 
 
 
+    sat_level = saturation_level(img_intensity)
     props = regionprops(labeled_mask, intensity_image=img_intensity)
     objects_data = []
 
@@ -868,6 +903,11 @@ def process_condensates(
             "K_valid": k_valid,
             "K_invalid_reason": k_invalid_reason if not k_valid else "",
         }
+
+        #Voxels at the detector ceiling: their true intensity is unknown, so K_part is underestimated.
+        object_values = region.image_intensity[region.image] if hasattr(region, "image_intensity") else region.intensity_image[region.image]
+        row["saturation_level_adu"] = float(sat_level) if sat_level is not None else np.nan
+        row["saturated_voxels"] = int(np.count_nonzero(object_values >= sat_level)) if sat_level is not None else 0
 
         #Truncated objects (image/stack border, alignment padding, ROI boundary) are flagged in every mode; postprocessing keeps them out of primary.
         touches_edge = _touches_image_edge(region, labeled_mask.shape, valid_voxels)
@@ -945,7 +985,25 @@ def process_condensates(
             if not metrics["layer_qc"]["complete_coverage"]:
                 qc_reasons.append("layer_coverage_error")
 
-            if qc_reasons:
+            #Optional policy for small objects: reasons that only concern the radial layers do not
+            #remove the object; size, K_part and object FA stay primary, the radial profile is NaN.
+            layer_reasons = [r for r in qc_reasons if _is_layer_reason(r)]
+            object_reasons = [r for r in qc_reasons if not _is_layer_reason(r)]
+            radial_valid = not layer_reasons
+            if keep_small_objects and layer_reasons and not object_reasons:
+                for field in RADIAL_LAYER_FIELDS:
+                    metrics[field] = np.nan
+                for layer_name in ("shell", "middle", "core"):
+                    metrics[f"A_{layer_name}_valid"] = False
+                metrics["gradient_significant"] = False
+                metrics["mode_a_primary_include"] = True
+                metrics["mode_a_qc_reason"] = ""
+                metrics["condensate_class"] = classify_particle(
+                    a_object=metrics["A_object"], delta_intensity_core_shell=np.nan,
+                    voxel_count=metrics["object_voxels"], min_core_voxels=mode_a_min_core_voxels,
+                    gradient_significant=None, qc_passed=True,
+                )
+            elif qc_reasons:
                 metrics["mode_a_primary_include"] = False
                 metrics["mode_a_qc_reason"] = ";".join(qc_reasons)
                 # QC reasons found after the metrics were computed also void the class.
@@ -960,6 +1018,11 @@ def process_condensates(
 
             row.update({
                 "A_object": metrics["A_object"],
+                "FA_xy": metrics.get("FA_xy", np.nan),
+                "main_axis_angle_to_z_deg": metrics.get("main_axis_angle_to_z_deg", np.nan),
+                "radial_profile_valid": radial_valid,
+                "radial_profile_reason": ";".join(layer_reasons),
+                "small_objects_kept": bool(keep_small_objects),
                 "A_shell": metrics["A_shell"],
                 "A_middle": metrics["A_middle"],
                 "A_core": metrics["A_core"],

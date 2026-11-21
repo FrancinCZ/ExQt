@@ -31,3 +31,10 @@ If all three eigenvalues are equal, FA = 0. The physical sampling is essential: 
 
 - Code: `rezim_a_anisotropy.shape_anisotropy(mask, sampling, min_voxels)`; also returns `principal_std` (√λ, ascending) and `principal_axes` (eigenvectors).
 - A layer FA is valid only with at least `min_voxels` voxels (`A_*_valid`).
+
+## FA in XY and direction of the main axis
+
+An elongation along Z (axial PSF, axial scaling error from a refractive-index mismatch, anisotropic expansion of the gel) raises FA even when the object is round in XY. Two object-level values help to separate it from shape:
+
+- `FA_xy`: the same formula in two dimensions, from the 2 × 2 Y/X block of the covariance matrix ($\text{FA}_{xy} = |\lambda_1-\lambda_2| / \sqrt{\lambda_1^2+\lambda_2^2}$, with $\lambda_1, \lambda_2$ the eigenvalues of that block). A stretch along Z does not change it.
+- `main_axis_angle_to_z_deg`: angle between the longest principal axis and Z (0° = along Z, 90° = in the XY plane). For randomly oriented objects 13.4 % have their main axis within 30° of Z ($1-\cos 30°$); a much larger share is the signature of an elongation along Z. The PDF summary table reports this share and the median `FA_xy`.

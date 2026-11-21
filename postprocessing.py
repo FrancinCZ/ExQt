@@ -24,6 +24,7 @@ REPORT_PRIMARY_COLUMNS = [
     "Delta_intensity_core_shell", "gradient_p_core_shell", "gradient_significant",
     "A_object", "A_shell", "A_middle", "A_core",
     "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
+    "FA_xy", "main_axis_angle_to_z_deg", "radial_profile_valid", "saturated_voxels",
     "mode_a_core_voxels", "mode_a_z_topology_status",
     "mode_a_z_split_slice_fraction", "mode_a_object_touches_edge",
     "mode_a_object_touches_roi_edge", "radial_monotonic",
@@ -42,6 +43,7 @@ REPORT_EXCLUDED_COLUMNS = [
     "mode_a_z_occupied_slices", "mode_a_z_split_slices",
     "mode_a_z_split_slice_fraction", "fa_complete", "primary_qc_valid",
     "mode_a_qc_reason", "alignment_status", "touches_image_edge", "touches_roi_edge",
+    "FA_xy", "main_axis_angle_to_z_deg", "saturated_voxels",
 ]
 
 
@@ -64,6 +66,8 @@ def _single_column_value(df, column, default=None):
 # Red flags: warning signs of over-segmentation or noise.
 RED_FLAG_MAX_OBJECTS_PER_NUCLEUS = 1000
 RED_FLAG_MIN_MEDIAN_VOXELS = 50
+#Share of object voxels at the detector ceiling above which K_part is flagged as unreliable.
+RED_FLAG_MAX_SATURATED_FRACTION = 0.01
 
 
 def detect_red_flags(df):
@@ -96,6 +100,22 @@ def detect_red_flags(df):
                         f"{filename}: median object size {float(median):g} {unit} "
                         f"(< {RED_FLAG_MIN_MEDIAN_VOXELS}); likely noise or over-segmentation - "
                         "check the mask, min_voxels and expansion_factor."
+                    ),
+                })
+    if {"filename", "saturated_voxels", "volume_px"}.issubset(df.columns):
+        totals = df.groupby("filename")[["saturated_voxels", "volume_px"]].sum(numeric_only=True)
+        for filename, total in totals.iterrows():
+            voxels = float(total["volume_px"])
+            fraction = float(total["saturated_voxels"]) / voxels if voxels > 0 else 0.0
+            if fraction > RED_FLAG_MAX_SATURATED_FRACTION:
+                flags.append({
+                    "flag": "saturated_signal", "filename": str(filename), "cell_id": None,
+                    "value": round(fraction, 4), "threshold": RED_FLAG_MAX_SATURATED_FRACTION, "unit": "fraction of object voxels",
+                    "message": (
+                        f"{filename}: {fraction:.1%} of object voxels are at the detector ceiling "
+                        f"(> {RED_FLAG_MAX_SATURATED_FRACTION:.0%}); intensities are clipped, so K_part is "
+                        "underestimated. Rescaled outputs (e.g. deconvolution) also reach the ceiling: "
+                        "measure K_part on the raw image."
                     ),
                 })
     return flags
@@ -174,6 +194,9 @@ def _qc_policy_entries(metadata, df, min_size, max_size):
         ("analysis", "allow_z_edge", str(_metadata_value(
             metadata, "parameters.allow_z_edge", _single_column_value(df, "z_edge_allowed", False)
         )).strip().lower() in {"true", "1"}, True, "Objects cut only by the first/last Z slice kept in primary (size/FA underestimated)."),
+        ("analysis", "keep_small_objects", str(_metadata_value(
+            metadata, "parameters.keep_small_objects", _single_column_value(df, "small_objects_kept", False)
+        )).strip().lower() in {"true", "1"}, True, "Objects too small for three radial layers kept in primary (no radial profile)."),
         ("analysis", "mode", _metadata_value(metadata, "parameters.mode", _single_column_value(df, "mode")), True,
         "Analysis dimensionality."),
         ("analysis", "expansion_factor", _metadata_value(metadata, "parameters.expansion_factor"), True,
@@ -285,8 +308,16 @@ def _prepare_reporting_frames(df, min_size, max_size):
             pd.to_numeric, errors="coerce"
         ).notna().all(axis=1)
         primary_requested = _as_bool_series(report_df["mode_a_primary_include"])
+        # Recorded opt-in: objects too small for three layers stay primary with a valid object FA;
+        # fa_complete keeps meaning "complete radial profile".
+        object_fa_ok = complete_fa.copy()
+        if {"small_objects_kept", "radial_profile_valid"}.issubset(report_df.columns):
+            small = _as_bool_series(report_df["small_objects_kept"]) & ~_as_bool_series(report_df["radial_profile_valid"])
+            object_fa_ok |= small & _as_bool_series(report_df["A_object_valid"]) & pd.to_numeric(
+                report_df["A_object"], errors="coerce").notna()
     else:
         complete_fa = pd.Series(True, index=report_df.index)
+        object_fa_ok = complete_fa
         primary_requested = pd.Series(True, index=report_df.index)
 
     # Stacks whose alignment is REVIEW inside the ROI are analysed but never primary;
@@ -309,7 +340,7 @@ def _prepare_reporting_frames(df, min_size, max_size):
             not_truncated &= ~truncated
     report_df["not_truncated"] = not_truncated
 
-    primary_mask = size_eligible & complete_fa & primary_requested & alignment_ok & not_truncated
+    primary_mask = size_eligible & object_fa_ok & primary_requested & alignment_ok & not_truncated
     report_df["size_eligible"] = size_eligible
     report_df["fa_complete"] = complete_fa
     report_df["primary_qc_valid"] = primary_mask

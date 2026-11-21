@@ -203,6 +203,7 @@ class AnalysisWorker(QThread):
                         detector_offset_source=p.get("detector_offset_source", {}).get("method", "manual"),
                         roi_output_dir=output_folder,
                         allow_z_edge=p.get("allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"]),
+                        keep_small_objects=p.get("keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"]),
                     )
                     #Abort is honoured regardless of review: the current image is never kept.
                     if self.abort_requested:
@@ -332,6 +333,7 @@ class AnalysisWorker(QThread):
                 "mode": p["mode"],
                 "auto_roi": p.get("auto_roi"),
                 "allow_z_edge": bool(p.get("allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])),
+                "keep_small_objects": bool(p.get("keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"])),
                 "expansion_factor": p["expansion_factor"],
                 "min_voxels": p.get("min_voxels", DEFAULT_SETTINGS["raw_min_voxels"]),
                 "pixel_size_nm": uniform_xy,
@@ -1237,6 +1239,16 @@ class AdvancedSettingsDialog(QDialog):
         )
         form.addRow("QC:", self.allow_z_edge_check)
 
+        self.keep_small_check = QCheckBox("Keep objects too small for radial layers")
+        self.keep_small_check.setToolTip(
+            "With Radial FA Profiling, objects too small for three layers (core/middle/shell) are normally "
+            "excluded, which biases the primary objects towards large ones. When ticked they stay primary for "
+            "size, K_part and object FA; their radial profile and class are 'Profile-Unavailable'. Objects at "
+            "edges or with split Z topology are still excluded. Recorded in the CSV (small_objects_kept) and in "
+            "the QC policy, so runs with and without it are not merged."
+        )
+        form.addRow("", self.keep_small_check)
+
         self.dark_mode_check = QCheckBox("Dark mode")
         form.addRow("Appearance:", self.dark_mode_check)
 
@@ -1263,6 +1275,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin.setEnabled(is_3d)
         self.mode_a_exclude_split_check.setEnabled(is_3d)
         self.allow_z_edge_check.setEnabled(is_3d)
+        self.keep_small_check.setEnabled(is_3d)
         tooltip = "" if is_3d else "Z-step is only used in 3D mode and is ignored for the current Process mode."
         self.z_step_spin.setToolTip(tooltip)
         if not is_3d:
@@ -1281,6 +1294,7 @@ class AdvancedSettingsDialog(QDialog):
         self.mode_a_min_core_spin.setValue(int(self.settings.value("mode_a_min_core_voxels", DEFAULT_SETTINGS["mode_a_min_core_voxels"])))
         self.mode_a_exclude_split_check.setChecked(_safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])))
         self.allow_z_edge_check.setChecked(_safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])))
+        self.keep_small_check.setChecked(_safe_bool(self.settings.value("qc_keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"])))
 
     def accept(self):
         self.settings.setValue("adv_pixel_size", self.pixel_size_spin.value())
@@ -1299,6 +1313,7 @@ class AdvancedSettingsDialog(QDialog):
         self.settings.setValue("mode_a_min_core_voxels", self.mode_a_min_core_spin.value())
         self.settings.setValue("mode_a_exclude_split_slices", self.mode_a_exclude_split_check.isChecked())
         self.settings.setValue("qc_allow_z_edge", self.allow_z_edge_check.isChecked())
+        self.settings.setValue("qc_keep_small_objects", self.keep_small_check.isChecked())
         super().accept()
 
     #Read the detector offset from a Leica .lif header; only photon counting sets a value.
@@ -2122,6 +2137,8 @@ class ExQt(QMainWindow):
             calibration_text += "\nAuto-ROI: K_part is not computed (no nucleus outline)."
         if self.mode_combo.currentText() == "3d" and _safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])):
             calibration_text += "\nQC: objects cut by the first/last Z slice are KEPT (size/FA of these underestimated)."
+        if self.mode_combo.currentText() == "3d" and _safe_bool(self.settings.value("qc_keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"])):
+            calibration_text += "\nQC: objects too small for radial layers are KEPT (no radial profile)."
         if _safe_bool(self.settings.value("mode_a_enabled", DEFAULT_SETTINGS["mode_a_enabled"])):
             calibration_text += (
                 "\n\nRadial FA Profiling min. voxels per layer: "
@@ -2167,6 +2184,7 @@ class ExQt(QMainWindow):
             "mode_a_exclude_split_slices": _safe_bool(self.settings.value("mode_a_exclude_split_slices", DEFAULT_SETTINGS["mode_a_exclude_split_slices"])),
             **{key: DEFAULT_SETTINGS[key] for key in MODE_A_KEYS if key.startswith("mode_a_z_split_")},
             "allow_z_edge": _safe_bool(self.settings.value("qc_allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"])),
+            "keep_small_objects": _safe_bool(self.settings.value("qc_keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"])),
         }
 
         self.btn_run.setEnabled(False)

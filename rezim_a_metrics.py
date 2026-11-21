@@ -75,6 +75,8 @@ def compute_core_shell_metrics(
             if name == "object":
                 object_principal_std = result.get("principal_std")
                 object_principal_axes = result.get("principal_axes")
+                results["FA_xy"] = result.get("fa_xy", np.nan)
+                results["main_axis_angle_to_z_deg"] = result.get("main_axis_angle_to_z_deg", np.nan)
         else:
             empty_layers.append(name)
             result = {

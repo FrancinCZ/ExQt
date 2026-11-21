@@ -495,6 +495,17 @@ def _summary_table_rows(plot_df, sample_name):
         ["Median Nucleoplasm Intensity", f"{nucleoplasm.median():.1f} ADU" if not nucleoplasm.empty else "N/A"],
         ["Median Particle Volume", f"{plot_df[size_col].median():.4f} µm³" if size_col in plot_df.columns else "N/A"],
     ]
+    fa_xy = pd.to_numeric(plot_df.get("FA_xy"), errors="coerce").dropna() if "FA_xy" in plot_df.columns else pd.Series(dtype=float)
+    if not fa_xy.empty:
+        rows.append(["Median FA in XY only (FA_xy)", f"{fa_xy.median():.2f}"])
+    angle = pd.to_numeric(plot_df.get("main_axis_angle_to_z_deg"), errors="coerce").dropna() if "main_axis_angle_to_z_deg" in plot_df.columns else pd.Series(dtype=float)
+    if not angle.empty:
+        rows.append(["Main axis within 30° of Z", f"{(angle <= 30).mean() * 100:.1f}% (random orientation: 13.4%)"])
+    if {"saturated_voxels", "volume_px"}.issubset(plot_df.columns):
+        voxels = pd.to_numeric(plot_df["volume_px"], errors="coerce").sum()
+        saturated = pd.to_numeric(plot_df["saturated_voxels"], errors="coerce").sum()
+        if voxels > 0:
+            rows.append(["Saturated object voxels", f"{saturated / voxels * 100:.1f}%" + (" - K_part unreliable" if saturated / voxels > 0.01 else "")])
     for cname, count in class_counts.items():
         pct = (count / len(plot_df)) * 100 if len(plot_df) > 0 else 0
         rows.append([f"Class: {cname}", f"{count:,} ({pct:.1f}%)"])
