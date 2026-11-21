@@ -238,6 +238,34 @@ def test_live_numbers_report_touching_shapes():
     assert numbers == ["!", "!"]
 
 
+#In 2D the shapes are grouped like one slice of a stack, so live numbers equal the final cell_ids.
+def test_live_numbers_match_final_cell_ids_in_2d():
+    from roi_tools import live_shape_numbers
+    from Batch import nucleus_roi_labels
+    import napari
+
+    shapes = [_ellipse(0, 18, 2, 28, 12)[:, 1:], _ellipse(0, 2, 15, 12, 25)[:, 1:]]
+    layer = napari.layers.Shapes(shapes, shape_type="ellipse")
+    numbers, error = live_shape_numbers(layer.data, layer.shape_type, (30, 30))
+    assert error is None
+    drawn = layer.to_labels(labels_shape=(30, 30))
+    cells = nucleus_roi_labels(drawn)
+    assert numbers == [str(n) for n in shape_nucleus_ids(drawn, cells, 2)]
+    assert numbers == ["2", "1"]                  # the upper shape comes first
+
+
+def test_live_numbers_report_touching_shapes_in_2d():
+    from roi_tools import live_shape_numbers
+    import napari
+
+    layer = napari.layers.Shapes(
+        [_ellipse(0, 5, 2, 15, 12)[:, 1:], _ellipse(0, 5, 11, 15, 21)[:, 1:]], shape_type="ellipse"
+    )
+    numbers, error = live_shape_numbers(layer.data, layer.shape_type, (30, 30))
+    assert error is not None and "touch" in error
+    assert numbers == ["!", "!"]
+
+
 def test_shapes_are_numbered_without_preview(window):
     layer = _start_roi(window)
     layer.add_ellipses([_ellipse(1, 5, 18, 15, 28), _ellipse(2, 5, 2, 15, 12), _ellipse(3, 6, 19, 14, 27)])

@@ -14,6 +14,7 @@ MODE_A_Z_SPLIT_MIN_COMPONENT_VOXELS = DEFAULT_SETTINGS["mode_a_z_split_min_compo
 MODE_A_Z_SPLIT_MIN_COMPONENT_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_min_component_fraction"]
 MODE_A_Z_SPLIT_PASS_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_pass_fraction"]
 MODE_A_Z_SPLIT_REVIEW_FRACTION = DEFAULT_SETTINGS["mode_a_z_split_review_fraction"]
+ANALYSIS_MODES = ("3d", "2d", "single_slice")
 
 
 def _positive_finite(value, name):
@@ -146,11 +147,13 @@ def _touches_z_edge_only(region, image_shape, valid_voxels=None):
     return bool(at_z and not at_xy and not in_padding)
 
 
-def _touches_roi_edge(region, roi_mask):
-    roi = np.asarray(roi_mask, dtype=bool)
+#With cell_id, roi_mask is the per-nucleus label image and only that nucleus counts as inside:
+#an object reaching into a neighbouring nucleus ROI is truncated too.
+def _touches_roi_edge(region, roi_mask, cell_id=None):
+    roi = np.asarray(roi_mask) if cell_id is not None else np.asarray(roi_mask, dtype=bool)
     if roi.ndim != region.image.ndim:
         raise ValueError("ROI and labeled object must have the same dimensionality.")
-    if np.all(roi):
+    if cell_id is None and np.all(roi):
         return False
 
     ndim = region.image.ndim
@@ -167,7 +170,8 @@ def _touches_roi_edge(region, roi_mask):
     )
     local_object[object_slices] = region.image.astype(bool)
     adjacent = binary_dilation(local_object) & ~local_object
-    return bool(np.any(adjacent & ~roi[crop_slices]))
+    inside = roi[crop_slices] if cell_id is None else roi[crop_slices] == cell_id
+    return bool(np.any(adjacent & ~inside))
 
 
 #Split a drawn ROI stack into per-nucleus groups of (z, 2D mask) shapes.
@@ -281,6 +285,18 @@ def _interpolate_or_extrude_roi(mask_3d: np.ndarray) -> np.ndarray:
     for cell_id, group_mask in enumerate(group_masks, start=1):
         out[group_mask] = cell_id
     return out
+
+
+def nucleus_roi_labels(mask):
+    """Per-nucleus label image (cell_id 1..N) from a drawn 2D or 3D ROI.
+
+    2D uses the same grouping as one slice of a stack: shapes of one nucleus must not touch
+    shapes of another, otherwise ValueError (as in 3D).
+    """
+    mask = np.asarray(mask)
+    if mask.ndim == 2:
+        return _interpolate_or_extrude_roi(mask[np.newaxis])[0]
+    return _interpolate_or_extrude_roi(mask)
 
 
 #Detect split silhouettes without deciding biological object identity.
@@ -540,7 +556,18 @@ def alignment_status_for_roi(tif_path, roi_mask):
     return "REVIEW_OUTSIDE_ROI"
 
 
+#The analysis uses one XY size (sampling Z, XY, XY); 0.1 % allows rounding in the metadata.
+NON_SQUARE_PIXEL_TOLERANCE = 1e-3
+
+
+def _same_xy_size(pixel_size_x, pixel_size_y):
+    if pixel_size_y is None:
+        return True
+    return abs(pixel_size_x - pixel_size_y) <= NON_SQUARE_PIXEL_TOLERANCE * max(pixel_size_x, pixel_size_y)
+
+
 #Read calibrated XY/Z spacing without guessing an unspecified TIFF unit.
+#Non-square pixels give no XY size but "non_square_pixels": (x_nm, y_nm).
 def get_metadata_from_tif(tif_path):
 
     with tifffile.TiffFile(tif_path) as tif:
@@ -560,10 +587,17 @@ def get_metadata_from_tif(tif_path):
                         pixels.attrib.get("PhysicalSizeX"),
                         pixels.attrib.get("PhysicalSizeXUnit", "um"),
                     )
+                    pixel_size_y = _physical_value_to_nm(
+                        pixels.attrib.get("PhysicalSizeY"),
+                        pixels.attrib.get("PhysicalSizeYUnit", "um"),
+                    )
                     z_step = _physical_value_to_nm(
                         pixels.attrib.get("PhysicalSizeZ"),
                         pixels.attrib.get("PhysicalSizeZUnit", "um"),
                     )
+                    if pixel_size is not None and not _same_xy_size(pixel_size, pixel_size_y):
+                        meta["non_square_pixels"] = (pixel_size, pixel_size_y)
+                        pixel_size = None
                     if pixel_size is not None:
                         meta["pixel_size"] = pixel_size
                         sources["pixel_size"] = "OME PhysicalSizeX"
@@ -583,15 +617,22 @@ def get_metadata_from_tif(tif_path):
             tags = tif.pages[0].tags
             #Inch/cm ResolutionUnit is print DPI (e.g. default 72 dpi), not a microscope calibration; XResolution is trusted only with an explicit ImageJ length unit.
             imagej_length_unit = _physical_value_to_nm(1.0, imagej_unit) is not None
-            if "pixel_size" not in meta and "XResolution" in tags and imagej_length_unit:
+            if "pixel_size" not in meta and "non_square_pixels" not in meta and "XResolution" in tags and imagej_length_unit:
                 numerator, denominator = tags["XResolution"].value
                 if numerator > 0 and denominator > 0:
                     pixel_size = _physical_value_to_nm(denominator / numerator, imagej_unit)
-                    if pixel_size is not None:
+                    pixel_size_y = None
+                    if "YResolution" in tags:
+                        y_numerator, y_denominator = tags["YResolution"].value
+                        if y_numerator > 0 and y_denominator > 0:
+                            pixel_size_y = _physical_value_to_nm(y_denominator / y_numerator, imagej_unit)
+                    if pixel_size is not None and not _same_xy_size(pixel_size, pixel_size_y):
+                        meta["non_square_pixels"] = (pixel_size, pixel_size_y)
+                    elif pixel_size is not None:
                         meta["pixel_size"] = pixel_size
                         sources["pixel_size"] = f"TIFF XResolution ({imagej_unit})"
 
-            if not {"pixel_size", "z_step"}.intersection(meta):
+            if not {"pixel_size", "z_step", "non_square_pixels"}.intersection(meta):
                 return None
             meta["sources"] = sources
             meta["complete"] = "pixel_size" in meta and "z_step" in meta
@@ -619,6 +660,8 @@ def process_condensates(
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
+    if mode not in ANALYSIS_MODES:
+        raise ValueError(f"Unknown analysis mode {mode!r}; expected one of {', '.join(ANALYSIS_MODES)}.")
     tif_path = Path(tif_path)
     mask_path = Path(mask_path)
     alignment_status = validate_alignment_qc(tif_path) or "not_aligned"
@@ -631,6 +674,13 @@ def process_condensates(
     img_mask, mask_axes = _read_tiff_with_axes(mask_path)
 
     meta = get_metadata_from_tif(tif_path)
+    #Sizes, the ROI EDT and FA all use one XY size, so a GUI value cannot make such a file valid.
+    if meta and meta.get("non_square_pixels"):
+        x_nm, y_nm = meta["non_square_pixels"]
+        raise ValueError(
+            f"{tif_path.name} has non-square pixels (X={x_nm:g} nm, Y={y_nm:g} nm); "
+            "ExQt needs the same pixel size in X and Y. Resample the image to square pixels."
+        )
     if meta:
         if pixel_size_nm is None:
             pixel_size_nm = meta.get('pixel_size')
@@ -761,15 +811,16 @@ def process_condensates(
         #The GUI says where the ROI came from (manual, saved_roi, empty_fallback_fov).
         if roi_source_func is not None:
             roi_source = roi_source_func()
-        if is_3d and extruded_mask.max() > 0:
-            extruded_mask = _interpolate_or_extrude_roi(extruded_mask)
+        if extruded_mask.max() > 0:
+            extruded_mask = nucleus_roi_labels(extruded_mask)
         roi_mask = extruded_mask > 0
 
     #Persist the ROI mask so auditors can verify which region was selected. With roi_output_dir (the run's output folder) every run keeps its own ROI and the input folder is not touched.
     roi_save_path = roi_output_path(tif_path, mask_path, roi_output_dir)
     roi_save_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        tifffile.imwrite(str(roi_save_path), extruded_mask.astype(np.uint8), compression="zlib")
+        #Explicit grayscale: tifffile would store a 3- or 4-plane stack as one RGB image.
+        tifffile.imwrite(str(roi_save_path), extruded_mask.astype(np.uint8), compression="zlib", photometric="minisblack")
         print(f"      [ROI] Saved ROI mask -> {roi_save_path.name}")
     except Exception as e:
         print(f"      [ROI] Warning: could not save ROI mask: {e}")
@@ -845,7 +896,6 @@ def process_condensates(
         if region.area < min_voxels:
             continue
 
-        centroid_coords = tuple(int(round(c)) for c in region.centroid)
         if len(region.centroid) >= 3:
             z_px, y_px, x_px = [round(float(v), 3) for v in region.centroid[:3]]
         elif len(region.centroid) == 2:
@@ -853,13 +903,14 @@ def process_condensates(
         else:
             z_px = y_px = x_px = np.nan
 
-        try:
-            cell_id = extruded_mask[centroid_coords]
-        except IndexError:
-            continue
-
+        #The nucleus holding most of the object's voxels (smallest id on a tie). The centroid of a
+        #concave object can lie outside the ROI. Objects reaching into another nucleus are
+        #flagged by touches_roi_edge below.
+        cell_votes = np.bincount(np.asarray(extruded_mask[tuple(region.coords.T)], dtype=np.int64))
+        cell_votes[0] = 0
+        cell_id = int(np.argmax(cell_votes))
         if cell_id == 0:
-            continue
+            raise RuntimeError(f"Object {region.label} lies outside the ROI after ROI masking.")
 
         bg_int = nucleoplasm_means.get(cell_id, np.nan)
         net_mean_int = max(mean_int - k_offset, 0.0)
@@ -911,7 +962,7 @@ def process_condensates(
 
         #Truncated objects (image/stack border, alignment padding, ROI boundary) are flagged in every mode; postprocessing keeps them out of primary.
         touches_edge = _touches_image_edge(region, labeled_mask.shape, valid_voxels)
-        touches_roi_edge = _touches_roi_edge(region, roi_mask)
+        touches_roi_edge = _touches_roi_edge(region, extruded_mask, cell_id)
         row["touches_image_edge"] = touches_edge
         row["touches_roi_edge"] = touches_roi_edge
         #Optional policy for stacks that do not cover the nucleus in Z: objects cut only by the

@@ -3,9 +3,9 @@ import json
 import threading
 from datetime import datetime
 from Batch import (
-    _interpolate_or_extrude_roi,
     get_metadata_from_tif,
     matching_mask_path as _matching_mask_path,
+    nucleus_roi_labels,
     process_condensates,
     roi_output_path,
     source_tiff_files as _source_tiff_files,
@@ -2294,7 +2294,7 @@ class ExQt(QMainWindow):
             text += f"<p style='color:#d9534f'>{warning}</p>"
         self.roi_help_label.setText(text)
 
-    #Any edit invalidates the preview; in 2D the shape number is already the final cell_id.
+    #Any edit invalidates the preview and renumbers the shapes.
     def _roi_shapes_changed(self, event=None):
         #Recompute only when an edit is finished (added/removed/changed), not on every drag step.
         action = str(getattr(event, "action", "") or "").lower()
@@ -2336,13 +2336,11 @@ class ExQt(QMainWindow):
         if drawn.max() == 0:
             self._update_roi_help("Nothing drawn yet.")
             return
-        cells = drawn
-        if info.get("is_3d") and drawn.ndim == 3:
-            try:
-                cells = _interpolate_or_extrude_roi(drawn)
-            except ValueError as error:
-                QMessageBox.warning(self, "ROI cannot be used", f"{error}\n\nFix the drawn shapes and preview again.")
-                return
+        try:
+            cells = nucleus_roi_labels(drawn)
+        except ValueError as error:
+            QMessageBox.warning(self, "ROI cannot be used", f"{error}\n\nFix the drawn shapes and preview again.")
+            return
         numbers = shape_nucleus_ids(drawn, cells, len(layer.data))
         layer.features = {"nucleus": np.array(["?" if n is None else str(n) for n in numbers], dtype=object)}
         layer.refresh_text()
@@ -2375,16 +2373,15 @@ class ExQt(QMainWindow):
             return
         #The worker rebuilds nuclei from the ROI; reuse only if that reproduces it exactly.
         saved = self._saved_roi
-        if saved.ndim == 3:
-            try:
-                rebuilt = _interpolate_or_extrude_roi(saved)
-            except ValueError:
-                rebuilt = None
-            if rebuilt is None or not np.array_equal(rebuilt, saved):
-                QMessageBox.warning(self, "Saved ROI cannot be reused",
-                                    "The saved ROI cannot be rebuilt into the same nuclei. Please draw the ROI.")
-                self.btn_use_saved_roi.hide()
-                return
+        try:
+            rebuilt = nucleus_roi_labels(saved)
+        except ValueError:
+            rebuilt = None
+        if rebuilt is None or not np.array_equal(rebuilt, saved):
+            QMessageBox.warning(self, "Saved ROI cannot be reused",
+                                "The saved ROI cannot be rebuilt into the same nuclei. Please draw the ROI.")
+            self.btn_use_saved_roi.hide()
+            return
         if "Draw ROI" in self.viewer.layers:
             self.viewer.layers.remove("Draw ROI")
         self._hide_roi_controls()
@@ -2413,9 +2410,9 @@ class ExQt(QMainWindow):
 
         # Check the multi-nucleus grouping here so a drawing mistake can be fixed
         # instead of failing the whole image later in the worker.
-        if mask_data is not None and info.get("is_3d") and mask_data.ndim == 3 and mask_data.max() > 0:
+        if mask_data is not None and mask_data.ndim in (2, 3) and mask_data.max() > 0:
             try:
-                _interpolate_or_extrude_roi(mask_data)
+                nucleus_roi_labels(mask_data)
             except ValueError as error:
                 QMessageBox.warning(self, "ROI cannot be used", f"{error}\n\nFix the drawn shapes and confirm again.")
                 return
