@@ -53,6 +53,7 @@ Click **Settings** in the top menu bar:
 | **Min. voxels per layer** | `20` | Minimum voxels for a valid layer FA and for the core. |
 | **Require Z-topology PASS** | Checked | Objects split along Z are not primary. |
 | **QC: Keep objects cut by the first/last Z slice** | Unchecked | For stacks that do not cover the whole nucleus in Z: objects touching only the first/last slice stay primary ($K_{\text{part}}$ usable, size/FA underestimated). Runs with and without it are not merged. |
+| **QC: Keep objects too small for radial layers** | Unchecked | With Radial FA Profiling: objects too small for core/middle/shell stay primary for size, $K_{\text{part}}$ and object FA (class `Profile-Unavailable`). Removes the bias towards large objects for small structures. Runs with and without it are not merged. |
 | **Dark mode** | Off | Dark or light appearance; remembered for the next start. |
 
 > [!TIP]

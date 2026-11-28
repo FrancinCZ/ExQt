@@ -18,6 +18,8 @@ DEFAULT_SETTINGS = {
     "plot_k_max": 50.0,
     #QC: keep objects cut only by the first/last Z slice (stacks not covering the nucleus); off by default.
     "qc_allow_z_edge": False,
+    #QC: keep objects too small for three radial layers (size, K_part, object FA only); off by default.
+    "qc_keep_small_objects": False,
     "mode_a_enabled": False,
     "mode_a_min_core_voxels": 20,
     "mode_a_exclude_split_slices": True,

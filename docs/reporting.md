@@ -49,6 +49,8 @@ Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. R
 
 The PDF summary table and the Compare runs class chart list the classes in one fixed order: Elongated / Core-Enriched, Globular / Core-Enriched, Elongated / No Significant Gradient, Globular / No Significant Gradient, Elongated / Shell-Enriched, Globular / Shell-Enriched, then any other class that occurs (Profile-Unavailable, Punctate, Unclassified). The six main classes are always listed, with 0 when absent, so tables of different runs line up row by row. A run without Radial FA Profiling has only Unclassified objects and lists just that.
 
+Below the classes the PDF table lists the median `FA_xy` (shape in XY only), the share of objects whose main axis lies within 30° of Z (13.4 % for random orientation; much more indicates an elongation along Z) and the share of saturated object voxels (above 1 % it adds "K_part unreliable"; see [QC pipeline](quality-control/qc-pipeline.md)). Objects kept by **Keep objects too small for radial layers** appear as `Profile-Unavailable` or `Punctate / Small Cluster`.
+
 ## How to Read Each Plot
 
 The plots are descriptive; none of them tests a physical model. Keep in mind:

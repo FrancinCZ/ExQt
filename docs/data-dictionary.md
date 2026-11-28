@@ -92,6 +92,13 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `touches_roi_edge` | - | `boolean` | `True` if the boundary of the object's nucleus ROI cuts the object, including an object that reaches into a neighbouring nucleus ROI. All modes; excluded from primary. |
 | `touches_z_edge_only` | - | `boolean` | `True` if a 3D object touches only the first/last Z slice (not the XY border, not alignment padding). |
 | `z_edge_allowed` | - | `boolean` | Run setting: objects with `touches_z_edge_only` stay primary (size/FA underestimated). Default `False`. |
+| `small_objects_kept` | - | `boolean` | Run setting: objects too small for three radial layers stay primary (size, $K_{\text{part}}$, object FA; no radial profile). Default `False`. |
+| `radial_profile_valid` | - | `boolean` | `True` if all radial layers are measurable (Radial FA Profiling). |
+| `radial_profile_reason` | - | `string` | Layer problems when `radial_profile_valid` is `False` (e.g. `empty_layer_shell`, `core_below_min_voxels`). |
+| `FA_xy` | - | `float` | Shape anisotropy in the XY plane only (0–1); not changed by an elongation along Z. |
+| `main_axis_angle_to_z_deg` | ° | `float` | Angle between the longest principal axis and Z (0 = along Z, 90 = in XY). |
+| `saturated_voxels` | voxels | `int` | Object voxels at the detector ceiling (`saturation_level_adu`). |
+| `saturation_level_adu` | ADU | `float` | Detector ceiling used for `saturated_voxels` (bit-depth limit reached by the image, else dtype maximum; NaN for float images). |
 | `mode_a_object_touches_edge` | - | `boolean` | Mode A copy of `touches_image_edge`. |
 | `mode_a_object_touches_roi_edge` | - | `boolean` | Mode A copy of `touches_roi_edge`. |
 | `alignment_status` | - | `string` | Aligner overall status of the input stack: `PASS`, `REVIEW` (a weak alignment step inside the ROI Z range: analysed, never primary, `mode_a_qc_reason` starts with `alignment_review`), `REVIEW_OUTSIDE_ROI` (all weak steps outside the ROI Z range: eligible for primary statistics) or `not_aligned` (no `<stem>_drift.csv`). `FAIL` stacks are not analysed. |

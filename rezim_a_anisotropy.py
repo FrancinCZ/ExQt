@@ -47,8 +47,23 @@ def shape_anisotropy(mask, sampling=None, min_voxels=20):
         principal_std_nm = np.sqrt(eigenvalues)
         principal_axes = eigenvectors
 
+    #Shape in the XY plane only and the direction of the longest axis: an elongation along Z
+    #(PSF, axial scaling, anisotropic expansion) does not change FA_xy, and shows up as a small
+    #angle between the main axis and Z (0 deg = along Z, 90 deg = in the XY plane).
+    fa_xy = np.nan
+    angle_to_z_deg = np.nan
+    if binary_mask.ndim == 3 and eigenvalue_sum_of_squares > 0.0:
+        xy_eigenvalues = np.clip(np.linalg.eigvalsh(covariance[1:, 1:]), 0.0, None)
+        xy_sum_of_squares = float(np.sum(xy_eigenvalues**2))
+        if xy_sum_of_squares > 0.0:
+            fa_xy = float(np.sqrt(2.0 * np.sum((xy_eigenvalues - xy_eigenvalues.mean()) ** 2) / xy_sum_of_squares))
+        main_axis = eigenvectors[:, -1]
+        angle_to_z_deg = float(np.degrees(np.arccos(np.clip(abs(main_axis[0]), 0.0, 1.0))))
+
     return {
         "fractional_anisotropy": fractional_anisotropy,
+        "fa_xy": fa_xy,
+        "main_axis_angle_to_z_deg": angle_to_z_deg,
         "principal_std": principal_std_nm,
         #Columns are unit principal directions in physical (Z, Y, X) space, ascending by std.
         "principal_axes": principal_axes,
