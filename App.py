@@ -204,6 +204,7 @@ class AnalysisWorker(QThread):
                         roi_output_dir=output_folder,
                         allow_z_edge=p.get("allow_z_edge", DEFAULT_SETTINGS["qc_allow_z_edge"]),
                         keep_small_objects=p.get("keep_small_objects", DEFAULT_SETTINGS["qc_keep_small_objects"]),
+                        object_map_dir=output_folder,
                     )
                     #Abort is honoured regardless of review: the current image is never kept.
                     if self.abort_requested:
@@ -269,6 +270,16 @@ class AnalysisWorker(QThread):
 
         min_size = p.get("plot_min_size", DEFAULT_SETTINGS["plot_min_size"])
         max_size = p.get("plot_max_size", DEFAULT_SETTINGS["plot_max_size"])
+
+        #Every run: which object got which class, as an image (Classes.tif over the raw image, Classes.png).
+        try:
+            from class_maps import export_class_maps
+            class_frame = _prepare_reporting_frames(final_df, min_size, max_size)[3]
+            written = export_class_maps(class_frame, output_folder, calibrations)
+            if written:
+                self.progress.emit(f"Class images saved: {len(written) // 2} image(s).")
+        except Exception as e:
+            self.progress.emit(f"Error generating class images: {e}")
 
         def wanted(key):
             return p.get("generate_reports", False) and p.get(key, REPORT_DEFAULTS[key])
@@ -1389,6 +1400,8 @@ class ExQt(QMainWindow):
         self.same_folder_checkbox = QCheckBox("Save next to input")
         self.same_folder_checkbox.setToolTip("Write the results into the input folder instead of a separate output folder.")
         self.same_folder_checkbox.toggled.connect(self.switch_same_folder)
+        #With "Save next to input" the output always follows the input folder, also when it changes later.
+        self.folder_input.textChanged.connect(self._sync_output_to_input)
         self.left_panel_layout.addWidget(self.same_folder_checkbox)
         
         form_layout = QFormLayout()
@@ -2010,6 +2023,10 @@ class ExQt(QMainWindow):
             self.output_path_edit.setText(self.folder_input.text())
         else:
             self.output_path_edit.clear()
+
+    def _sync_output_to_input(self, text):
+        if self.same_folder_checkbox.isChecked():
+            self.output_path_edit.setText(text)
 
     def load_settings(self):
         dark_mode = self.settings.value("dark_mode")

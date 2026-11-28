@@ -473,6 +473,13 @@ def _four_panel_figure(plot_df, title):
     return fig
 
 
+#CSV round trips turn booleans into strings; NaN counts as False.
+def _truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value) if pd.notna(value) else False
+
+
 def _intensity_values(plot_df, column):
     return pd.to_numeric(plot_df[column], errors="coerce").dropna() if column in plot_df.columns else pd.Series([], dtype=float)
 
@@ -506,6 +513,12 @@ def _summary_table_rows(plot_df, sample_name):
         saturated = pd.to_numeric(plot_df["saturated_voxels"], errors="coerce").sum()
         if voxels > 0:
             rows.append(["Saturated object voxels", f"{saturated / voxels * 100:.1f}%" + (" - K_part unreliable" if saturated / voxels > 0.01 else "")])
+    #Objects kept with "Keep objects too small for radial layers": counted in size, K_part and FA,
+    #without a radial profile.
+    if "radial_profile_valid" in plot_df.columns and len(plot_df) > 0:
+        no_profile = int((~plot_df["radial_profile_valid"].map(_truthy)).sum())
+        if no_profile:
+            rows.append(["Too small for radial layers (no profile)", f"{no_profile:,} ({no_profile / len(plot_df) * 100:.1f}%)"])
     for cname, count in class_counts.items():
         pct = (count / len(plot_df)) * 100 if len(plot_df) > 0 else 0
         rows.append([f"Class: {cname}", f"{count:,} ({pct:.1f}%)"])

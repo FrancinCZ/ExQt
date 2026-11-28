@@ -92,6 +92,21 @@ def roi_output_path(tif_path, mask_path, roi_output_dir=None):
     return folder / f"{Path(tif_path).stem}_ROI.tif"
 
 
+#Label image of the measured objects (voxel value = object_id), written next to the ROI; the
+#reporting step colours it by class (Classes.tif / Classes.png).
+def object_map_path(tif_path, output_dir):
+    return Path(output_dir) / f"{Path(tif_path).stem}_Objects.tif"
+
+
+def _write_object_map(path, labeled_mask, measured_ids):
+    keep = np.zeros(int(labeled_mask.max()) + 1, dtype=bool)
+    ids = np.asarray(sorted(int(i) for i in measured_ids), dtype=np.int64)
+    keep[ids[ids < keep.size]] = True
+    dtype = np.uint16 if keep.size <= np.iinfo(np.uint16).max + 1 else np.uint32
+    object_map = np.where(keep[labeled_mask], labeled_mask, 0).astype(dtype)
+    tifffile.imwrite(str(path), object_map, compression="zlib", photometric="minisblack")
+
+
 #Validate a binary/instance mask and never silently merge 0/255 objects.
 def _prepare_labeled_mask(mask):
     array = np.asarray(mask)
@@ -657,6 +672,7 @@ def process_condensates(
     allow_z_edge=False,
     roi_source_func=None,
     keep_small_objects=False,
+    object_map_dir=None,
 ):
     #Process one raw/mask TIFF pair and return one row per valid object.
 
@@ -1098,6 +1114,11 @@ def process_condensates(
                 "A_middle_valid": metrics["A_middle_valid"],
                 "A_core_valid": metrics["A_core_valid"],
                 "mode_a_core_voxels": metrics["core_voxels"],
+                #Voxels per radial layer (0 = empty layer). An empty shell means the object is only a few
+                #voxels wide, not that it has only a core.
+                "shell_voxels": metrics["shell_voxels"],
+                "middle_voxels": metrics["middle_voxels"],
+                "core_voxels": metrics["core_voxels"],
                 "mode_a_core_valid": metrics["core_valid"],
 
 
@@ -1173,5 +1194,14 @@ def process_condensates(
                 #Same Z scale as the image/labels, otherwise 3D points sit at the wrong height.
                 points_kwargs["scale"] = layer_scale
             send_layer_func({"type": "points", "name": "Detected Condensates", "data": coords, "kwargs": points_kwargs})
+
+    if object_map_dir is not None and objects_data:
+        map_path = object_map_path(tif_path, object_map_dir)
+        try:
+            map_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_object_map(map_path, labeled_mask, {row["object_id"] for row in objects_data})
+            print(f"      [Objects] Saved object map -> {map_path.name}")
+        except Exception as e:
+            print(f"      [Objects] Warning: could not save object map: {e}")
 
     return pd.DataFrame(objects_data)
