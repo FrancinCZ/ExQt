@@ -62,7 +62,7 @@ def test_figure_has_fixed_axes_and_conditions_in_order():
         assert np.allclose(_panel(fig, letter).get_xlim(), (MIN_SIZE, MAX_SIZE))
     ticks = [t.get_text() for t in _panel(fig, "B").get_xticklabels()]
     assert ticks[0].startswith("A_cond") and ticks[1].startswith("B_cond")
-    assert "2 nuclei" in ticks[0]
+    assert "n = 2 ROI" in ticks[0]  # feedback 2026-11-25: n = nuclei (ROIs)
 
 
 # Supervisor request 2026-10-23: Control / Test / Test2 in one figure, each of the standard graphs with one

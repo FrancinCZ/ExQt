@@ -34,6 +34,14 @@ The figure has the six panels of the standard plots (A size, B $K_{\text{part}}$
 
 **Tools → Compare runs…** draws the same six panels for groups that cannot be merged, e.g. ExM (expansion factor 8–10) and IF (expansion factor 1). Each chosen folder is one group; runs inside a group must share the QC settings, settings that differ between groups are listed under the figure. Single nuclei can be picked, and each picked nucleus can get its own column (coloured by its group). Unlike the standard plots and Merge, the $K_{\text{part}}$ axis in Compare runs is fitted to the plotted values: from the next round value below the lowest K to the next above the highest (e.g. highest K 1.5 → axis to 2), always with K = 1 inside. All groups in one figure share that axis, but two Compare runs figures can have different K axes. See [GUI overview](user-guide/gui-overview.md).
 
+## Per Nucleus (ROI) Summaries
+
+The nucleus (ROI) is the unit of every summary table (feedback 2026-11-25). Each metric is first computed per nucleus from its QC-passed objects in the size range; a nucleus without such objects counts with 0 condensates and has no K, size or class values. Over the nuclei, means are given as mean ± SD and medians as median (IQR). Class shares are the mean over nuclei of each nucleus's percentage of QC-passed objects, so every nucleus weighs the same however many objects it has; "Total Elongated / Globular" and "Total Core-Enriched / No Significant Gradient / Shell-Enriched" add up the six classes by shape and by radial profile.
+
+- **Normal analysis:** the PDF report gets a page "Per nucleus (ROI)" with one column per nucleus (six per page) and a column "All nuclei".
+- **Merge existing runs:** sheets `Summary_Per_Nucleus` (one column per condition), `Summary_Numbers` (n, mean, SD, median, Q1, Q3) and `Nucleus_Metrics` (one row per nucleus), plus `*_Summary_Table.png`, `*_Nuclei.png` (one box per nucleus, coloured by image, grouped by condition) and `*_Class_Totals.png` (bars = mean over nuclei ± SD, cut at 0 and 100 %, dots = nuclei).
+- **Compare runs:** the same sheets with one column per group, `*_Summary_Table.png` and `*_Class_Totals.png`. The x labels of the condition panels give n = number of ROIs.
+
 ## The Four Summary Plots
 
 Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. Reference lines are working values from `reference_values.py` and are labelled as such.
@@ -49,7 +57,11 @@ Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. R
 
 The PDF summary table and the Compare runs class chart list the classes in one fixed order: Elongated / Core-Enriched, Globular / Core-Enriched, Elongated / No Significant Gradient, Globular / No Significant Gradient, Elongated / Shell-Enriched, Globular / Shell-Enriched, then any other class that occurs (Profile-Unavailable, Punctate, Unclassified). The six main classes are always listed, with 0 when absent, so tables of different runs line up row by row. A run without Radial FA Profiling has only Unclassified objects and lists just that.
 
-Below the classes the PDF table lists the median `FA_xy` (shape in XY only), the share of objects whose main axis lies within 30° of Z (13.4 % for random orientation; much more indicates an elongation along Z) and the share of saturated object voxels (above 1 % it adds "K_part unreliable"; see [QC pipeline](quality-control/qc-pipeline.md)). Objects kept by **Keep objects too small for radial layers** appear as `Profile-Unavailable` or `Punctate / Small Cluster`.
+Below the classes the PDF table lists the median `FA_xy` (shape in XY only), the share of objects whose main axis lies within 30° of Z (13.4 % for random orientation; much more indicates an elongation along Z) and the share of saturated object voxels (above 1 % it adds "K_part unreliable"; see [QC pipeline](quality-control/qc-pipeline.md)). Objects kept by **Keep objects too small for radial layers** appear as `Profile-Unavailable` or `Punctate / Small Cluster`; the row "Too small for radial layers (no profile)" counts them. The columns `shell_voxels`, `middle_voxels` and `core_voxels` show the voxels per layer (0 = empty): an empty shell means the object is only a few voxels wide, not that it has only a core.
+
+### Class images
+
+Every run writes, per image, `<stem>_Classes.tif` and `<stem>_Classes.png` from `<stem>_Objects.tif` (voxel value = `object_id`). Codes in `Classes.tif`: 1 = Globular (Low FA), 2 = Elongated (High FA), 3 = primary without a shape class (Punctate, Unclassified), 4 = not primary (QC or size range), 0 = background. Open it over the raw image in Fiji or napari to see which condensate got which class. The PNG shows a top view (max projection over Z) and a side view (max projection over Y, Z drawn to scale); with up to 300 primary objects each one is labelled with its `object_id`. An object elongated along Z looks round in the top view, so check the side view.
 
 ## How to Read Each Plot
 
