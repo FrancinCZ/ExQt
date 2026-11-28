@@ -49,7 +49,11 @@ Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. R
 
 The PDF summary table and the Compare runs class chart list the classes in one fixed order: Elongated / Core-Enriched, Globular / Core-Enriched, Elongated / No Significant Gradient, Globular / No Significant Gradient, Elongated / Shell-Enriched, Globular / Shell-Enriched, then any other class that occurs (Profile-Unavailable, Punctate, Unclassified). The six main classes are always listed, with 0 when absent, so tables of different runs line up row by row. A run without Radial FA Profiling has only Unclassified objects and lists just that.
 
-Below the classes the PDF table lists the median `FA_xy` (shape in XY only), the share of objects whose main axis lies within 30° of Z (13.4 % for random orientation; much more indicates an elongation along Z) and the share of saturated object voxels (above 1 % it adds "K_part unreliable"; see [QC pipeline](quality-control/qc-pipeline.md)). Objects kept by **Keep objects too small for radial layers** appear as `Profile-Unavailable` or `Punctate / Small Cluster`.
+Below the classes the PDF table lists the median `FA_xy` (shape in XY only), the share of objects whose main axis lies within 30° of Z (13.4 % for random orientation; much more indicates an elongation along Z) and the share of saturated object voxels (above 1 % it adds "K_part unreliable"; see [QC pipeline](quality-control/qc-pipeline.md)). Objects kept by **Keep objects too small for radial layers** appear as `Profile-Unavailable` or `Punctate / Small Cluster`; the row "Too small for radial layers (no profile)" counts them. The columns `shell_voxels`, `middle_voxels` and `core_voxels` show the voxels per layer (0 = empty): an empty shell means the object is only a few voxels wide, not that it has only a core.
+
+### Class images
+
+Every run writes, per image, `<stem>_Classes.tif` and `<stem>_Classes.png` from `<stem>_Objects.tif` (voxel value = `object_id`). Codes in `Classes.tif`: 1 = Globular (Low FA), 2 = Elongated (High FA), 3 = primary without a shape class (Punctate, Unclassified), 4 = not primary (QC or size range), 0 = background. Open it over the raw image in Fiji or napari to see which condensate got which class. The PNG shows a top view (max projection over Z) and a side view (max projection over Y, Z drawn to scale); with up to 300 primary objects each one is labelled with its `object_id`. An object elongated along Z looks round in the top view, so check the side view.
 
 ## How to Read Each Plot
 

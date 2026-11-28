@@ -95,6 +95,7 @@ This reference document defines all 30+ columns exported in ExQt's primary measu
 | `small_objects_kept` | - | `boolean` | Run setting: objects too small for three radial layers stay primary (size, $K_{\text{part}}$, object FA; no radial profile). Default `False`. |
 | `radial_profile_valid` | - | `boolean` | `True` if all radial layers are measurable (Radial FA Profiling). |
 | `radial_profile_reason` | - | `string` | Layer problems when `radial_profile_valid` is `False` (e.g. `empty_layer_shell`, `core_below_min_voxels`). |
+| `shell_voxels`, `middle_voxels`, `core_voxels` | voxels | `integer` | Voxels in each radial layer (0 = empty layer). Layers are thirds of the distance from the object edge to its centre, so an empty shell means the object is only a few voxels wide, not that it has only a core. |
 | `FA_xy` | - | `float` | Shape anisotropy in the XY plane only (0–1); not changed by an elongation along Z. |
 | `main_axis_angle_to_z_deg` | ° | `float` | Angle between the longest principal axis and Z (0 = along Z, 90 = in XY). |
 | `saturated_voxels` | voxels | `int` | Object voxels at the detector ceiling (`saturation_level_adu`). |

@@ -17,6 +17,9 @@ Experiment_Folder/
 └── Result/                 <── Output folder of one run
     ├── cell01_ROI.tif      <── ROI used in this run (one label per nucleus)
     ├── cell02_ROI.tif
+    ├── cell01_Objects.tif  <── measured objects (voxel value = object_id)
+    ├── cell01_Classes.tif  <── objects coloured by class (open over the raw image)
+    ├── cell01_Classes.png  <── top and side view of the classes with object ids
     ├── Experiment_Folder_Output_Batch_3d.csv
     └── Experiment_Folder_Output_Batch_3d_metadata.json
 ```

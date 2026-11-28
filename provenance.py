@@ -12,7 +12,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 
 # Modules whose content determines the numbers in the output CSV and reports.
 SOURCE_FILES = (
-    "App.py", "Batch.py", "calibration_policy.py", "defaults.py", "lif_metadata.py", "null_model.py", "partitioning_plots.py",
+    "App.py", "Batch.py", "calibration_policy.py", "class_maps.py", "defaults.py", "lif_metadata.py", "null_model.py", "partitioning_plots.py",
     "postprocessing.py", "provenance.py", "reference_values.py", "rezim_a_anisotropy.py", "rezim_a_core_shell.py",
     "rezim_a_metrics.py", "roi_tools.py", "scale_reporting.py", "size_preview.py", "stack_aligner.py",
 )

@@ -24,7 +24,8 @@ REPORT_PRIMARY_COLUMNS = [
     "Delta_intensity_core_shell", "gradient_p_core_shell", "gradient_significant",
     "A_object", "A_shell", "A_middle", "A_core",
     "Delta_A_middle_shell", "Delta_A_core_middle", "Delta_A_core_shell",
-    "FA_xy", "main_axis_angle_to_z_deg", "radial_profile_valid", "saturated_voxels",
+    "FA_xy", "main_axis_angle_to_z_deg", "radial_profile_valid", "radial_profile_reason", "saturated_voxels",
+    "shell_voxels", "middle_voxels", "core_voxels",
     "mode_a_core_voxels", "mode_a_z_topology_status",
     "mode_a_z_split_slice_fraction", "mode_a_object_touches_edge",
     "mode_a_object_touches_roi_edge", "radial_monotonic",
@@ -44,6 +45,7 @@ REPORT_EXCLUDED_COLUMNS = [
     "mode_a_z_split_slice_fraction", "fa_complete", "primary_qc_valid",
     "mode_a_qc_reason", "alignment_status", "touches_image_edge", "touches_roi_edge",
     "FA_xy", "main_axis_angle_to_z_deg", "saturated_voxels",
+    "radial_profile_valid", "radial_profile_reason", "shell_voxels", "middle_voxels", "core_voxels",
 ]
 
 
