@@ -531,8 +531,10 @@ def export_unified_pdf_report(
     sample_name: str = "Sample",
     min_size: float | None = None,
     max_size: float | None = None,
+    all_objects: pd.DataFrame | None = None,
 ) -> None:
-    """2-page PDF: the four summary plots, then size distribution and a summary table."""
+    """PDF: the four summary plots, size distribution and summary table, then the per-nucleus table
+    (one column per nucleus + all nuclei) when all_objects (with primary_qc_valid) is given."""
     out_pdf = Path(pdf_path)
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
     plot_df = _size_filtered(df, min_size, max_size)
@@ -572,6 +574,40 @@ def export_unified_pdf_report(
         pdf.savefig(fig2)
         plt.close(fig2)
 
+        if all_objects is not None and {"filename", "cell_id", "primary_qc_valid"}.issubset(all_objects.columns):
+            from nucleus_stats import TABLE_NOTE, nucleus_columns_table, table_figure
+
+            table = nucleus_columns_table(per_nucleus_frame(all_objects, min_size, max_size))
+            per_page = NUCLEI_PER_PDF_PAGE
+            nucleus_names = list(table.columns[:-1])
+            pages = [nucleus_names[i:i + per_page] for i in range(0, len(nucleus_names), per_page)] or [[]]
+            for number, names in enumerate(pages, start=1):
+                part = f" ({number}/{len(pages)})" if len(pages) > 1 else ""
+                fig3 = table_figure(table[names + [table.columns[-1]]], f"Per nucleus (ROI) — {sample_name}{part}", TABLE_NOTE)
+                pdf.savefig(fig3)
+                plt.close(fig3)
+
+
+NUCLEI_PER_PDF_PAGE = 6
+
+
+#All objects with primary_qc_valid restricted to the size range, so a nucleus counts only its
+#QC-passed objects in that range (as the rest of the report).
+def per_nucleus_frame(all_objects, min_size=None, max_size=None):
+    from nucleus_stats import per_nucleus_table
+
+    frame = all_objects.copy()
+    size_col = next((c for c in ("volume_bio_um3", "area_bio_um2") if c in frame.columns), None)
+    if size_col is not None and (min_size is not None or max_size is not None):
+        size = pd.to_numeric(frame[size_col], errors="coerce")
+        inside = pd.Series(True, index=frame.index)
+        if min_size is not None:
+            inside &= size >= min_size
+        if max_size is not None:
+            inside &= size <= max_size
+        frame["primary_qc_valid"] = frame["primary_qc_valid"].map(_truthy) & inside
+    return per_nucleus_table(frame)
+
 
 def export_partitioning_analysis(
     csv_or_df: Path | str | pd.DataFrame,
@@ -604,7 +640,8 @@ def export_partitioning_analysis(
 
     pdf_report_path = out_dir / f"{file_stem}_ExQt_Report.pdf"
     if export_pdf:
-        export_unified_pdf_report(plot_df, pdf_report_path, sample_name=file_stem)
+        export_unified_pdf_report(plot_df, pdf_report_path, sample_name=file_stem,
+                                  min_size=min_size, max_size=max_size, all_objects=df)
 
     class_counts = plot_df[class_col].value_counts(normalize=True) * 100 if class_col else pd.Series([], dtype=float)
     summary = {

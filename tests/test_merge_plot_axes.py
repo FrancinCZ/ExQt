@@ -29,14 +29,14 @@ def test_count_text_singular_and_plural():
     assert _count_text(3, "nucleus", "nuclei") == "3 nuclei"
 
 
-def test_condition_ticks_use_singular_for_one_nucleus():
+def test_condition_ticks_count_rois():
     primary = pd.DataFrame(dict(run_id="img001/Result", filename="a.tif", cell_id=1, object_id=[1, 2],
                                 volume_bio_um3=[0.5, 0.6], partition_coefficient=[5.0, 6.0], K_valid=True,
                                 A_object=0.4, primary_qc_valid=True))
     fig = build_condition_comparison_figure(primary, 0.2, 2.0)
     k_panel = next(ax for ax in fig.axes if ax.get_title().startswith("B)"))
     ticks = [t.get_text() for t in k_panel.get_xticklabels()]
-    assert "1 nucleus /" in ticks[0]
+    assert "n = 1 ROI" in ticks[0]  # feedback 2026-11-25: n = nuclei (ROIs), no object count
 
 
 def test_merge_plot_ticks_stay_inside_axis(tmp_path):

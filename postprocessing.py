@@ -12,6 +12,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw, ImageFont
 from partitioning_plots import MAIN_CLASS_ORDER, _get_particle_class_col, decimal_log_axis, ordered_class_counts
+from nucleus_stats import TABLE_NOTE, class_totals_figure, per_nucleus_table, summary_tables, table_figure
 from scale_reporting import load_scale_metadata, scale_correction_label
 
 
@@ -1106,6 +1107,110 @@ def list_merge_runs(folder):
     return sorted(rows, key=lambda row: row["run_id"])
 
 
+def _style_summary_table_sheet(ws):
+    ws.column_dimensions["A"].width = 44
+    for column_index in range(2, ws.max_column + 1):
+        ws.column_dimensions[get_column_letter(column_index)].width = 24
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2C3E50")
+    ws.freeze_panes = "B2"
+
+
+#Per nucleus: one box per nucleus (its objects), coloured by image, nuclei grouped by condition.
+def build_nuclei_figure(primary, condition_col, conditions, min_size, max_size):
+    sns.set_theme(style="ticks")
+    frame = primary.copy()
+    frame["size_value"] = pd.to_numeric(frame[_size_column(frame)], errors="coerce")
+    frame["k_value"] = pd.to_numeric(frame.get("partition_coefficient"), errors="coerce")
+    if "K_valid" in frame.columns:
+        frame.loc[~_as_bool_series(frame["K_valid"]), "k_value"] = np.nan
+    frame["fa_value"] = pd.to_numeric(frame.get("A_object"), errors="coerce")
+    if condition_col not in frame.columns:
+        frame[condition_col] = frame["run_id"].map(condition_label)
+    frame["image"] = frame["run_id"].astype(str) + "::" + frame["filename"].astype(str)
+    frame["nucleus"] = [f"{Path(str(f)).stem} C{c}" for f, c in zip(frame["filename"], frame["cell_id"])]
+    frame["nucleus_key"] = frame["image"] + "::" + frame["cell_id"].astype(str)
+    order_keys, labels, positions, separators = [], [], [], []
+    for condition in conditions:
+        keys = list(dict.fromkeys(frame.loc[frame[condition_col] == condition].sort_values(["image", "cell_id"])["nucleus_key"]))
+        if order_keys:
+            separators.append(len(order_keys) - 0.5)
+        order_keys += keys
+    images = list(dict.fromkeys(frame["image"]))
+    image_colors = {image: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, image in enumerate(images)}
+    first = frame.drop_duplicates("nucleus_key").set_index("nucleus_key")
+    labels = [first.loc[key, "nucleus"] for key in order_keys]
+
+    fig, axes = plt.subplots(3, 1, figsize=(max(12, 0.7 * len(order_keys) + 4), 14), sharex=True)
+    rng = np.random.default_rng(0)
+    is_3d = _size_column(frame) != "area_bio_um2"
+    panels = (
+        ("size_value", "Biological volume (µm³)" if is_3d else "Biological area (µm²)", "A) Size per nucleus"),
+        ("k_value", r"K$_{part}$ (object / nucleoplasm)", "B) K_part per nucleus"),
+        ("fa_value", "FA (object)", "C) FA per nucleus"),
+    )
+    for axis, (column, ylabel, title) in zip(axes, panels):
+        for position, key in enumerate(order_keys):
+            values = frame.loc[frame["nucleus_key"] == key, column].dropna()
+            color = image_colors[first.loc[key, "image"]]
+            if len(values):
+                box = axis.boxplot(values, positions=[position], widths=0.6, showfliers=False, patch_artist=True,
+                                   medianprops={"color": "#333333", "linewidth": 1.5})
+                box["boxes"][0].set(facecolor=color, alpha=0.25, edgecolor="#555555")
+                axis.scatter(position + rng.uniform(-0.18, 0.18, len(values)), values, s=12, color=color,
+                             alpha=0.7, edgecolors="none", zorder=3)
+        for x in separators:
+            axis.axvline(x, color="#999999", linestyle=":", linewidth=1)
+        axis.set_ylabel(ylabel)
+        axis.set_title(title, fontsize=12, fontweight="bold", pad=22 if column == "size_value" else 6)
+        if column == "size_value":
+            axis.set_yscale("log")
+            axis.set_ylim(min_size, max_size)
+            decimal_log_axis(axis.yaxis)
+        elif column == "k_value":
+            axis.set_yscale("log")
+            axis.axhline(1.0, color=STANDARD_BASELINE_COLOR, linestyle="--", linewidth=1.2)
+            fitted = fitted_k_axis(frame["k_value"])
+            if fitted:
+                axis.set_ylim(fitted[0], fitted[1])
+                axis.set_yticks(fitted[2], labels=[f"{t:g}" for t in fitted[2]])
+                axis.minorticks_off()
+        else:
+            axis.set_ylim(0, 1)
+    axes[-1].set_xticks(range(len(order_keys)), labels=labels, rotation=45, ha="right", fontsize=8)
+    axes[-1].set_xlim(-0.6, len(order_keys) - 0.4)
+    starts = [0] + [int(x + 0.5) for x in separators]
+    ends = [int(x + 0.5) for x in separators] + [len(order_keys)]
+    for condition, start, end in zip(conditions, starts, ends):
+        axes[0].text((start + end - 1) / 2, 1.02, f"{condition} (n = {end - start} ROI with QC-passed objects)",
+                     transform=axes[0].get_xaxis_transform(), ha="center", va="bottom", fontsize=10, fontweight="bold")
+    fig.suptitle("Each box = one nucleus (its QC-passed objects); colour = image", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    return fig
+
+
+#Summary table PNG, per-nucleus boxes and class totals next to an Excel output.
+def _write_nucleus_figures(output_path, summary_text, nucleus_metrics, primary, condition_col, conditions, min_size, max_size):
+    summary_plot = output_path.with_name(f"{output_path.stem}_Summary_Table.png")
+    fig = table_figure(summary_text, "Summary per nucleus (ROI)", TABLE_NOTE)
+    fig.savefig(summary_plot, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    nuclei_plot = class_totals_plot = None
+    if len(primary):
+        nuclei_plot = output_path.with_name(f"{output_path.stem}_Nuclei.png")
+        fig = build_nuclei_figure(primary, condition_col, conditions, min_size, max_size)
+        fig.savefig(nuclei_plot, dpi=200)
+        plt.close(fig)
+    if "Total Elongated (High FA)" in nucleus_metrics.columns and nucleus_metrics["Total Elongated (High FA)"].notna().any():
+        class_totals_plot = output_path.with_name(f"{output_path.stem}_Class_Totals.png")
+        colors = {name: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, name in enumerate(conditions)}
+        fig = class_totals_figure(nucleus_metrics, condition_col, conditions, colors)
+        fig.savefig(class_totals_plot, dpi=200)
+        plt.close(fig)
+    return summary_plot, nuclei_plot, class_totals_plot
+
+
 def merge_statistics_folder(folder, output_path=None, include_raw=False, csv_paths=None):
 
     root = Path(folder).resolve()
@@ -1165,6 +1270,12 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False, csv_pat
         })
     run_stats = pd.DataFrame(run_rows)
     nuclei = nucleus_summary(merged_primary) if len(merged_primary) else pd.DataFrame()
+    #Unit = nucleus: every nucleus of the merged runs (also one without QC-passed objects).
+    merged_report = merged_raw.copy()
+    merged_report["condition"] = merged_report["run_id"].map(condition_label)
+    nucleus_metrics = per_nucleus_table(merged_report, group_cols=["condition"])
+    conditions = sorted(nucleus_metrics["condition"].unique().tolist()) if len(nucleus_metrics) else []
+    summary_text, summary_numbers = summary_tables(nucleus_metrics, "condition", conditions)
 
     output_path = Path(output_path) if output_path else root / "Merged_Stats.xlsx"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1177,6 +1288,12 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False, csv_pat
         if include_raw:
             merged_raw.to_excel(writer, sheet_name="Merged_Raw_Audit", index=False)
         _write_merge_summary(writer, run_stats, merged_primary, runs[0]["fingerprint"], root)
+        summary_text.to_excel(writer, sheet_name="Summary_Per_Nucleus")
+        summary_numbers.to_excel(writer, sheet_name="Summary_Numbers", index=False)
+        nucleus_metrics.to_excel(writer, sheet_name="Nucleus_Metrics", index=False)
+        _style_summary_table_sheet(writer.sheets["Summary_Per_Nucleus"])
+        _style_table_sheet(writer.sheets["Summary_Numbers"])
+        _style_table_sheet(writer.sheets["Nucleus_Metrics"])
         _style_table_sheet(writer.sheets["Per_Run_Stats"])
         _style_table_sheet(writer.sheets["Merged_Primary"], "mode_a_z_topology_status")
         _style_table_sheet(writer.sheets["Merged_QC_Excluded"], "mode_a_z_topology_status")
@@ -1200,11 +1317,18 @@ def merge_statistics_folder(folder, output_path=None, include_raw=False, csv_pat
         fig = build_condition_comparison_figure(merged_primary, float(runs[0]["min_size"]), float(runs[0]["max_size"]))
         fig.savefig(comparison_plot, dpi=300)
         plt.close(fig)
+    summary_plot, nuclei_plot, class_totals_plot = _write_nucleus_figures(
+        Path(output_path), summary_text, nucleus_metrics, merged_primary, "condition", conditions,
+        float(runs[0]["min_size"]), float(runs[0]["max_size"]),
+    )
 
     return {
         "excel": output_path,
         "plot": plot_path,
         "comparison_plot": comparison_plot,
+        "summary_plot": summary_plot,
+        "nuclei_plot": nuclei_plot,
+        "class_totals_plot": class_totals_plot,
         "run_count": len(runs),
         "primary_count": len(merged_primary),
         "excluded_count": len(merged_excluded),
@@ -1460,10 +1584,8 @@ def build_condition_comparison_figure(primary, min_size, max_size, order=None, n
     conditions = list(order) if order else sorted(frame["condition"].unique().tolist())
     if colors is None:
         colors = {condition: COMPARISON_PALETTE[i % len(COMPARISON_PALETTE)] for i, condition in enumerate(conditions)}
-    tick_labels = [
-        f"{c}\n{_count_text(int((summary['condition'] == c).sum()), 'nucleus', 'nuclei')} / {int((frame['condition'] == c).sum())} obj."
-        for c in conditions
-    ]
+    #n = nuclei (ROIs), the unit of the comparison (feedback 2026-11-25); object counts are in the tables.
+    tick_labels = [f"{c}\nn = {int((summary['condition'] == c).sum())} ROI" for c in conditions]
     is_3d = _size_column(frame) != "area_bio_um2"
     size_label = "Biological volume (µm³)" if is_3d else "Biological area (µm²)"
     k_min, k_max = DEFAULT_SETTINGS["plot_k_min"], DEFAULT_SETTINGS["plot_k_max"]
@@ -1711,6 +1833,9 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         raw = raw.loc[raw["nucleus_key"].isin(nuclei)]
     primary["condition"] = primary["group"]
     nuclei_table = nucleus_summary(primary) if len(primary) else pd.DataFrame(columns=["condition"])
+    #Unit = nucleus, groups side by side (feedback 2026-11-25).
+    nucleus_metrics = per_nucleus_table(raw, group_cols=["group"])
+    summary_text, summary_numbers = summary_tables(nucleus_metrics, "group", labels)
     class_table, class_nuclei = class_percentages(primary)
     group_rows = []
     for label, runs in group_runs:
@@ -1740,6 +1865,9 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
     plot_path = output_path.with_suffix(".png")
     excel_path = output_path.with_suffix(".xlsx")
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        summary_text.to_excel(writer, sheet_name="Summary_Per_Nucleus")
+        summary_numbers.to_excel(writer, sheet_name="Summary_Numbers", index=False)
+        nucleus_metrics.to_excel(writer, sheet_name="Nucleus_Metrics", index=False)
         pd.DataFrame(group_rows).to_excel(writer, sheet_name="Per_Group", index=False)
         nuclei_table.to_excel(writer, sheet_name="Per_Nucleus", index=False)
         pd.DataFrame(difference_rows, columns=["parameter"] + labels).to_excel(
@@ -1750,8 +1878,9 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         if class_table is not None:
             class_table.drop(columns=["condition"]).to_excel(writer, sheet_name="Class_Percentages", index=False)
             class_nuclei.drop(columns=["condition"]).to_excel(writer, sheet_name="Class_Per_Nucleus", index=False)
-        for sheet in writer.sheets.values():
+        for name, sheet in writer.sheets.items():
             _style_table_sheet(sheet)
+        _style_summary_table_sheet(writer.sheets["Summary_Per_Nucleus"])
 
     note = ""
     if differences:
@@ -1783,8 +1912,18 @@ def compare_run_groups(groups, output_path, nuclei=None, per_nucleus=False):
         fig = build_class_bar_figure(class_table, class_nuclei, order, colors or group_colors)
         fig.savefig(class_plot, dpi=300)
         plt.close(fig)
+    summary_plot = output_path.with_name(f"{output_path.stem}_Summary_Table.png")
+    fig = table_figure(summary_text, "Groups side by side, per nucleus (ROI)", TABLE_NOTE)
+    fig.savefig(summary_plot, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    class_totals_plot = None
+    if "Total Elongated (High FA)" in nucleus_metrics.columns and nucleus_metrics["Total Elongated (High FA)"].notna().any():
+        class_totals_plot = output_path.with_name(f"{output_path.stem}_Class_Totals.png")
+        fig = class_totals_figure(nucleus_metrics, "group", labels, group_colors)
+        fig.savefig(class_totals_plot, dpi=200)
+        plt.close(fig)
     return {"plot": plot_path, "excel": excel_path, "class_plot": class_plot, "differences": differences,
-            "groups": group_rows}
+            "groups": group_rows, "summary_plot": summary_plot, "class_totals_plot": class_totals_plot}
 
 
 def standard_size_eligible(df, min_size, max_size):

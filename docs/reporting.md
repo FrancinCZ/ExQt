@@ -34,6 +34,14 @@ The figure has the six panels of the standard plots (A size, B $K_{\text{part}}$
 
 **Tools → Compare runs…** draws the same six panels for groups that cannot be merged, e.g. ExM (expansion factor 8–10) and IF (expansion factor 1). Each chosen folder is one group; runs inside a group must share the QC settings, settings that differ between groups are listed under the figure. Single nuclei can be picked, and each picked nucleus can get its own column (coloured by its group). Unlike the standard plots and Merge, the $K_{\text{part}}$ axis in Compare runs is fitted to the plotted values: from the next round value below the lowest K to the next above the highest (e.g. highest K 1.5 → axis to 2), always with K = 1 inside. All groups in one figure share that axis, but two Compare runs figures can have different K axes. See [GUI overview](user-guide/gui-overview.md).
 
+## Per Nucleus (ROI) Summaries
+
+The nucleus (ROI) is the unit of every summary table (feedback 2026-11-25). Each metric is first computed per nucleus from its QC-passed objects in the size range; a nucleus without such objects counts with 0 condensates and has no K, size or class values. Over the nuclei, means are given as mean ± SD and medians as median (IQR). Class shares are the mean over nuclei of each nucleus's percentage of QC-passed objects, so every nucleus weighs the same however many objects it has; "Total Elongated / Globular" and "Total Core-Enriched / No Significant Gradient / Shell-Enriched" add up the six classes by shape and by radial profile.
+
+- **Normal analysis:** the PDF report gets a page "Per nucleus (ROI)" with one column per nucleus (six per page) and a column "All nuclei".
+- **Merge existing runs:** sheets `Summary_Per_Nucleus` (one column per condition), `Summary_Numbers` (n, mean, SD, median, Q1, Q3) and `Nucleus_Metrics` (one row per nucleus), plus `*_Summary_Table.png`, `*_Nuclei.png` (one box per nucleus, coloured by image, grouped by condition) and `*_Class_Totals.png` (bars = mean over nuclei ± SD, cut at 0 and 100 %, dots = nuclei).
+- **Compare runs:** the same sheets with one column per group, `*_Summary_Table.png` and `*_Class_Totals.png`. The x labels of the condition panels give n = number of ROIs.
+
 ## The Four Summary Plots
 
 Only QC-passed (primary) objects are plotted, and K_part only where `K_valid`. Reference lines are working values from `reference_values.py` and are labelled as such.
